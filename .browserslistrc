@@ -1,0 +1,11 @@
+# Browsers que queremos suportar (incluindo Android 7.1.2)
+# Isso força o Next.js a transpilar para ES5/ES6 compatível
+
+> 0.2%
+not dead
+not op_mini all
+Chrome >= 53
+Android >= 7
+iOS >= 10
+Safari >= 10
+Firefox >= 50

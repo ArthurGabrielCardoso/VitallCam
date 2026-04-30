@@ -1,0 +1,50 @@
+name: Build Android APK
+
+env:
+  main_project_module: app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android-app/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Change wrapper permissions
+        working-directory: android-app
+        run: chmod +x ./gradlew
+
+      - name: Build APK debug
+        working-directory: android-app
+        run: ./gradlew assembleDebug
+
+      - name: Copy APK to public/
+        run: |
+          mkdir -p public
+          cp android-app/${{ env.main_project_module }}/build/outputs/apk/debug/app-debug.apk public/vitallcam-android.apk
+
+      - name: Commit APK
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/vitallcam-android.apk
+          git diff --cached --quiet || git commit -m "chore: atualiza APK Android [skip ci]"
+          git push

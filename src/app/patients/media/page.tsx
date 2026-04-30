@@ -1,8 +1,9 @@
 'use client'
 
-import { ArrowLeft, Youtube, Music, Tv, Sparkles } from 'lucide-react'
+import { ArrowLeft, Youtube, Music, Tv, Sparkles, Download } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 
 const mediaServices = [
   {
@@ -33,6 +34,11 @@ const mediaServices = [
 
 export default function MediaPage() {
   const router = useRouter()
+  const [isAndroid, setIsAndroid] = useState(false)
+
+  useEffect(() => {
+    setIsAndroid(/android/i.test(navigator.userAgent))
+  }, [])
 
   const handleServiceClick = (service: typeof mediaServices[0]) => {
     // Salvar rota de retorno no localStorage
@@ -72,6 +78,22 @@ export default function MediaPage() {
           )
         })}
       </div>
+
+      {/* Banner de download do APK */}
+      <a
+        href="/vitallcam-android.apk"
+        download="VitallCam.apk"
+        className={`fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl transition-all z-50 ${
+          isAndroid
+            ? 'bg-green-500 hover:bg-green-400 text-white animate-pulse'
+            : 'bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white/80'
+        }`}
+      >
+        <Download className="w-5 h-5" />
+        <span className="font-semibold text-sm">
+          {isAndroid ? 'Baixar App VitallCam para este tablet' : 'Download APK Android'}
+        </span>
+      </a>
     </div>
   )
 }

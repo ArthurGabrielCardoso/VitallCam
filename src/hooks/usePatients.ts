@@ -1,6 +1,6 @@
 'use client'
 
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { Patient } from '@/lib/types'
 
@@ -24,7 +24,7 @@ export const usePatient = (patientId: string | null) => {
     queryKey: ['patient', patientId],
     queryFn: async (): Promise<Patient> => {
       if (!patientId) throw new Error('Patient ID is required')
-      
+
       const { data, error } = await supabase
         .from('patients')
         .select('*')
@@ -35,6 +35,52 @@ export const usePatient = (patientId: string | null) => {
       return data
     },
     enabled: !!patientId,
+  })
+}
+
+export const useUpdatePatient = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ patientId, name }: { patientId: string; name: string }) => {
+      const { data, error } = await supabase
+        .from('patients')
+        .update({ name })
+        .eq('id', patientId)
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['patient', data.id] })
+      queryClient.invalidateQueries({ queryKey: ['patients'] })
+    },
+  })
+}
+
+export const useDeletePatient = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (patientId: string) => {
+      // Deletar em ordem para respeitar foreign keys
+      await supabase.from('photos').delete().eq('patient_id', patientId)
+      await supabase.from('folders').delete().eq('patient_id', patientId)
+      await supabase.from('transcriptions').delete().eq('patient_id', patientId)
+      await supabase.from('anamneses').delete().eq('patient_id', patientId)
+
+      const { error } = await supabase
+        .from('patients')
+        .delete()
+        .eq('id', patientId)
+
+      if (error) throw error
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] })
+    },
   })
 }
 

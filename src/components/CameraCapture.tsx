@@ -114,7 +114,15 @@ const classifyCamera = (label: string) => {
       labelLower.includes('chicony') ||
       labelLower.includes('azurewave') ||
       labelLower.includes('realtek') ||
-      labelLower.includes('sunplus')) {
+      labelLower.includes('sunplus') ||
+      // Câmeras integradas de tablets Android
+      labelLower.includes('facing back') ||
+      labelLower.includes('facing front') ||
+      labelLower.includes('back camera') ||
+      labelLower.includes('front camera') ||
+      labelLower.includes('camera2') ||
+      labelLower.includes('android camera') ||
+      /^camera \d+$/.test(labelLower)) {
     return { priority: 10, type: 'integrated' }
   }
 
@@ -149,6 +157,25 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
       // Cleanup focus system removed
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Detectar câmera OTG conectada depois que a página carregou
+  useEffect(() => {
+    const handleDeviceChange = async () => {
+      console.log('📡 Dispositivo conectado/desconectado! Re-detectando câmeras...')
+      // Parar stream atual antes de re-inicializar
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop())
+        setStream(null)
+        setSelectedDevice('')
+      }
+      await initializeCamera()
+    }
+
+    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange)
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange)
+    }
+  }, [stream]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (selectedDevice && !stream) {
@@ -228,16 +255,16 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
             console.log('✅ Mais câmeras detectadas, continuando...')
           }
           
-          // Se encontrou câmeras USB/intraorais, pode parar
+          // Se encontrou câmeras USB/intraorais específicas, pode parar
           const hasUsbCamera = currentVideoDevices.some(device => {
             const label = device.label.toLowerCase()
-            return label.includes('usb') || 
-                   label.includes('spac') || 
+            return label.includes('usb') ||
+                   label.includes('spac') ||
                    label.includes('intraoral') ||
                    label.includes('dental') ||
-                   !label.includes('integrated') && 
-                   !label.includes('built-in') &&
-                   !label.includes('internal')
+                   label.includes('uvc') ||
+                   label.includes('2.0') ||
+                   label.includes('3.0')
           })
           
           if (hasUsbCamera) {

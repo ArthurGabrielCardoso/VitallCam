@@ -3,10 +3,10 @@
 export const dynamic = 'force-dynamic'
 
 import { useState, useMemo } from 'react'
-import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import NewPatientModal from '@/components/NewPatientModal'
-import { Search, User, Loader2, PlayCircle } from 'lucide-react'
+import { Search, User, Loader2, PlayCircle, ArrowUpDown } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import Link from 'next/link'
 import { usePatients, usePrefetchPatient } from '@/hooks/usePatients'
@@ -14,12 +14,12 @@ import IntersectionPrefetch from '@/components/IntersectionPrefetch'
 
 export default function PatientsPage() {
   const [searchTerm, setSearchTerm] = useState('')
+  const [sortOrder, setSortOrder] = useState<'newest' | 'az'>('newest')
   const { toast } = useToast()
   const { data: patients = [], isLoading, error, refetch } = usePatients()
   const { prefetchPatient } = usePrefetchPatient()
 
   const handlePatientCreated = () => {
-    // Query será automaticamente revalidada pelo React Query
     refetch()
   }
 
@@ -32,11 +32,14 @@ export default function PatientsPage() {
   }
 
   const filteredPatients = useMemo(() => {
-    if (!searchTerm) return patients
-    return patients.filter(patient =>
-      patient.name.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-  }, [patients, searchTerm])
+    let list = searchTerm
+      ? patients.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
+      : patients
+    if (sortOrder === 'az') {
+      list = [...list].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+    }
+    return list
+  }, [patients, searchTerm, sortOrder])
 
   if (error) {
     toast({
@@ -71,7 +74,8 @@ export default function PatientsPage() {
           {/* Barra de Busca */}
           <Card className="bg-primary/95 backdrop-blur-sm border-primary/20 shadow-2xl">
             <CardContent className="p-6">
-              <div className="relative mb-6">
+              <div className="flex gap-2 mb-6">
+                <div className="relative flex-1">
                 <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-primary-foreground/70 w-5 h-5" style={{ pointerEvents: 'none' }} />
                 <input
                   type="text"
@@ -88,6 +92,15 @@ export default function PatientsPage() {
                   }}
                   className="pl-12 bg-white/90 border-white/30 text-foreground placeholder:text-muted-foreground text-lg py-6 rounded-xl w-full px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-colors"
                 />
+                </div>
+                <Button
+                  onClick={() => setSortOrder(o => o === 'newest' ? 'az' : 'newest')}
+                  className="bg-white/20 hover:bg-white/30 text-white border border-white/30 px-3 shrink-0"
+                  title={sortOrder === 'newest' ? 'Ordenar A-Z' : 'Ordenar por mais recente'}
+                >
+                  <ArrowUpDown className="w-4 h-4 mr-1" />
+                  {sortOrder === 'newest' ? 'Recente' : 'A-Z'}
+                </Button>
               </div>
 
               {/* Lista de Pacientes - só aparece quando há pesquisa */}

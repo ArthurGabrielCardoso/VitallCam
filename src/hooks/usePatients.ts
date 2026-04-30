@@ -1,10 +1,25 @@
 'use client'
 
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Patient } from '@/lib/types'
 
 export const usePatients = () => {
+  const queryClient = useQueryClient()
+
+  // Realtime: atualiza a lista quando qualquer paciente é criado, editado ou deletado
+  useEffect(() => {
+    const channel = supabase
+      .channel('patients-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'patients' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['patients'] })
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [queryClient])
+
   return useQuery({
     queryKey: ['patients'],
     queryFn: async (): Promise<Patient[]> => {
@@ -54,8 +69,13 @@ export const useUpdatePatient = () => {
       return data
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['patient', data.id] })
-      queryClient.invalidateQueries({ queryKey: ['patients'] })
+      // Atualizar cache imediatamente sem esperar refetch
+      queryClient.setQueryData(['patients'], (old: Patient[] | undefined) =>
+        old ? old.map(p => p.id === data.id ? { ...p, name: data.name } : p) : old
+      )
+      queryClient.setQueryData(['patient', data.id], (old: Patient | undefined) =>
+        old ? { ...old, name: data.name } : old
+      )
     },
   })
 }
@@ -65,7 +85,6 @@ export const useDeletePatient = () => {
 
   return useMutation({
     mutationFn: async (patientId: string) => {
-      // Deletar em ordem para respeitar foreign keys
       await supabase.from('photos').delete().eq('patient_id', patientId)
       await supabase.from('folders').delete().eq('patient_id', patientId)
       await supabase.from('transcriptions').delete().eq('patient_id', patientId)
@@ -77,9 +96,14 @@ export const useDeletePatient = () => {
         .eq('id', patientId)
 
       if (error) throw error
+      return patientId
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['patients'] })
+    onSuccess: (patientId) => {
+      // Remover do cache imediatamente — lista atualiza sem reload
+      queryClient.setQueryData(['patients'], (old: Patient[] | undefined) =>
+        old ? old.filter(p => p.id !== patientId) : old
+      )
+      queryClient.removeQueries({ queryKey: ['patient', patientId] })
     },
   })
 }

@@ -177,18 +177,34 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
     }
   }, [stream]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Botão do meio do mouse tira foto
+  const capturePhotoRef = useRef<() => void>(() => {})
+
+  // Manter ref sempre atualizada com a versão mais recente de capturePhoto
   useEffect(() => {
-    const handleMiddleClick = (e: MouseEvent) => {
+    capturePhotoRef.current = capturePhoto
+  })
+
+  // Botão do meio do mouse tira foto (compatível com Android via pointerdown + auxclick)
+  useEffect(() => {
+    const handleMiddleButton = (e: PointerEvent | MouseEvent) => {
       if (e.button === 1) {
         e.preventDefault()
-        capturePhoto()
+        capturePhotoRef.current()
       }
     }
 
-    document.addEventListener('mousedown', handleMiddleClick)
-    return () => document.removeEventListener('mousedown', handleMiddleClick)
-  }, [stream, isCapturing]) // eslint-disable-line react-hooks/exhaustive-deps
+    // pointerdown cobre mouse OTG no Android; mousedown cobre desktop
+    document.addEventListener('pointerdown', handleMiddleButton as EventListener)
+    document.addEventListener('mousedown', handleMiddleButton as EventListener)
+    // auxclick é disparado após pointerup no botão do meio em alguns navegadores
+    document.addEventListener('auxclick', handleMiddleButton as EventListener)
+
+    return () => {
+      document.removeEventListener('pointerdown', handleMiddleButton as EventListener)
+      document.removeEventListener('mousedown', handleMiddleButton as EventListener)
+      document.removeEventListener('auxclick', handleMiddleButton as EventListener)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (selectedDevice && !stream) {

@@ -252,39 +252,34 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
 
   const initializeCamera = async () => {
     try {
-      // Múltiplas tentativas para detectar câmeras USB que podem estar inicializando
       let videoDevices: MediaDeviceInfo[] = []
       let attempts = 0
       const maxAttempts = 5
-      
+
       console.log('🔄 Iniciando detecção de câmeras...')
-      
+
       while (attempts < maxAttempts) {
         attempts++
         console.log(`📡 Tentativa ${attempts}/${maxAttempts} de detecção`)
-        
+
         try {
-          // Primeiro, garantir permissão
-          await navigator.mediaDevices.getUserMedia({ video: true })
-          
-          // Pequeno delay apenas para câmeras USB
-          if (attempts > 1) {
-            await new Promise(resolve => setTimeout(resolve, 100))
-          }
-          
-          // Enumerar dispositivos
+          // Obter permissão e PARAR o stream imediatamente para não bloquear a câmera OTG
+          const permStream = await navigator.mediaDevices.getUserMedia({ video: true })
+          permStream.getTracks().forEach(track => track.stop())
+
+          // Pequeno delay para o Android liberar a câmera antes de enumerar
+          await new Promise(resolve => setTimeout(resolve, attempts === 1 ? 300 : 600))
+
           const deviceList = await navigator.mediaDevices.enumerateDevices()
           const currentVideoDevices = deviceList.filter(device => device.kind === 'videoinput')
-          
+
           console.log(`📹 Encontradas ${currentVideoDevices.length} câmeras na tentativa ${attempts}`)
-          
-          // Se encontrou mais câmeras que a tentativa anterior, continuar tentando
+
           if (currentVideoDevices.length > videoDevices.length) {
             videoDevices = currentVideoDevices
             console.log('✅ Mais câmeras detectadas, continuando...')
           }
-          
-          // Se encontrou câmeras USB/intraorais específicas, pode parar
+
           const hasUsbCamera = currentVideoDevices.some(device => {
             const label = device.label.toLowerCase()
             return label.includes('usb') ||
@@ -295,18 +290,24 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
                    label.includes('2.0') ||
                    label.includes('3.0')
           })
-          
+
           if (hasUsbCamera) {
-            console.log('🎯 Câmera USB detectada!')
+            console.log('🎯 Câmera USB detectada pelo label!')
             videoDevices = currentVideoDevices
             break
           }
-          
-          // Se na última tentativa, usar o que conseguiu detectar
+
+          // Se há mais de 2 câmeras, as extras provavelmente são OTG/USB
+          if (currentVideoDevices.length > 2) {
+            console.log('🎯 Mais de 2 câmeras detectadas - provável câmera OTG!')
+            videoDevices = currentVideoDevices
+            break
+          }
+
           if (attempts === maxAttempts) {
             videoDevices = currentVideoDevices
           }
-          
+
         } catch (error) {
           console.warn(`⚠️ Erro na tentativa ${attempts}:`, error)
           if (attempts === maxAttempts) {
@@ -328,21 +329,62 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
         console.log(`   Kind: ${device.kind}`)
       })
 
-      // Classificar todas as câmeras
-      const classifiedDevices = cameraDevices.map(device => ({
+      // Classificar todas as câmeras pelo label
+      let classifiedDevices = cameraDevices.map(device => ({
         ...device,
         classification: classifyCamera(device.label)
       }))
 
-      console.log('📊 Classificação das câmeras:')
+      // No Android, câmeras OTG podem ter labels genéricas sem indicar USB.
+      // Usar facingMode: câmeras integradas suportam facing back/front, USB não.
+      // Testar apenas câmeras classificadas como "unknown" para confirmar se são USB.
+      const unknownToProbe = classifiedDevices.filter(d =>
+        d.classification.type === 'unknown' || d.classification.type === 'integrated'
+      )
+
+      if (unknownToProbe.length > 0) {
+        console.log('🔬 Verificando facingMode para identificar câmeras OTG...')
+        const probeResults = await Promise.all(
+          unknownToProbe.map(async (device) => {
+            try {
+              const s = await Promise.race([
+                navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: device.deviceId } } }),
+                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+              ])
+              const track = s.getVideoTracks()[0]
+              const caps = (track as any).getCapabilities?.()
+              const hasFacingMode = caps?.facingMode && caps.facingMode.length > 0
+              s.getTracks().forEach(t => t.stop())
+              console.log(`   "${device.label}" → facingMode: ${hasFacingMode ? caps.facingMode.join('/') : 'nenhum (provável OTG)'}`)
+              return { deviceId: device.deviceId, hasFacingMode: !!hasFacingMode }
+            } catch {
+              return { deviceId: device.deviceId, hasFacingMode: null }
+            }
+          })
+        )
+
+        classifiedDevices = classifiedDevices.map(device => {
+          const probe = probeResults.find(p => p.deviceId === device.deviceId)
+          if (!probe) return device
+          if (probe.hasFacingMode === false) {
+            // Sem facingMode = câmera USB/OTG - prioridade máxima
+            return { ...device, classification: { priority: 1, type: 'usb-external' as const } }
+          }
+          if (probe.hasFacingMode === true && device.classification.type !== 'integrated') {
+            // Com facingMode = câmera integrada
+            return { ...device, classification: { priority: 10, type: 'integrated' as const } }
+          }
+          return device
+        })
+      }
+
+      console.log('📊 Classificação final das câmeras:')
       classifiedDevices.forEach((device, index) => {
-        console.log(`${index + 1}. "${device.label}"`)
-        console.log(`   Tipo: ${device.classification.type}`)
-        console.log(`   Prioridade: ${device.classification.priority}`)
+        console.log(`${index + 1}. "${device.label}" → tipo: ${device.classification.type}, prioridade: ${device.classification.priority}`)
       })
 
       // Ordenar por prioridade (menor número = maior prioridade)
-      const sortedDevices = classifiedDevices.sort((a, b) => 
+      const sortedDevices = classifiedDevices.sort((a, b) =>
         a.classification.priority - b.classification.priority
       )
 

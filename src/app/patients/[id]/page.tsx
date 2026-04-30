@@ -42,7 +42,7 @@ export default function PatientPage() {
   const { data: patient, isLoading: patientLoading, error: patientError } = usePatient(patientId)
   const { data: photos = [], isLoading: photosLoading, error: photosError, refetch: refetchPhotos } = usePhotos(patientId)
   const { data: folders = [], isLoading: foldersLoading, refetch: refetchFolders } = useFolders(patientId)
-  const { data: unfolderedPhotos = [] } = useUnfolderedPhotos(patientId)
+  const { data: unfolderedPhotos = [], refetch: refetchUnfolderedPhotos } = useUnfolderedPhotos(patientId)
   const deletePhotoMutation = useDeletePhoto()
   const createFolderMutation = useCreateFolder()
   const deleteFolderMutation = useDeleteFolder()
@@ -181,15 +181,15 @@ export default function PatientPage() {
   }
 
   const handlePhotoCapture = () => {
-    // A foto será automaticamente adicionada ao cache pelo React Query
     refetchPhotos()
+    refetchUnfolderedPhotos()
     refetchFolders()
     setShowCamera(false)
   }
 
   const handleImageUpload = () => {
-    // A foto será automaticamente adicionada ao cache pelo React Query
     refetchPhotos()
+    refetchUnfolderedPhotos()
     refetchFolders()
   }
 

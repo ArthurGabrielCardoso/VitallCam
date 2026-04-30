@@ -326,19 +326,21 @@ export default function AnamneseDocument({ anamnese }: AnamneseDocumentProps) {
           <section className="mb-8">
             <h3 className="text-lg font-bold text-primary mb-4 uppercase tracking-wide border-b pb-2">Dados Pessoais</h3>
             <dl className="space-y-2">
-              {[
-                ['Nome', anamnese.nome],
-                anamnese.endereco ? ['Endereço', anamnese.endereco] : null,
-                anamnese.telefone ? ['Telefone', anamnese.telefone] : null,
-                anamnese.telefone_auxiliar ? ['Telefone Auxiliar', anamnese.telefone_auxiliar] : null,
-                anamnese.email ? ['E-mail', anamnese.email] : null,
-                anamnese.instagram ? ['Instagram', anamnese.instagram] : null,
-              ]
-                .filter(Boolean)
+              {(
+                [
+                  ['Nome', anamnese.nome],
+                  anamnese.endereco ? ['Endereço', anamnese.endereco] : null,
+                  anamnese.telefone ? ['Telefone', anamnese.telefone] : null,
+                  anamnese.telefone_auxiliar ? ['Telefone Auxiliar', anamnese.telefone_auxiliar] : null,
+                  anamnese.email ? ['E-mail', anamnese.email] : null,
+                  anamnese.instagram ? ['Instagram', anamnese.instagram] : null,
+                ] as ([string, string] | null)[]
+              )
+                .filter((item): item is [string, string] => item !== null)
                 .map(([label, value], i) => (
                   <div key={i} className="flex gap-2 text-sm">
                     <dt className="font-semibold text-gray-700 min-w-[130px]">{label}:</dt>
-                    <dd className="text-gray-800">{value as string}</dd>
+                    <dd className="text-gray-800">{value}</dd>
                   </div>
                 ))}
             </dl>

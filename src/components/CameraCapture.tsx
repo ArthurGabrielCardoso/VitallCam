@@ -177,6 +177,19 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
     }
   }, [stream]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Botão do meio do mouse tira foto
+  useEffect(() => {
+    const handleMiddleClick = (e: MouseEvent) => {
+      if (e.button === 1) {
+        e.preventDefault()
+        capturePhoto()
+      }
+    }
+
+    document.addEventListener('mousedown', handleMiddleClick)
+    return () => document.removeEventListener('mousedown', handleMiddleClick)
+  }, [stream, isCapturing]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (selectedDevice && !stream) {
       startCamera(selectedDevice).catch(error => {

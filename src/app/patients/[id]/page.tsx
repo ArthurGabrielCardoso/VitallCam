@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Photo } from '@/lib/types'
 import { supabase } from '@/lib/supabase'
-import { usePatient } from '@/hooks/usePatients'
+import { usePatient, useUpdatePatient, useDeletePatient } from '@/hooks/usePatients'
 import { usePhotos, useDeletePhoto, useUnfolderedPhotos, useMovePhotosToFolder } from '@/hooks/usePhotos'
 import { useFolders, useCreateFolder, useFolderPhotos, useDeleteFolder, useUpdateFolder } from '@/hooks/useFolders'
 import CameraCapture from '@/components/CameraCapture'
@@ -17,7 +17,7 @@ import PhotoComparison from '@/components/PhotoComparison'
 import PhotoEditor from '@/components/PhotoEditor'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock } from 'lucide-react'
+import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { Skeleton } from '@/components/ui/skeleton'
 import PhotoGridSkeleton from '@/components/PhotoGridSkeleton'
@@ -48,6 +48,8 @@ export default function PatientPage() {
   const deleteFolderMutation = useDeleteFolder()
   const updateFolderMutation = useUpdateFolder()
   const movePhotosToFolderMutation = useMovePhotosToFolder()
+  const updatePatientMutation = useUpdatePatient()
+  const deletePatientMutation = useDeletePatient()
   
   // States locais
   const [showCamera, setShowCamera] = useState(false)
@@ -79,6 +81,9 @@ export default function PatientPage() {
   const [anamneses, setAnamneses] = useState<Anamnese[]>([])
   const [selectedAnamnese, setSelectedAnamnese] = useState<Anamnese | null>(null)
   const [activeTab, setActiveTab] = useState('photos')
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [editingName, setEditingName] = useState('')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const { toast } = useToast()
 
   // Hook para fotos da pasta atual
@@ -143,6 +148,37 @@ export default function PatientPage() {
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [selectedPhoto, currentFolder, sortedFolderPhotos, sortedUnfolderedPhotos, isFullscreen])
+
+  const handleStartEditName = () => {
+    setEditingName(patient?.name || '')
+    setIsEditingName(true)
+  }
+
+  const handleSaveEditName = async () => {
+    const trimmed = editingName.trim()
+    if (!trimmed || trimmed === patient?.name) {
+      setIsEditingName(false)
+      return
+    }
+    try {
+      await updatePatientMutation.mutateAsync({ patientId, name: trimmed })
+      toast({ title: 'Nome atualizado com sucesso' })
+    } catch {
+      toast({ variant: 'destructive', title: 'Erro ao atualizar nome' })
+    }
+    setIsEditingName(false)
+  }
+
+  const handleDeletePatient = async () => {
+    try {
+      await deletePatientMutation.mutateAsync(patientId)
+      toast({ title: 'Paciente deletado com sucesso' })
+      router.push('/patients')
+    } catch {
+      toast({ variant: 'destructive', title: 'Erro ao deletar paciente' })
+    }
+    setShowDeleteConfirm(false)
+  }
 
   const handlePhotoCapture = () => {
     // A foto será automaticamente adicionada ao cache pelo React Query
@@ -995,7 +1031,44 @@ export default function PatientPage() {
         <div className="flex items-center gap-3">
           <User className="w-8 h-8 text-black" />
           <div>
-            <h1 className="text-xl font-bold text-black">{patient.name}</h1>
+            {isEditingName ? (
+              <div className="flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={editingName}
+                  onChange={e => setEditingName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleSaveEditName()
+                    if (e.key === 'Escape') setIsEditingName(false)
+                  }}
+                  className="text-xl font-bold text-black border-b-2 border-primary outline-none bg-transparent"
+                />
+                <button onClick={handleSaveEditName} className="text-primary hover:text-primary/80">
+                  <Check className="w-5 h-5" />
+                </button>
+                <button onClick={() => setIsEditingName(false)} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold text-black">{patient.name}</h1>
+                <button
+                  onClick={handleStartEditName}
+                  className="text-gray-400 hover:text-primary transition-colors"
+                  title="Editar nome"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="text-gray-400 hover:text-red-500 transition-colors"
+                  title="Deletar paciente"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            )}
             <p className="text-black text-sm">
               {photoCount} {photoCount === 1 ? 'foto' : 'fotos'} • {new Date(patient.created_at).toLocaleDateString('pt-BR')}
             </p>
@@ -1009,6 +1082,39 @@ export default function PatientPage() {
           Voltar
         </Button>
       </div>
+
+      {/* Modal de Confirmação de Delete */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <Trash2 className="w-6 h-6 text-red-500" />
+              <h3 className="text-lg font-semibold text-black">Deletar Paciente</h3>
+            </div>
+            <p className="text-gray-600 mb-2">
+              Tem certeza que deseja deletar <strong>{patient.name}</strong>?
+            </p>
+            <p className="text-sm text-red-500 mb-6">
+              Isso apagará permanentemente todas as fotos, pastas, transcrições e anamneses deste paciente.
+            </p>
+            <div className="flex gap-3">
+              <Button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleDeletePatient}
+                disabled={deletePatientMutation.isPending}
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white"
+              >
+                {deletePatientMutation.isPending ? 'Deletando...' : 'Deletar Tudo'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Botão de Transcrição - Sempre visível e flutuante */}
       <div className="fixed bottom-6 right-6 z-40">

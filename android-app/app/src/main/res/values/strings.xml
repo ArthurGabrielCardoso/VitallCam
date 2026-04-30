@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VitallCam</string>
+    <!-- URL do app web — altere para sua URL do Vercel -->
+    <string name="app_url">https://vitallcam.vercel.app</string>
+</resources>

@@ -6,7 +6,7 @@ import { useState, useMemo } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import NewPatientModal from '@/components/NewPatientModal'
-import { Search, User, Loader2, PlayCircle, ArrowUpDown } from 'lucide-react'
+import { Search, User, Loader2, PlayCircle } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import Link from 'next/link'
 import { usePatients, usePrefetchPatient } from '@/hooks/usePatients'
@@ -14,7 +14,6 @@ import IntersectionPrefetch from '@/components/IntersectionPrefetch'
 
 export default function PatientsPage() {
   const [searchTerm, setSearchTerm] = useState('')
-  const [sortOrder, setSortOrder] = useState<'newest' | 'az'>('newest')
   const { toast } = useToast()
   const { data: patients = [], isLoading, error, refetch } = usePatients()
   const { prefetchPatient } = usePrefetchPatient()
@@ -32,14 +31,21 @@ export default function PatientsPage() {
   }
 
   const filteredPatients = useMemo(() => {
-    let list = searchTerm
-      ? patients.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
-      : patients
-    if (sortOrder === 'az') {
-      list = [...list].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
-    }
-    return list
-  }, [patients, searchTerm, sortOrder])
+    if (!searchTerm) return patients
+    const term = searchTerm.toLowerCase()
+    const matched = patients.filter(p => p.name.toLowerCase().includes(term))
+    // Patients whose first name starts with or contains the term rank first
+    matched.sort((a, b) => {
+      const aFirst = a.name.split(' ')[0].toLowerCase()
+      const bFirst = b.name.split(' ')[0].toLowerCase()
+      const aFirstMatch = aFirst.includes(term)
+      const bFirstMatch = bFirst.includes(term)
+      if (aFirstMatch && !bFirstMatch) return -1
+      if (!aFirstMatch && bFirstMatch) return 1
+      return a.name.localeCompare(b.name, 'pt-BR')
+    })
+    return matched
+  }, [patients, searchTerm])
 
   if (error) {
     toast({
@@ -93,14 +99,6 @@ export default function PatientsPage() {
                   className="pl-12 bg-white/90 border-white/30 text-foreground placeholder:text-muted-foreground text-lg py-6 rounded-xl w-full px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-colors"
                 />
                 </div>
-                <Button
-                  onClick={() => setSortOrder(o => o === 'newest' ? 'az' : 'newest')}
-                  className="bg-white/20 hover:bg-white/30 text-white border border-white/30 px-3 shrink-0"
-                  title={sortOrder === 'newest' ? 'Ordenar A-Z' : 'Ordenar por mais recente'}
-                >
-                  <ArrowUpDown className="w-4 h-4 mr-1" />
-                  {sortOrder === 'newest' ? 'Recente' : 'A-Z'}
-                </Button>
               </div>
 
               {/* Lista de Pacientes - só aparece quando há pesquisa */}

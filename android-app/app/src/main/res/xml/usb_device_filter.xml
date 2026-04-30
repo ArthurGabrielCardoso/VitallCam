@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Filtro para câmeras UVC (USB Video Class) -->
+<resources>
+    <!-- Classe 0x0E = Video, SubClass 0x02 = VideoStreaming -->
+    <usb-device class="0x0E" subclass="0x02" />
+    <!-- Aceitar qualquer câmera UVC sem restrição de VID/PID -->
+    <usb-device class="0x0E" />
+</resources>

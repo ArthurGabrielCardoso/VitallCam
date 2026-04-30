@@ -145,6 +145,7 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
   const [lastCaptureTime, setLastCaptureTime] = useState(0)
   const [stableStartTime, setStableStartTime] = useState<number | null>(null)
   const [goodFocusThreshold] = useState(50)
+  const [zoomLevel, setZoomLevel] = useState(1)
   const { toast } = useToast()
   const createFolderMutation = useCreateFolder()
 
@@ -861,7 +862,8 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
       {/* Vídeo da Câmera Padrão - 100% da tela sem bordas */}
       <video
         ref={videoRef}
-        className="w-full h-full object-cover absolute inset-0"
+        className="w-full h-full object-cover absolute inset-0 transition-transform duration-100"
+        style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'center center' }}
         playsInline
         muted
       />
@@ -910,6 +912,30 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
       </div>
 
 
+
+      {/* Controle de Zoom */}
+      {stream && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 bg-black/60 backdrop-blur-sm px-4 py-2 rounded-full">
+          <button
+            onClick={() => setZoomLevel(z => Math.max(1, parseFloat((z - 0.25).toFixed(2))))}
+            className="text-white text-xl font-bold w-8 h-8 flex items-center justify-center hover:text-primary"
+          >−</button>
+          <input
+            type="range"
+            min="1"
+            max="4"
+            step="0.1"
+            value={zoomLevel}
+            onChange={e => setZoomLevel(parseFloat(e.target.value))}
+            className="w-32 accent-primary"
+          />
+          <button
+            onClick={() => setZoomLevel(z => Math.min(4, parseFloat((z + 0.25).toFixed(2))))}
+            className="text-white text-xl font-bold w-8 h-8 flex items-center justify-center hover:text-primary"
+          >+</button>
+          <span className="text-white text-sm min-w-[40px]">{zoomLevel.toFixed(1)}×</span>
+        </div>
+      )}
 
       {/* Área das Fotos Capturadas - Lado Direito */}
       {capturedPhotos.length > 0 && (

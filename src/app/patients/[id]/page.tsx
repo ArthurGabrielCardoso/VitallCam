@@ -17,7 +17,7 @@ import PhotoComparison from '@/components/PhotoComparison'
 import PhotoEditor from '@/components/PhotoEditor'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check } from 'lucide-react'
+import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { Skeleton } from '@/components/ui/skeleton'
 import PhotoGridSkeleton from '@/components/PhotoGridSkeleton'
@@ -84,6 +84,11 @@ export default function PatientPage() {
   const [isEditingName, setIsEditingName] = useState(false)
   const [editingName, setEditingName] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [confirmDeletePhotoId, setConfirmDeletePhotoId] = useState<string | null>(null)
+  const [showDeleteSelectedConfirm, setShowDeleteSelectedConfirm] = useState(false)
+  const [isDeletingSelected, setIsDeletingSelected] = useState(false)
+  const [notes, setNotes] = useState('')
+  const [notesSaved, setNotesSaved] = useState(false)
   const { toast } = useToast()
 
   // Hook para fotos da pasta atual
@@ -148,6 +153,114 @@ export default function PatientPage() {
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [selectedPhoto, currentFolder, sortedFolderPhotos, sortedUnfolderedPhotos, isFullscreen])
+
+  // Carregar notas do localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem(`patient_notes_${patientId}`)
+    if (saved) setNotes(saved)
+  }, [patientId])
+
+  const handleSaveNotes = () => {
+    localStorage.setItem(`patient_notes_${patientId}`, notes)
+    setNotesSaved(true)
+    setTimeout(() => setNotesSaved(false), 2000)
+    toast({ title: 'Notas salvas!' })
+  }
+
+  const handleDeleteSelectedPhotos = async () => {
+    if (selectedPhotos.length === 0) return
+    setShowDeleteSelectedConfirm(true)
+  }
+
+  const confirmDeleteSelectedPhotos = async () => {
+    setIsDeletingSelected(true)
+    try {
+      for (const photoId of selectedPhotos) {
+        await deletePhotoMutation.mutateAsync(photoId)
+      }
+      toast({ title: 'Sucesso!', description: `${selectedPhotos.length} foto(s) deletada(s)` })
+      setSelectedPhotos([])
+      setIsSelectionMode(false)
+    } catch {
+      toast({ variant: 'destructive', title: 'Erro', description: 'Falha ao deletar fotos' })
+    } finally {
+      setIsDeletingSelected(false)
+      setShowDeleteSelectedConfirm(false)
+    }
+  }
+
+  const handleExportPatientPDF = async () => {
+    try {
+      const { default: jsPDF } = await import('jspdf')
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pageW = doc.internal.pageSize.getWidth()
+      const margin = 15
+      let y = 20
+
+      const checkPage = (need: number) => {
+        if (y + need > 270) { doc.addPage(); y = 20 }
+      }
+
+      // Cabeçalho
+      doc.setFontSize(18)
+      doc.setFont('helvetica', 'bold')
+      doc.text(`Paciente: ${patient?.name}`, pageW / 2, y, { align: 'center' })
+      y += 8
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'normal')
+      doc.text(`Exportado em ${new Date().toLocaleString('pt-BR')}`, pageW / 2, y, { align: 'center' })
+      y += 8
+      doc.setDrawColor(29, 185, 179)
+      doc.setLineWidth(0.5)
+      doc.line(margin, y, pageW - margin, y)
+      y += 10
+
+      // Notas
+      const savedNotes = localStorage.getItem(`patient_notes_${patientId}`)
+      if (savedNotes) {
+        checkPage(20)
+        doc.setFontSize(13)
+        doc.setFont('helvetica', 'bold')
+        doc.text('NOTAS', margin, y); y += 7
+        doc.setFontSize(10)
+        doc.setFont('helvetica', 'normal')
+        const noteLines = doc.splitTextToSize(savedNotes, pageW - margin * 2)
+        doc.text(noteLines, margin, y)
+        y += noteLines.length * 5 + 8
+        doc.setDrawColor(200, 200, 200)
+        doc.line(margin, y, pageW - margin, y); y += 8
+      }
+
+      // Fotos — grade 3×3 por página
+      const allPhotos = photos
+      if (allPhotos.length > 0) {
+        checkPage(10)
+        doc.setFontSize(13)
+        doc.setFont('helvetica', 'bold')
+        doc.text('FOTOS', margin, y); y += 8
+
+        const imgSize = (pageW - margin * 2 - 8) / 3
+        let col = 0
+        for (const photo of allPhotos) {
+          if (col === 0) checkPage(imgSize + 6)
+          const x = margin + col * (imgSize + 4)
+          try {
+            doc.addImage(photo.image_data, 'JPEG', x, y, imgSize, imgSize)
+          } catch { /* imagem inválida */ }
+          col++
+          if (col === 3) { col = 0; y += imgSize + 4 }
+        }
+        if (col > 0) y += imgSize + 4
+        y += 4
+      }
+
+      doc.save(`Paciente_${patient?.name.replace(/\s+/g, '_')}_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.pdf`)
+      toast({ title: 'PDF exportado com sucesso!' })
+    } catch (err) {
+      console.error(err)
+      toast({ variant: 'destructive', title: 'Erro ao exportar PDF' })
+    }
+  }
 
   const handleStartEditName = () => {
     setEditingName(patient?.name || '')
@@ -1074,13 +1187,23 @@ export default function PatientPage() {
             </p>
           </div>
         </div>
-        <Button
-          onClick={() => router.push('/patients')}
-          className="bg-primary hover:bg-primary/90 text-white"
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Voltar
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={handleExportPatientPDF}
+            className="bg-secondary hover:bg-secondary/90 text-white"
+            title="Exportar tudo como PDF"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Exportar PDF
+          </Button>
+          <Button
+            onClick={() => router.push('/patients')}
+            className="bg-primary hover:bg-primary/90 text-white"
+          >
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Voltar
+          </Button>
+        </div>
       </div>
 
       {/* Modal de Confirmação de Delete */}
@@ -1143,6 +1266,13 @@ export default function PatientPage() {
             >
               Transcrições ({transcriptions.length})
             </TabsTrigger>
+            <TabsTrigger
+              value="notes"
+              className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary rounded-none px-4 py-2"
+            >
+              <NotebookPen className="w-4 h-4 mr-1" />
+              Notas
+            </TabsTrigger>
           </TabsList>
 
           {/* Tab Content: Fotos */}
@@ -1195,6 +1325,15 @@ export default function PatientPage() {
                   className="bg-primary hover:bg-primary/90 text-white disabled:bg-gray-300"
                 >
                   Mover ({selectedPhotos.length})
+                </Button>
+                <Button
+                  onClick={handleDeleteSelectedPhotos}
+                  size="sm"
+                  disabled={selectedPhotos.length === 0}
+                  className="bg-red-500 hover:bg-red-600 text-white disabled:bg-gray-300"
+                >
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  Deletar ({selectedPhotos.length})
                 </Button>
                 <Button
                   onClick={handlePrintSelected}
@@ -1315,7 +1454,7 @@ export default function PatientPage() {
                   className="bg-red-500 hover:bg-red-600 text-white w-8 h-8 p-0"
                   onClick={(e) => {
                     e.stopPropagation()
-                    handlePhotoDelete(photo.id)
+                    setConfirmDeletePhotoId(photo.id)
                   }}
                   title="Deletar foto"
                 >
@@ -1335,6 +1474,9 @@ export default function PatientPage() {
             >
               <Folder className="w-12 h-12 text-primary mb-2" />
               <span className="text-sm text-black font-medium">{folder.name}</span>
+              <span className="text-xs text-gray-500 mt-1">
+                {photos.filter(p => p.folder_id === folder.id).length} fotos
+              </span>
 
               {/* Botões de ação no hover */}
               <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
@@ -1538,8 +1680,65 @@ export default function PatientPage() {
               </div>
             )}
           </TabsContent>
+
+          {/* Tab Content: Notas */}
+          <TabsContent value="notes" className="mt-0">
+            <div className="space-y-4 max-w-2xl">
+              <p className="text-sm text-gray-500">Anotações rápidas sobre o paciente. Salvas localmente neste dispositivo.</p>
+              <textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="Escreva observações, lembretes ou informações importantes sobre este paciente..."
+                className="w-full h-64 p-4 border-2 border-gray-200 rounded-xl text-gray-800 resize-none focus:outline-none focus:border-primary transition-colors text-sm"
+              />
+              <button
+                onClick={handleSaveNotes}
+                className={`px-6 py-2 rounded-lg text-white font-medium transition-colors ${notesSaved ? 'bg-green-500' : 'bg-primary hover:bg-primary/90'}`}
+              >
+                {notesSaved ? '✓ Salvo!' : 'Salvar Notas'}
+              </button>
+            </div>
+          </TabsContent>
         </Tabs>
       </div>
+
+      {/* Confirmação: deletar foto individual */}
+      {confirmDeletePhotoId && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-2xl">
+            <h3 className="text-lg font-semibold text-black mb-2">Deletar Foto</h3>
+            <p className="text-gray-600 mb-6">Tem certeza que deseja deletar esta foto? Esta ação não pode ser desfeita.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmDeletePhotoId(null)} className="flex-1 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-medium">Cancelar</button>
+              <button
+                onClick={async () => {
+                  await handlePhotoDelete(confirmDeletePhotoId)
+                  setConfirmDeletePhotoId(null)
+                }}
+                className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium"
+              >Deletar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmação: deletar fotos selecionadas */}
+      {showDeleteSelectedConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-2xl">
+            <h3 className="text-lg font-semibold text-black mb-2">Deletar {selectedPhotos.length} Foto(s)</h3>
+            <p className="text-gray-600 mb-6">Tem certeza? Esta ação não pode ser desfeita.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDeleteSelectedConfirm(false)} className="flex-1 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-medium">Cancelar</button>
+              <button
+                onClick={confirmDeleteSelectedPhotos}
+                disabled={isDeletingSelected}
+                className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium disabled:opacity-60"
+              >{isDeletingSelected ? 'Deletando...' : 'Deletar Tudo'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal da Câmera */}
       {showCamera && (

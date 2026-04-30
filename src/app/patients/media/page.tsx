@@ -1,8 +1,9 @@
 'use client'
 
-import { ArrowLeft, Youtube, Music, Tv, Sparkles } from 'lucide-react'
+import { ArrowLeft, Youtube, Music, Tv, Sparkles, Smartphone, Download } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 
 const mediaServices = [
   {
@@ -33,6 +34,11 @@ const mediaServices = [
 
 export default function MediaPage() {
   const router = useRouter()
+  const [isAndroid, setIsAndroid] = useState(false)
+
+  useEffect(() => {
+    setIsAndroid(/android/i.test(navigator.userAgent))
+  }, [])
 
   const handleServiceClick = (service: typeof mediaServices[0]) => {
     // Salvar rota de retorno no localStorage
@@ -44,7 +50,7 @@ export default function MediaPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary via-primary/90 to-primary/80 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-gradient-to-br from-primary via-primary/90 to-primary/80 flex flex-col items-center justify-center p-6 gap-12">
       {/* Botão Voltar */}
       <Link
         href="/patients"
@@ -72,6 +78,30 @@ export default function MediaPage() {
           )
         })}
       </div>
+
+      {/* Banner de download do APK Android */}
+      <a
+        href="/vitallcam-android.apk"
+        download="VitallCam.apk"
+        className={`flex items-center gap-4 px-8 py-5 rounded-2xl shadow-2xl transition-all hover:scale-105 border-2 ${
+          isAndroid
+            ? 'bg-green-500 hover:bg-green-400 border-green-300 animate-pulse-once'
+            : 'bg-white/10 hover:bg-white/20 border-white/30'
+        }`}
+      >
+        <div className="bg-white/20 rounded-xl p-3">
+          <Smartphone className="w-8 h-8 text-white" />
+        </div>
+        <div className="text-left">
+          <p className="text-white font-bold text-lg leading-tight">
+            Instalar App Android
+          </p>
+          <p className="text-white/80 text-sm">
+            Câmera USB via OTG no tablet
+          </p>
+        </div>
+        <Download className="w-6 h-6 text-white/80 ml-2" />
+      </a>
     </div>
   )
 }

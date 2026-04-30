@@ -1,0 +1,12 @@
+PLACEHOLDER - Substitua este arquivo pelo APK compilado.
+
+Para gerar o APK:
+1. Abra o Android Studio
+2. Abra a pasta android-app/ deste projeto
+3. Edite app/src/main/res/values/strings.xml com sua URL do Vercel
+4. Build → Generate Signed Bundle / APK → APK → Release
+5. Renomeie o APK gerado para "vitallcam-android.apk"
+6. Substitua este arquivo pelo APK
+7. Faça deploy no Vercel
+
+O APK ficará disponível em: https://vitallcam.vercel.app/vitallcam-android.apk

@@ -6,7 +6,7 @@ import { Photo, CameraDevice } from '@/lib/types'
 import { useCreateFolder } from '@/hooks/useFolders'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Camera, Loader2, AlertCircle, RefreshCw, Save, X } from 'lucide-react'
+import { Camera, Loader2, AlertCircle, RefreshCw, Save, X, Usb } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 
 
@@ -14,6 +14,16 @@ import { useToast } from '@/hooks/use-toast'
 interface CameraCaptureProps {
   patientId: string
   onPhotoCapture: (photo: Photo) => void
+}
+
+declare global {
+  interface Window {
+    VitallCam?: {
+      isNative: () => boolean
+      openIntraoralCamera: (callbackName?: string) => void
+    }
+    __onIntraoralCapture?: (dataUrl: string | null, error: string | null) => void
+  }
 }
 
 // Função para classificar câmeras (fora do componente para poder reutilizar)
@@ -148,8 +158,36 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
   const [stableStartTime, setStableStartTime] = useState<number | null>(null)
   const [goodFocusThreshold] = useState(50)
   const [zoomLevel, setZoomLevel] = useState(1)
+  const [hasNativeUsb, setHasNativeUsb] = useState(false)
   const { toast } = useToast()
   const createFolderMutation = useCreateFolder()
+
+  useEffect(() => {
+    setHasNativeUsb(typeof window !== 'undefined' && !!window.VitallCam?.isNative?.())
+  }, [])
+
+  const captureFromIntraoralUsb = () => {
+    if (!window.VitallCam?.openIntraoralCamera) return
+    window.__onIntraoralCapture = (dataUrl, error) => {
+      if (error || !dataUrl) {
+        if (error && error !== 'cancelled') {
+          toast({
+            variant: 'destructive',
+            title: 'Câmera intraoral',
+            description: error,
+          })
+        }
+        return
+      }
+      setCapturedPhotos(prev => [dataUrl, ...prev])
+      setShowSaveButton(true)
+      toast({
+        title: '🦷 Foto intraoral capturada',
+        description: 'Imagem da câmera USB adicionada',
+      })
+    }
+    window.VitallCam.openIntraoralCamera('window.__onIntraoralCapture')
+  }
 
   useEffect(() => {
     initializeCameraSystem()
@@ -913,6 +951,17 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
             <Camera className="w-6 h-6" />
           )}
         </Button>
+
+        {/* Botão Câmera Intraoral USB (somente no APK Android com OTG) */}
+        {hasNativeUsb && (
+          <Button
+            onClick={captureFromIntraoralUsb}
+            className="bg-amber-500 hover:bg-amber-400 text-white rounded-full w-14 h-14 p-0 shadow-lg"
+            title="Câmera intraoral USB (OTG)"
+          >
+            <Usb className="w-6 h-6" />
+          </Button>
+        )}
 
         {/* Botão Salvar (se houver fotos) */}
         {showSaveButton && (

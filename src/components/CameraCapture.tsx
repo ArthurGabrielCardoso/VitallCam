@@ -392,8 +392,13 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
       // Implementar fallback: tentar câmera intraoral primeiro, depois webcam
       await tryInitializeCameraWithFallback(sortedDevices)
 
-    } catch {
-      setCameraError('Erro ao acessar câmeras. Verifique as permissões.')
+    } catch (err: unknown) {
+      const error = err as { name?: string }
+      if (error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError') {
+        setCameraError('PERMISSAO_NEGADA')
+      } else {
+        setCameraError('Erro ao acessar câmeras. Verifique as permissões.')
+      }
     }
   }
 
@@ -841,13 +846,27 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
   }
 
   if (cameraError) {
+    const isPermissionDenied = cameraError === 'PERMISSAO_NEGADA'
     return (
-      <Card className="p-6 bg-white">
-        <div className="flex flex-col items-center justify-center space-y-4">
-          <AlertCircle className="w-8 h-8 text-destructive" />
-          <pre className="text-black text-left text-sm whitespace-pre-wrap max-w-2xl bg-gray-100 p-4 rounded border border-gray-300">
-            {cameraError}
-          </pre>
+      <Card className="p-8 bg-white">
+        <div className="flex flex-col items-center justify-center space-y-4 text-center">
+          <AlertCircle className="w-12 h-12 text-destructive" />
+          {isPermissionDenied ? (
+            <>
+              <p className="text-lg font-semibold text-gray-800">Permissão de câmera negada</p>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-left text-sm text-amber-900 space-y-2 max-w-sm">
+                <p className="font-semibold">Para liberar a câmera:</p>
+                <p>1. Toque no ícone de cadeado 🔒 na barra de endereço</p>
+                <p>2. Toque em <strong>Permissões</strong></p>
+                <p>3. Ative <strong>Câmera</strong></p>
+                <p>4. Recarregue a página</p>
+              </div>
+            </>
+          ) : (
+            <pre className="text-black text-left text-sm whitespace-pre-wrap max-w-2xl bg-gray-100 p-4 rounded border border-gray-300">
+              {cameraError}
+            </pre>
+          )}
           <Button onClick={() => window.location.reload()} className="bg-primary hover:bg-primary/90 text-white">
             <RefreshCw className="w-4 h-4 mr-2" />
             Tentar Novamente

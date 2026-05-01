@@ -55,7 +55,8 @@ jobs:
             SIZE="${density##*:}"
             mkdir -p "android-app/app/src/main/res/mipmap-${DIR}"
             convert "$LOGO" \
-              -resize "${SIZE}x${SIZE}" \
+              -trim +repage \
+              -resize "${SIZE}x${SIZE}^" \
               -background none \
               -gravity center \
               -extent "${SIZE}x${SIZE}" \

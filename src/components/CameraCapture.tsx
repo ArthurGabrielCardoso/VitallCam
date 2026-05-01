@@ -130,6 +130,23 @@ const classifyCamera = (label: string) => {
   return { priority: 5, type: 'unknown' }
 }
 
+// Tipagem mínima para o bridge Android injetado via addJavascriptInterface
+interface AndroidBridge {
+  isUVCAvailable(): string
+  startUVCMode(): void
+  stopUVCMode(): void
+  captureUVCPhoto(callbackName: string): void
+}
+
+declare global {
+  interface Window {
+    Android?: AndroidBridge
+    onUVCCameraConnected?: () => void
+    onUVCCameraDisconnected?: () => void
+    _vitallcamUVCCallback?: (dataUrl: string | null) => void
+  }
+}
+
 export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -146,16 +163,51 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
   const [stableStartTime, setStableStartTime] = useState<number | null>(null)
   const [goodFocusThreshold] = useState(50)
   const [zoomLevel, setZoomLevel] = useState(1)
+  const [isUVCMode, setIsUVCMode] = useState(false)
   const { toast } = useToast()
   const createFolderMutation = useCreateFolder()
 
   useEffect(() => {
-    initializeCameraSystem()
+    const bridge = window.Android
+
+    if (bridge) {
+      // Callbacks globais chamados pelo código nativo Kotlin
+      window.onUVCCameraConnected = () => {
+        console.log('🔌 Câmera UVC conectada via bridge nativo')
+        if (bridge.isUVCAvailable() === 'true') {
+          setIsUVCMode(true)
+          bridge.startUVCMode()
+          setCameraError('')
+          toast({ title: '🦷 Câmera Intraoral', description: 'Câmera OTG conectada e pronta!' })
+        }
+      }
+
+      window.onUVCCameraDisconnected = () => {
+        console.log('🔌 Câmera UVC desconectada')
+        setIsUVCMode(false)
+        bridge.stopUVCMode()
+        initializeCameraSystem()
+      }
+
+      // Verificar se câmera UVC já está disponível ao abrir a página
+      if (bridge.isUVCAvailable() === 'true') {
+        setIsUVCMode(true)
+        bridge.startUVCMode()
+        toast({ title: '🦷 Câmera Intraoral', description: 'Câmera OTG detectada!' })
+      } else {
+        initializeCameraSystem()
+      }
+    } else {
+      initializeCameraSystem()
+    }
+
     return () => {
       if (stream) {
         stream.getTracks().forEach(track => track.stop())
       }
-      // Cleanup focus system removed
+      if (window.Android) {
+        window.Android.stopUVCMode()
+      }
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -638,7 +690,36 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
     }
   }
 
+  const triggerFlash = () => {
+    const flashOverlay = document.createElement('div')
+    flashOverlay.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:white;z-index:9999;pointer-events:none;animation:flash 0.3s ease-out;`
+    const style = document.createElement('style')
+    style.textContent = `@keyframes flash{0%{opacity:0}50%{opacity:.8}100%{opacity:0}}`
+    document.head.appendChild(style)
+    document.body.appendChild(flashOverlay)
+    setTimeout(() => { document.body.removeChild(flashOverlay); document.head.removeChild(style) }, 300)
+  }
+
   const capturePhoto = async () => {
+    // Captura via câmera OTG nativa (UVC bridge)
+    if (isUVCMode && window.Android) {
+      setIsCapturing(true)
+      window._vitallcamUVCCallback = (dataUrl: string | null) => {
+        window._vitallcamUVCCallback = undefined
+        setIsCapturing(false)
+        if (!dataUrl) {
+          toast({ variant: 'destructive', title: 'Erro', description: 'Falha ao capturar da câmera OTG' })
+          return
+        }
+        setCapturedPhotos(prev => [dataUrl, ...prev])
+        setShowSaveButton(true)
+        triggerFlash()
+        toast({ title: '✅ Foto capturada', description: 'Imagem da câmera OTG capturada!' })
+      }
+      window.Android.captureUVCPhoto('window._vitallcamUVCCallback')
+      return
+    }
+
     if (!videoRef.current || !canvasRef.current || !stream) {
       toast({
         variant: "destructive",
@@ -666,36 +747,7 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
 
       setCapturedPhotos(prev => [finalImageData, ...prev])
       setShowSaveButton(true)
-
-      // Efeito flash
-      const flashOverlay = document.createElement('div')
-      flashOverlay.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: white;
-        z-index: 9999;
-        pointer-events: none;
-        animation: flash 0.3s ease-out;
-      `
-
-      const style = document.createElement('style')
-      style.textContent = `
-        @keyframes flash {
-          0% { opacity: 0; }
-          50% { opacity: 0.8; }
-          100% { opacity: 0; }
-        }
-      `
-      document.head.appendChild(style)
-      document.body.appendChild(flashOverlay)
-
-      setTimeout(() => {
-        document.body.removeChild(flashOverlay)
-        document.head.removeChild(style)
-      }, 300)
+      triggerFlash()
 
       toast({
         title: "✅ Foto capturada",
@@ -858,19 +910,26 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
   }
 
   return (
-    <div className="h-screen w-screen relative bg-black overflow-hidden">
-      {/* Vídeo da Câmera Padrão - 100% da tela sem bordas */}
+    <div className={`h-screen w-screen relative overflow-hidden ${isUVCMode ? 'bg-transparent' : 'bg-black'}`}>
+      {/* Vídeo WebRTC (câmera comum) — oculto quando câmera OTG nativa estiver ativa */}
       <video
         ref={videoRef}
-        className="w-full h-full object-cover absolute inset-0 transition-transform duration-100"
+        className={`w-full h-full object-cover absolute inset-0 transition-transform duration-100 ${isUVCMode ? 'hidden' : 'block'}`}
         style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'center center' }}
         playsInline
         muted
       />
 
-      {!stream && (
+      {!stream && !isUVCMode && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      )}
+
+      {/* Indicador de câmera OTG ativa */}
+      {isUVCMode && (
+        <div className="absolute top-4 right-4 z-20 bg-green-600/80 text-white text-xs px-2 py-1 rounded-full">
+          🦷 OTG
         </div>
       )}
 

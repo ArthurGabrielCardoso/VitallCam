@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- UVC video class devices (class 0x0E = 14) -->
+    <usb-device class="14" />
+    <!-- Multi-function devices with video interface (class 0xEF = 239) -->
+    <usb-device class="239" subclass="2" />
+    <!-- Generic UVC - catch most USB cameras -->
+    <usb-device class="239" />
+</resources>

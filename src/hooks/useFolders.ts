@@ -1,39 +1,10 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Folder } from '@/lib/types'
 
 export const useFolders = (patientId: string | null) => {
-  const queryClient = useQueryClient()
-
-  // Configurar realtime subscription para pastas
-  useEffect(() => {
-    if (!patientId) return
-
-    const channel = supabase
-      .channel(`folders:patient_id=eq.${patientId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'folders',
-          filter: `patient_id=eq.${patientId}`
-        },
-        () => {
-          // Atualizar queries quando houver mudanças
-          queryClient.invalidateQueries({ queryKey: ['folders', patientId] })
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [patientId, queryClient])
-
   return useQuery({
     queryKey: ['folders', patientId],
     queryFn: async (): Promise<Folder[]> => {

@@ -1,41 +1,10 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Photo, NewPhoto } from '@/lib/types'
 
 export const usePhotos = (patientId: string | null) => {
-  const queryClient = useQueryClient()
-
-  // Configurar realtime subscription
-  useEffect(() => {
-    if (!patientId) return
-
-    const channel = supabase
-      .channel(`photos:patient_id=eq.${patientId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'photos',
-          filter: `patient_id=eq.${patientId}`
-        },
-        () => {
-          // Atualizar queries quando houver mudanças
-          queryClient.invalidateQueries({ queryKey: ['photos', patientId] })
-          queryClient.invalidateQueries({ queryKey: ['unfoldered-photos', patientId] })
-          queryClient.invalidateQueries({ queryKey: ['folder-photos'] })
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [patientId, queryClient])
-
   return useQuery({
     queryKey: ['photos', patientId],
     queryFn: async (): Promise<Photo[]> => {

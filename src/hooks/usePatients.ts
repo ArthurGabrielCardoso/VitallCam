@@ -1,25 +1,10 @@
 'use client'
 
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Patient } from '@/lib/types'
 
 export const usePatients = () => {
-  const queryClient = useQueryClient()
-
-  // Realtime: atualiza a lista quando qualquer paciente é criado, editado ou deletado
-  useEffect(() => {
-    const channel = supabase
-      .channel('patients-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'patients' }, () => {
-        queryClient.invalidateQueries({ queryKey: ['patients'] })
-      })
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [queryClient])
-
   return useQuery({
     queryKey: ['patients'],
     queryFn: async (): Promise<Patient[]> => {
@@ -55,6 +40,7 @@ export const usePatient = (patientId: string | null) => {
 
 export const useUpdatePatient = () => {
   const queryClient = useQueryClient()
+
 
   return useMutation({
     mutationFn: async ({ patientId, name }: { patientId: string; name: string }) => {

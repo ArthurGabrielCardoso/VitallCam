@@ -9,6 +9,7 @@ on:
     paths:
       - 'android-app/**'
       - 'public/assets/images/logo.png'
+      - 'public/assets/images/logo.svg'
   workflow_dispatch:
 
 permissions:

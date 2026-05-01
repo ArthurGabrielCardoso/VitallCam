@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - 'android-app/**'
+      - 'public/assets/images/logo.png'
   workflow_dispatch:
 
 permissions:
@@ -34,6 +35,18 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.6'
+
+      - name: Generate mipmap icons from logo
+        run: |
+          for density in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            DIR="${density%%:*}"
+            SIZE="${density##*:}"
+            mkdir -p "android-app/app/src/main/res/mipmap-${DIR}"
+            convert "public/assets/images/logo.png" \
+              -resize "${SIZE}x${SIZE}" \
+              -background none \
+              "android-app/app/src/main/res/mipmap-${DIR}/ic_launcher.png"
+          done
 
       - name: Build APK debug
         working-directory: android-app

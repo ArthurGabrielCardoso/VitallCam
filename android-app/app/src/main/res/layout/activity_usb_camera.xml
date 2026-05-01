@@ -5,8 +5,8 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <FrameLayout
-        android:id="@+id/cameraContainer"
+    <com.serenegiant.widget.AspectRatioSurfaceView
+        android:id="@+id/cameraSurface"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         app:layout_constraintBottom_toBottomOf="parent"

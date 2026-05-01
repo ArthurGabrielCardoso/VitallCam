@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git -c user.email=arthurgabriel.birer@gmail.com -c 'user.name=Arthur Gabriel Cardoso' commit -m ' *)",
+      "Bash(gh run *)",
+      "Bash(git -c user.email=\"arthurgabriel.birer@gmail.com\" -c user.name=\"Arthur Gabriel Cardoso\" commit -am \"fix: habilita dataBinding exigido pela AUSBC\")",
+      "Bash(curl -s \"https://jitpack.io/com/github/jiangdongguo/AndroidUSBCamera/libnative/3.3.3/build.log\")",
+      "Bash(curl -sI \"https://repo1.maven.org/maven2/com/herohan/UVCAndroid/1.0.6/UVCAndroid-1.0.6.aar\")",
+      "Bash(curl -s \"https://search.maven.org/solrsearch/select?q=g:com.herohan&rows=10&wt=json\")",
+      "Bash(git -c user.email=\"arthurgabriel.birer@gmail.com\" -c user.name=\"Arthur Gabriel Cardoso\" commit -m \"fix: troca AUSBC \\(JitPack quebrado\\) pela UVCAndroid do Maven Central\")"
+    ]
+  }
+}

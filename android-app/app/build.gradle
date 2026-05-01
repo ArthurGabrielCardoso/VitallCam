@@ -33,7 +33,6 @@ android {
 
     buildFeatures {
         viewBinding true
-        dataBinding true
     }
 
     packagingOptions {
@@ -52,6 +51,6 @@ dependencies {
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'com.google.android.material:material:1.11.0'
 
-    // AUSBC - UVC USB Camera (intraoral via OTG)
-    implementation 'com.github.jiangdongguo.AndroidUSBCamera:libausbc:3.3.3'
+    // UVCAndroid (shiyinghan) - Maven Central, suporte a câmera UVC via OTG
+    implementation 'com.herohan:UVCAndroid:1.0.9'
 }

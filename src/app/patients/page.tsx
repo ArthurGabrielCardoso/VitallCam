@@ -3,7 +3,6 @@
 export const dynamic = 'force-dynamic'
 
 import { useState, useMemo } from 'react'
-import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import NewPatientModal from '@/components/NewPatientModal'
 import { Search, User, Loader2, PlayCircle } from 'lucide-react'
@@ -19,7 +18,6 @@ export default function PatientsPage() {
   const { prefetchPatient } = usePrefetchPatient()
 
   const handlePatientCreated = () => {
-    // Query será automaticamente revalidada pelo React Query
     refetch()
   }
 
@@ -33,9 +31,16 @@ export default function PatientsPage() {
 
   const filteredPatients = useMemo(() => {
     if (!searchTerm) return patients
-    return patients.filter(patient =>
-      patient.name.toLowerCase().includes(searchTerm.toLowerCase())
-    )
+    const term = searchTerm.toLowerCase()
+    const matched = patients.filter(p => p.name.toLowerCase().includes(term))
+    // Priorizar quem tem o termo no primeiro nome
+    return matched.sort((a, b) => {
+      const aFirst = a.name.split(' ')[0].toLowerCase().includes(term)
+      const bFirst = b.name.split(' ')[0].toLowerCase().includes(term)
+      if (aFirst && !bFirst) return -1
+      if (!aFirst && bFirst) return 1
+      return 0
+    })
   }, [patients, searchTerm])
 
   if (error) {
@@ -68,26 +73,27 @@ export default function PatientsPage() {
       {/* Barra de Busca na Parte Inferior */}
       <div className="absolute bottom-0 left-0 right-0 pb-6 px-6">
         <div className="max-w-4xl mx-auto">
-          {/* Barra de Busca */}
           <Card className="bg-primary/95 backdrop-blur-sm border-primary/20 shadow-2xl">
             <CardContent className="p-6">
-              <div className="relative mb-6">
-                <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-primary-foreground/70 w-5 h-5" style={{ pointerEvents: 'none' }} />
-                <input
-                  type="text"
-                  name="searchTerm"
-                  placeholder="Buscar paciente pelo nome..."
-                  defaultValue={searchTerm}
-                  onInput={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  onKeyUp={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
-                  style={{
-                    pointerEvents: 'auto',
-                    WebkitBackfaceVisibility: 'hidden',
-                    WebkitTransform: 'translateZ(0)',
-                  }}
-                  className="pl-12 bg-white/90 border-white/30 text-foreground placeholder:text-muted-foreground text-lg py-6 rounded-xl w-full px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-colors"
-                />
+              <div className="mb-6">
+                <div className="relative">
+                  <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-primary-foreground/70 w-5 h-5" style={{ pointerEvents: 'none' }} />
+                  <input
+                    type="text"
+                    name="searchTerm"
+                    placeholder="Buscar paciente pelo nome..."
+                    defaultValue={searchTerm}
+                    onInput={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onKeyUp={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
+                    style={{
+                      pointerEvents: 'auto',
+                      WebkitBackfaceVisibility: 'hidden',
+                      WebkitTransform: 'translateZ(0)',
+                    }}
+                    className="pl-12 bg-white/90 border-white/30 text-foreground placeholder:text-muted-foreground text-lg py-6 rounded-xl w-full px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-colors"
+                  />
+                </div>
               </div>
 
               {/* Lista de Pacientes - só aparece quando há pesquisa */}
@@ -140,7 +146,6 @@ export default function PatientsPage() {
                   )}
                 </div>
               )}
-
 
             </CardContent>
           </Card>

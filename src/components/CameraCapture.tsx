@@ -138,6 +138,8 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
   const [isCapturing, setIsCapturing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [cameraError, setCameraError] = useState<string>('')
+  const [permissionState, setPermissionState] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown')
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false)
   const [isInitializing] = useState(false)
   const [capturedPhotos, setCapturedPhotos] = useState<string[]>([])
   const [showSaveButton, setShowSaveButton] = useState(false)
@@ -211,9 +213,52 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
   // Notificação automática removida
 
 
+  // Solicitar permissão explicitamente (chamado pelo botão na UI)
+  const requestCameraPermission = async () => {
+    setIsRequestingPermission(true)
+    try {
+      const permStream = await navigator.mediaDevices.getUserMedia({ video: true })
+      permStream.getTracks().forEach(t => t.stop())
+      setPermissionState('granted')
+      setCameraError('')
+      await initializeCamera()
+    } catch (error: any) {
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        setPermissionState('denied')
+        setCameraError('PERMISSION_DENIED')
+      } else {
+        setCameraError(error.message || 'Erro ao acessar câmera')
+      }
+    } finally {
+      setIsRequestingPermission(false)
+    }
+  }
+
   // INICIALIZAR SISTEMA DE CÂMERA SIMPLES
   const initializeCameraSystem = async () => {
     console.log('🚀 Inicializando câmera simples...')
+
+    // Verificar estado da permissão antes de qualquer coisa
+    if ('permissions' in navigator) {
+      try {
+        const perm = await navigator.permissions.query({ name: 'camera' as PermissionName })
+        setPermissionState(perm.state as 'granted' | 'denied' | 'prompt')
+        if (perm.state === 'denied') {
+          setCameraError('PERMISSION_DENIED')
+          return
+        }
+        perm.onchange = () => {
+          setPermissionState(perm.state as 'granted' | 'denied' | 'prompt')
+          if (perm.state === 'granted') {
+            setCameraError('')
+            initializeCamera()
+          }
+        }
+      } catch {
+        // Permissions API não suportada — continuar normalmente
+      }
+    }
+
     await initializeCamera()
   }
 
@@ -320,8 +365,15 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
       // Implementar fallback: tentar câmera intraoral primeiro, depois webcam
       await tryInitializeCameraWithFallback(sortedDevices)
 
-    } catch {
-      setCameraError('Erro ao acessar câmeras. Verifique as permissões.')
+    } catch (error: any) {
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        setPermissionState('denied')
+        setCameraError('PERMISSION_DENIED')
+      } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+        setCameraError('Nenhuma câmera encontrada. Conecte a câmera e tente novamente.')
+      } else {
+        setCameraError('Erro ao acessar câmeras: ' + (error.message || 'verifique as permissões'))
+      }
     }
   }
 
@@ -768,6 +820,42 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
     )
   }
 
+  if (cameraError === 'PERMISSION_DENIED') {
+    return (
+      <Card className="p-6 bg-white">
+        <div className="flex flex-col items-center justify-center space-y-4 text-center max-w-sm mx-auto">
+          <AlertCircle className="w-14 h-14 text-destructive" />
+          <h3 className="text-lg font-bold text-gray-900">Permissão de Câmera Necessária</h3>
+          <p className="text-gray-700 text-sm">
+            O acesso à câmera foi bloqueado pelo navegador.
+          </p>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left text-sm text-blue-900 space-y-1">
+            <p className="font-semibold">Como liberar no Chrome (Android):</p>
+            <p>1. Toque no ícone 🔒 ou ⓘ na barra de endereço</p>
+            <p>2. Toque em <strong>Permissões</strong></p>
+            <p>3. Toque em <strong>Câmera</strong> → <strong>Permitir</strong></p>
+            <p>4. Recarregue a página</p>
+          </div>
+          <Button
+            onClick={requestCameraPermission}
+            disabled={isRequestingPermission}
+            className="bg-primary hover:bg-primary/90 text-white w-full"
+          >
+            {isRequestingPermission ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Solicitando...</>
+            ) : (
+              <><Camera className="w-4 h-4 mr-2" />Solicitar Permissão</>
+            )}
+          </Button>
+          <Button onClick={() => window.location.reload()} variant="outline" className="w-full">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Recarregar Página
+          </Button>
+        </div>
+      </Card>
+    )
+  }
+
   if (cameraError) {
     return (
       <Card className="p-6 bg-white">
@@ -776,7 +864,11 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
           <pre className="text-black text-left text-sm whitespace-pre-wrap max-w-2xl bg-gray-100 p-4 rounded border border-gray-300">
             {cameraError}
           </pre>
-          <Button onClick={() => window.location.reload()} className="bg-primary hover:bg-primary/90 text-white">
+          <Button onClick={requestCameraPermission} disabled={isRequestingPermission} className="bg-primary hover:bg-primary/90 text-white">
+            {isRequestingPermission ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Camera className="w-4 h-4 mr-2" />}
+            Solicitar Permissão
+          </Button>
+          <Button onClick={() => window.location.reload()} variant="outline">
             <RefreshCw className="w-4 h-4 mr-2" />
             Tentar Novamente
           </Button>

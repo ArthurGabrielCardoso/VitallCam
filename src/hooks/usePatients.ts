@@ -1,8 +1,34 @@
 'use client'
 
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Patient } from '@/lib/types'
+
+const broadcastPatientsChanged = async () => {
+  await supabase.channel('patients-broadcast').send({
+    type: 'broadcast',
+    event: 'patients-changed',
+    payload: {},
+  })
+}
+
+// Escuta mudanças de pacientes via broadcast (leve, não usa WAL)
+export const usePatientsBroadcast = () => {
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('patients-broadcast')
+      .on('broadcast', { event: 'patients-changed' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['patients'] })
+        queryClient.invalidateQueries({ queryKey: ['patient'] })
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [queryClient])
+}
 
 export const usePatients = () => {
   return useQuery({
@@ -55,13 +81,13 @@ export const useUpdatePatient = () => {
       return data
     },
     onSuccess: (data) => {
-      // Atualizar cache imediatamente sem esperar refetch
       queryClient.setQueryData(['patients'], (old: Patient[] | undefined) =>
         old ? old.map(p => p.id === data.id ? { ...p, name: data.name } : p) : old
       )
       queryClient.setQueryData(['patient', data.id], (old: Patient | undefined) =>
         old ? { ...old, name: data.name } : old
       )
+      broadcastPatientsChanged()
     },
   })
 }
@@ -85,11 +111,11 @@ export const useDeletePatient = () => {
       return patientId
     },
     onSuccess: (patientId) => {
-      // Remover do cache imediatamente — lista atualiza sem reload
       queryClient.setQueryData(['patients'], (old: Patient[] | undefined) =>
         old ? old.filter(p => p.id !== patientId) : old
       )
       queryClient.removeQueries({ queryKey: ['patient', patientId] })
+      broadcastPatientsChanged()
     },
   })
 }

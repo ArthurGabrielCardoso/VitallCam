@@ -8,13 +8,14 @@ import NewPatientModal from '@/components/NewPatientModal'
 import { Search, User, Loader2, PlayCircle } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import Link from 'next/link'
-import { usePatients, usePrefetchPatient } from '@/hooks/usePatients'
+import { usePatients, usePatientsBroadcast, usePrefetchPatient } from '@/hooks/usePatients'
 import IntersectionPrefetch from '@/components/IntersectionPrefetch'
 
 export default function PatientsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const { toast } = useToast()
   const { data: patients = [], isLoading, error, refetch } = usePatients()
+  usePatientsBroadcast()
   const { prefetchPatient } = usePrefetchPatient()
 
   const handlePatientCreated = () => {

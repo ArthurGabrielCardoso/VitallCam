@@ -1,8 +1,29 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Photo, NewPhoto } from '@/lib/types'
+
+// Broadcast: escuta mudanças de fotos via pub/sub leve (não usa WAL do Postgres)
+export const usePhotosBroadcast = (patientId: string | null) => {
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    if (!patientId) return
+
+    const channel = supabase
+      .channel(`photos-broadcast:${patientId}`)
+      .on('broadcast', { event: 'photos-changed' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['photos', patientId] })
+        queryClient.invalidateQueries({ queryKey: ['unfoldered-photos', patientId] })
+        queryClient.invalidateQueries({ queryKey: ['folder-photos'] })
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [patientId, queryClient])
+}
 
 export const usePhotos = (patientId: string | null) => {
   return useQuery({
@@ -29,7 +50,7 @@ export const useUnfolderedPhotos = (patientId: string | null) => {
     queryKey: ['unfoldered-photos', patientId],
     queryFn: async (): Promise<Photo[]> => {
       if (!patientId) throw new Error('Patient ID is required')
-      
+
       const { data, error } = await supabase
         .from('photos')
         .select('*')
@@ -40,6 +61,14 @@ export const useUnfolderedPhotos = (patientId: string | null) => {
       return data || []
     },
     enabled: !!patientId,
+  })
+}
+
+const broadcastPhotosChanged = async (patientId: string) => {
+  await supabase.channel(`photos-broadcast:${patientId}`).send({
+    type: 'broadcast',
+    event: 'photos-changed',
+    payload: {},
   })
 }
 
@@ -58,10 +87,15 @@ export const useAddPhoto = () => {
       return data
     },
     onSuccess: (newPhoto) => {
-      // Atualizar cache imediatamente
+      // Atualiza cache local imediatamente (mesmo dispositivo)
       queryClient.setQueryData(['photos', newPhoto.patient_id], (old: Photo[] = []) => {
         return [newPhoto, ...old]
       })
+      queryClient.setQueryData(['unfoldered-photos', newPhoto.patient_id], (old: Photo[] = []) => {
+        return [newPhoto, ...old]
+      })
+      // Broadcast para outros dispositivos conectados
+      broadcastPhotosChanged(newPhoto.patient_id)
     },
   })
 }
@@ -70,30 +104,23 @@ export const useDeletePhoto = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (photoId: string): Promise<void> => {
+    mutationFn: async ({ photoId, patientId }: { photoId: string, patientId: string }): Promise<{ photoId: string, patientId: string }> => {
       const { error } = await supabase
         .from('photos')
         .delete()
         .eq('id', photoId)
 
       if (error) throw error
+      return { photoId, patientId }
     },
-    onSuccess: (_, photoId) => {
-      // Atualizar cache diretamente sem invalidar (evita reload)
-      queryClient.setQueriesData({ queryKey: ['photos'] }, (oldData: Photo[] | undefined) => {
-        if (!oldData) return oldData
-        return oldData.filter(photo => photo.id !== photoId)
-      })
-
-      queryClient.setQueriesData({ queryKey: ['unfoldered-photos'] }, (oldData: Photo[] | undefined) => {
-        if (!oldData) return oldData
-        return oldData.filter(photo => photo.id !== photoId)
-      })
-
-      queryClient.setQueriesData({ queryKey: ['folder-photos'] }, (oldData: Photo[] | undefined) => {
-        if (!oldData) return oldData
-        return oldData.filter(photo => photo.id !== photoId)
-      })
+    onSuccess: ({ photoId, patientId }) => {
+      queryClient.setQueriesData({ queryKey: ['photos'] }, (old: Photo[] | undefined) =>
+        old ? old.filter(p => p.id !== photoId) : old)
+      queryClient.setQueriesData({ queryKey: ['unfoldered-photos'] }, (old: Photo[] | undefined) =>
+        old ? old.filter(p => p.id !== photoId) : old)
+      queryClient.setQueriesData({ queryKey: ['folder-photos'] }, (old: Photo[] | undefined) =>
+        old ? old.filter(p => p.id !== photoId) : old)
+      broadcastPhotosChanged(patientId)
     },
   })
 }
@@ -102,19 +129,20 @@ export const useMovePhotosToFolder = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ photoIds, folderId }: { photoIds: string[], folderId: string | null }): Promise<void> => {
+    mutationFn: async ({ photoIds, folderId, patientId }: { photoIds: string[], folderId: string | null, patientId: string }): Promise<string> => {
       const { error } = await supabase
         .from('photos')
         .update({ folder_id: folderId })
         .in('id', photoIds)
 
       if (error) throw error
+      return patientId
     },
-    onSuccess: () => {
-      // Invalidar todos os caches relacionados a fotos
+    onSuccess: (patientId) => {
       queryClient.invalidateQueries({ queryKey: ['photos'] })
       queryClient.invalidateQueries({ queryKey: ['unfoldered-photos'] })
       queryClient.invalidateQueries({ queryKey: ['folder-photos'] })
+      broadcastPhotosChanged(patientId)
     },
   })
 }

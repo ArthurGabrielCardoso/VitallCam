@@ -7,7 +7,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { Photo } from '@/lib/types'
 import { supabase } from '@/lib/supabase'
 import { usePatient, useUpdatePatient, useDeletePatient } from '@/hooks/usePatients'
-import { usePhotos, useDeletePhoto, useUnfolderedPhotos, useMovePhotosToFolder } from '@/hooks/usePhotos'
+import { usePhotos, usePhotosBroadcast, useDeletePhoto, useUnfolderedPhotos, useMovePhotosToFolder } from '@/hooks/usePhotos'
 import { useFolders, useCreateFolder, useFolderPhotos, useDeleteFolder, useUpdateFolder } from '@/hooks/useFolders'
 import CameraCapture from '@/components/CameraCapture'
 import ImageUpload from '@/components/ImageUpload'
@@ -38,6 +38,9 @@ export default function PatientPage() {
   const router = useRouter()
   const patientId = params.id as string
   
+  // Broadcast: escuta mudanças de fotos em tempo real (leve, sem WAL)
+  usePhotosBroadcast(patientId)
+
   // React Query hooks
   const { data: patient, isLoading: patientLoading, error: patientError } = usePatient(patientId)
   const { data: photos = [], isLoading: photosLoading, error: photosError, refetch: refetchPhotos } = usePhotos(patientId)
@@ -176,7 +179,7 @@ export default function PatientPage() {
     setIsDeletingSelected(true)
     try {
       for (const photoId of selectedPhotos) {
-        await deletePhotoMutation.mutateAsync(photoId)
+        await deletePhotoMutation.mutateAsync({ photoId, patientId })
       }
       toast({ title: 'Sucesso!', description: `${selectedPhotos.length} foto(s) deletada(s)` })
       setSelectedPhotos([])
@@ -442,7 +445,7 @@ export default function PatientPage() {
 
   const handlePhotoDelete = async (photoId: string) => {
     try {
-      await deletePhotoMutation.mutateAsync(photoId)
+      await deletePhotoMutation.mutateAsync({ photoId, patientId })
       toast({
         title: "Sucesso!",
         description: "Foto deletada com sucesso"
@@ -984,7 +987,8 @@ export default function PatientPage() {
     try {
       await movePhotosToFolderMutation.mutateAsync({
         photoIds: selectedPhotos,
-        folderId: folderId
+        folderId: folderId,
+        patientId
       })
 
       const folderName = folderId 

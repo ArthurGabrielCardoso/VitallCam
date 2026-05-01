@@ -4,15 +4,7 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Fundo azul escuro -->
-    <path
-        android:fillColor="#1a3a5c"
-        android:pathData="M0,0 L108,0 L108,108 L0,108 Z"/>
-    <!-- Círculo branco levemente opaco -->
-    <path
-        android:fillColor="#22FFFFFF"
-        android:pathData="M54,54m-48,0a48,48 0,1 1,96 0a48,48 0,1 1,-96 0"/>
-    <!-- Letra V centralizada -->
+    <!-- Letra V branca centralizada -->
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M28,30 L44,30 L54,62 L64,30 L80,30 L60,78 L48,78 Z"/>

@@ -52,8 +52,8 @@ jobs:
             SIZE="${density##*:}"
             mkdir -p "android-app/app/src/main/res/mipmap-${DIR}"
             convert "$LOGO" \
-              -resize "${SIZE}x${SIZE}" \
-              -background none \
+              -resize "$((SIZE*72/100))x$((SIZE*72/100))" \
+              -background "#1a3a5c" \
               -gravity center \
               -extent "${SIZE}x${SIZE}" \
               "android-app/app/src/main/res/mipmap-${DIR}/ic_launcher.png"

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Photo, CameraDevice } from '@/lib/types'
 import { useCreateFolder } from '@/hooks/useFolders'
@@ -159,10 +160,13 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
   const [goodFocusThreshold] = useState(50)
   const [zoomLevel, setZoomLevel] = useState(1)
   const { toast } = useToast()
+  const router = useRouter()
   const createFolderMutation = useCreateFolder()
+  const isNativeRef = useRef(false)
 
   useEffect(() => {
     const native = typeof window !== 'undefined' && !!window.VitallCam?.isNative?.()
+    isNativeRef.current = native
     if (native) {
       // Auto-abre a câmera intraoral USB ao entrar na tela (sem precisar de botão)
       setTimeout(() => captureFromIntraoralUsb(), 300)
@@ -859,6 +863,11 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
       // Limpar fotos capturadas
       setCapturedPhotos([])
       setShowSaveButton(false)
+
+      // No APK (fluxo da câmera intraoral USB), volta direto pro perfil do paciente
+      if (isNativeRef.current) {
+        router.push(`/patients/${patientId}`)
+      }
 
     } catch (error) {
       console.error('Erro completo ao salvar fotos:', error)

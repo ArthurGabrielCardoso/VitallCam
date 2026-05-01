@@ -59,21 +59,6 @@
             android:contentDescription="Fechar" />
     </LinearLayout>
 
-    <!-- Status (cantinho discreto) -->
-    <TextView
-        android:id="@+id/statusText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:padding="10dp"
-        android:layout_marginStart="16dp"
-        android:layout_marginTop="8dp"
-        android:background="#80000000"
-        android:textColor="#FFFFFF"
-        android:textSize="13sp"
-        android:text="Conecte a câmera intraoral via cabo OTG"
-        app:layout_constraintTop_toBottomOf="@id/topBar"
-        app:layout_constraintLeft_toLeftOf="parent" />
-
     <!-- Painel lateral direito com fotos capturadas (igual ao web) -->
     <LinearLayout
         android:id="@+id/sidePanel"

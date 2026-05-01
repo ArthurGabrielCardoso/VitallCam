@@ -3,6 +3,9 @@ package com.vitallcam
 import android.app.Activity
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.PixelFormat
+import android.graphics.drawable.ColorDrawable
 import android.hardware.usb.UsbDevice
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -24,7 +27,6 @@ class UsbCameraActivity : AppCompatActivity() {
 
     private var cameraHelper: ICameraHelper? = null
     private lateinit var surfaceView: AspectRatioSurfaceView
-    private lateinit var statusText: TextView
     private lateinit var sidePanel: LinearLayout
     private lateinit var sideTitle: TextView
     private lateinit var thumbsContainer: LinearLayout
@@ -35,14 +37,19 @@ class UsbCameraActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Fundo preto opaco para evitar enxergar a home do tablet pela "hole" do SurfaceView
+        window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
         setContentView(R.layout.activity_usb_camera)
 
-        statusText = findViewById(R.id.statusText)
         surfaceView = findViewById(R.id.cameraSurface)
         sidePanel = findViewById(R.id.sidePanel)
         sideTitle = findViewById(R.id.sideTitle)
         thumbsContainer = findViewById(R.id.thumbsContainer)
         btnSave = findViewById(R.id.btnSave)
+
+        // Mantém o SurfaceView opaco (sem furo transparente)
+        surfaceView.holder.setFormat(PixelFormat.OPAQUE)
+        surfaceView.setZOrderMediaOverlay(false)
 
         surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
@@ -83,14 +90,12 @@ class UsbCameraActivity : AppCompatActivity() {
 
     private val stateListener = object : ICameraHelper.StateCallback {
         override fun onAttach(device: UsbDevice) {
-            runOnUiThread { statusText.text = "Câmera detectada, conectando..." }
             cameraHelper?.selectDevice(device)
         }
         override fun onDeviceOpen(device: UsbDevice, isFirstOpen: Boolean) {
             cameraHelper?.openCamera()
         }
         override fun onCameraOpen(device: UsbDevice) {
-            runOnUiThread { statusText.text = "Câmera intraoral conectada" }
             cameraHelper?.startPreview()
             if (surfaceReady) cameraHelper?.addSurface(surfaceView.holder.surface, false)
         }
@@ -98,12 +103,8 @@ class UsbCameraActivity : AppCompatActivity() {
             cameraHelper?.removeSurface(surfaceView.holder.surface)
         }
         override fun onDeviceClose(device: UsbDevice) {}
-        override fun onDetach(device: UsbDevice) {
-            runOnUiThread { statusText.text = "Câmera desconectada" }
-        }
-        override fun onCancel(device: UsbDevice) {
-            runOnUiThread { statusText.text = "Permissão USB negada" }
-        }
+        override fun onDetach(device: UsbDevice) {}
+        override fun onCancel(device: UsbDevice) {}
     }
 
     private fun captureImage() {
@@ -112,7 +113,6 @@ class UsbCameraActivity : AppCompatActivity() {
             Toast.makeText(this, "Câmera USB não conectada", Toast.LENGTH_SHORT).show()
             return
         }
-        statusText.text = "Capturando..."
         val file = File(cacheDir, "intraoral_${System.currentTimeMillis()}_${capturedFiles.size}.jpg")
         val options = IImageCapture.OutputFileOptions.Builder(file).build()
         helper.takePicture(options, object : IImageCapture.OnImageCaptureCallback {
@@ -121,7 +121,6 @@ class UsbCameraActivity : AppCompatActivity() {
             }
             override fun onError(code: Int, message: String, cause: Throwable?) {
                 runOnUiThread {
-                    statusText.text = "Erro: $message"
                     Toast.makeText(this@UsbCameraActivity, message, Toast.LENGTH_LONG).show()
                 }
             }
@@ -130,7 +129,6 @@ class UsbCameraActivity : AppCompatActivity() {
 
     private fun addCapturedPhoto(file: File) {
         capturedFiles.add(file)
-        statusText.text = "Câmera intraoral conectada"
 
         val item = LayoutInflater.from(this)
             .inflate(R.layout.item_thumbnail, thumbsContainer, false)

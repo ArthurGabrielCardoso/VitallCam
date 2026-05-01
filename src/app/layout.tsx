@@ -9,6 +9,15 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "VitallCam - Gerenciamento de Câmera Intraoral",
   description: "Sistema completo para captura e gestão de fotos intraorais",
+  icons: {
+    icon: [
+      { url: "/icon.png", type: "image/png" },
+    ],
+    apple: [
+      { url: "/apple-icon.png", type: "image/png" },
+    ],
+    shortcut: "/icon.png",
+  },
 };
 
 export default function RootLayout({

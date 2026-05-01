@@ -13,7 +13,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.herohan.uvcapp.CameraHelper
 import com.herohan.uvcapp.ICameraHelper
-import com.herohan.uvcapp.ImageCapture
+import com.herohan.uvcapp.IImageCapture
 import com.serenegiant.widget.AspectRatioSurfaceView
 import java.io.File
 
@@ -111,9 +111,9 @@ class UsbCameraActivity : AppCompatActivity() {
         }
         statusText.text = "Capturando..."
         val file = File(cacheDir, "intraoral_${System.currentTimeMillis()}.jpg")
-        val options = ImageCapture.OutputFileOptions.Builder(file).build()
-        helper.takePicture(options, object : ImageCapture.OnImageCaptureCallback {
-            override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+        val options = IImageCapture.OutputFileOptions.Builder(file).build()
+        helper.takePicture(options, object : IImageCapture.OnImageCaptureCallback {
+            override fun onImageSaved(result: IImageCapture.OutputFileResults) {
                 runOnUiThread { onCaptureDone(file) }
             }
 

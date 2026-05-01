@@ -36,15 +36,25 @@ jobs:
         with:
           gradle-version: '8.6'
 
+      - name: Install ImageMagick
+        run: sudo apt-get install -y imagemagick
+
       - name: Generate mipmap icons from logo
         run: |
+          # Usa SVG se existir, senão usa PNG
+          LOGO="public/assets/images/logo.png"
+          [ -f "public/logo.svg" ] && LOGO="public/logo.svg"
+          [ -f "public/assets/images/logo.svg" ] && LOGO="public/assets/images/logo.svg"
+          echo "Usando logo: $LOGO"
           for density in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
             DIR="${density%%:*}"
             SIZE="${density##*:}"
             mkdir -p "android-app/app/src/main/res/mipmap-${DIR}"
-            convert "public/assets/images/logo.png" \
+            convert "$LOGO" \
               -resize "${SIZE}x${SIZE}" \
               -background none \
+              -gravity center \
+              -extent "${SIZE}x${SIZE}" \
               "android-app/app/src/main/res/mipmap-${DIR}/ic_launcher.png"
           done
 

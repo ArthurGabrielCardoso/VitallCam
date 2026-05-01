@@ -8,6 +8,8 @@ on:
     branches: [main]
     paths:
       - 'android-app/**'
+      - 'public/assets/images/icon.png'
+      - 'public/assets/images/icon.svg'
       - 'public/assets/images/logo.png'
       - 'public/assets/images/logo.svg'
   workflow_dispatch:
@@ -40,20 +42,21 @@ jobs:
       - name: Install ImageMagick
         run: sudo apt-get install -y imagemagick
 
-      - name: Generate mipmap icons from logo
+      - name: Generate mipmap icons from icon
         run: |
-          # Usa SVG se existir, senão usa PNG
+          # Prioridade: icon.svg > icon.png > logo.svg > logo.png
           LOGO="public/assets/images/logo.png"
-          [ -f "public/logo.svg" ] && LOGO="public/logo.svg"
           [ -f "public/assets/images/logo.svg" ] && LOGO="public/assets/images/logo.svg"
-          echo "Usando logo: $LOGO"
+          [ -f "public/assets/images/icon.png" ] && LOGO="public/assets/images/icon.png"
+          [ -f "public/assets/images/icon.svg" ] && LOGO="public/assets/images/icon.svg"
+          echo "Usando ícone: $LOGO"
           for density in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
             DIR="${density%%:*}"
             SIZE="${density##*:}"
             mkdir -p "android-app/app/src/main/res/mipmap-${DIR}"
             convert "$LOGO" \
-              -resize "$((SIZE*72/100))x$((SIZE*72/100))" \
-              -background "#1a3a5c" \
+              -resize "${SIZE}x${SIZE}" \
+              -background none \
               -gravity center \
               -extent "${SIZE}x${SIZE}" \
               "android-app/app/src/main/res/mipmap-${DIR}/ic_launcher.png"

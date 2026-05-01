@@ -20,7 +20,9 @@
       "Bash(git -c user.email=\"arthurgabriel.birer@gmail.com\" -c user.name=\"Arthur Gabriel Cardoso\" rebase --continue)",
       "Bash(git -c user.email=\"arthurgabriel.birer@gmail.com\" -c user.name=\"Arthur Gabriel Cardoso\" -c rebase.autoStash=false pull --rebase origin main)",
       "Bash(git checkout *)",
-      "Bash(git -c user.email=\"arthurgabriel.birer@gmail.com\" -c user.name=\"Arthur Gabriel Cardoso\" commit --amend --no-edit)"
+      "Bash(git -c user.email=\"arthurgabriel.birer@gmail.com\" -c user.name=\"Arthur Gabriel Cardoso\" commit --amend --no-edit)",
+      "Bash(GIT_EDITOR=true git -c user.email=\"arthurgabriel.birer@gmail.com\" -c user.name=\"Arthur Gabriel Cardoso\" commit --no-edit -C 567b196)",
+      "Bash(git -c user.email=arthurgabriel.birer@gmail.com -c 'user.name=Arthur Gabriel Cardoso' commit -m 'feat: design web na câmera USB nativa + auto-abre + ícone via icon.png *)"
     ]
   }
 }

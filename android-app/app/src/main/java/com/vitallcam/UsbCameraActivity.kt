@@ -2,12 +2,15 @@ package com.vitallcam
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.hardware.usb.UsbDevice
-import android.net.Uri
 import android.os.Bundle
-import android.util.Base64
+import android.view.LayoutInflater
 import android.view.SurfaceHolder
-import android.widget.Button
+import android.view.View
+import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -22,7 +25,13 @@ class UsbCameraActivity : AppCompatActivity() {
     private var cameraHelper: ICameraHelper? = null
     private lateinit var surfaceView: AspectRatioSurfaceView
     private lateinit var statusText: TextView
+    private lateinit var sidePanel: LinearLayout
+    private lateinit var sideTitle: TextView
+    private lateinit var thumbsContainer: LinearLayout
+    private lateinit var btnSave: ImageButton
+
     private var surfaceReady = false
+    private val capturedFiles = mutableListOf<File>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,39 +39,34 @@ class UsbCameraActivity : AppCompatActivity() {
 
         statusText = findViewById(R.id.statusText)
         surfaceView = findViewById(R.id.cameraSurface)
+        sidePanel = findViewById(R.id.sidePanel)
+        sideTitle = findViewById(R.id.sideTitle)
+        thumbsContainer = findViewById(R.id.thumbsContainer)
+        btnSave = findViewById(R.id.btnSave)
 
         surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 surfaceReady = true
                 cameraHelper?.let {
-                    if (it.isCameraOpened) {
-                        it.addSurface(holder.surface, false)
-                    }
+                    if (it.isCameraOpened) it.addSurface(holder.surface, false)
                 }
             }
-
             override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, ht: Int) {}
-
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 surfaceReady = false
                 cameraHelper?.removeSurface(holder.surface)
             }
         })
 
-        findViewById<Button>(R.id.btnCancel).setOnClickListener {
-            setResult(Activity.RESULT_CANCELED)
-            finish()
-        }
-
-        findViewById<Button>(R.id.btnCapture).setOnClickListener { captureImage() }
+        findViewById<ImageButton>(R.id.btnCancel).setOnClickListener { onCancel() }
+        findViewById<ImageButton>(R.id.btnCapture).setOnClickListener { captureImage() }
+        btnSave.setOnClickListener { onSave() }
     }
 
     override fun onStart() {
         super.onStart()
         if (cameraHelper == null) {
-            cameraHelper = CameraHelper().apply {
-                setStateCallback(stateListener)
-            }
+            cameraHelper = CameraHelper().apply { setStateCallback(stateListener) }
         }
     }
 
@@ -72,28 +76,27 @@ class UsbCameraActivity : AppCompatActivity() {
         cameraHelper = null
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        capturedFiles.forEach { runCatching { it.delete() } }
+    }
+
     private val stateListener = object : ICameraHelper.StateCallback {
         override fun onAttach(device: UsbDevice) {
             runOnUiThread { statusText.text = "Câmera detectada, conectando..." }
             cameraHelper?.selectDevice(device)
         }
-
         override fun onDeviceOpen(device: UsbDevice, isFirstOpen: Boolean) {
             cameraHelper?.openCamera()
         }
-
         override fun onCameraOpen(device: UsbDevice) {
             runOnUiThread { statusText.text = "Câmera intraoral conectada" }
             cameraHelper?.startPreview()
-            if (surfaceReady) {
-                cameraHelper?.addSurface(surfaceView.holder.surface, false)
-            }
+            if (surfaceReady) cameraHelper?.addSurface(surfaceView.holder.surface, false)
         }
-
         override fun onCameraClose(device: UsbDevice) {
             cameraHelper?.removeSurface(surfaceView.holder.surface)
         }
-
         override fun onDeviceClose(device: UsbDevice) {}
         override fun onDetach(device: UsbDevice) {
             runOnUiThread { statusText.text = "Câmera desconectada" }
@@ -110,13 +113,12 @@ class UsbCameraActivity : AppCompatActivity() {
             return
         }
         statusText.text = "Capturando..."
-        val file = File(cacheDir, "intraoral_${System.currentTimeMillis()}.jpg")
+        val file = File(cacheDir, "intraoral_${System.currentTimeMillis()}_${capturedFiles.size}.jpg")
         val options = IImageCapture.OutputFileOptions.Builder(file).build()
         helper.takePicture(options, object : IImageCapture.OnImageCaptureCallback {
             override fun onImageSaved(result: IImageCapture.OutputFileResults) {
-                runOnUiThread { onCaptureDone(file) }
+                runOnUiThread { addCapturedPhoto(file) }
             }
-
             override fun onError(code: Int, message: String, cause: Throwable?) {
                 runOnUiThread {
                     statusText.text = "Erro: $message"
@@ -126,24 +128,66 @@ class UsbCameraActivity : AppCompatActivity() {
         })
     }
 
-    private fun onCaptureDone(file: File) {
-        try {
-            val bytes = file.readBytes()
-            val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-            val data = Intent().apply {
-                putExtra(EXTRA_IMAGE_BASE64, b64)
-                putExtra(EXTRA_IMAGE_PATH, file.absolutePath)
+    private fun addCapturedPhoto(file: File) {
+        capturedFiles.add(file)
+        statusText.text = "Câmera intraoral conectada"
+
+        val item = LayoutInflater.from(this)
+            .inflate(R.layout.item_thumbnail, thumbsContainer, false)
+        val img = item.findViewById<ImageView>(R.id.thumbImage)
+        val remove = item.findViewById<ImageButton>(R.id.btnRemove)
+
+        val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+        val bmp = BitmapFactory.decodeFile(file.absolutePath, opts)
+        img.setImageBitmap(bmp)
+
+        remove.setOnClickListener {
+            val index = capturedFiles.indexOf(file)
+            if (index >= 0) {
+                capturedFiles.removeAt(index)
+                runCatching { file.delete() }
+                thumbsContainer.removeView(item)
+                refreshSidePanel()
             }
-            setResult(Activity.RESULT_OK, data)
-            finish()
-        } catch (e: Exception) {
-            statusText.text = "Erro ao ler imagem: ${e.message}"
         }
+
+        thumbsContainer.addView(item, 0)
+        refreshSidePanel()
+    }
+
+    private fun refreshSidePanel() {
+        val n = capturedFiles.size
+        sidePanel.visibility = if (n > 0) View.VISIBLE else View.GONE
+        btnSave.visibility = if (n > 0) View.VISIBLE else View.GONE
+        sideTitle.text = "Fotos Capturadas ($n)"
+    }
+
+    private fun onSave() {
+        if (capturedFiles.isEmpty()) {
+            setResult(Activity.RESULT_CANCELED)
+            finish()
+            return
+        }
+        val paths = capturedFiles.map { it.absolutePath }.toTypedArray()
+        val data = Intent().apply { putExtra(EXTRA_IMAGE_PATHS, paths) }
+        setResult(Activity.RESULT_OK, data)
+        finish()
+    }
+
+    private fun onCancel() {
+        capturedFiles.forEach { runCatching { it.delete() } }
+        capturedFiles.clear()
+        setResult(Activity.RESULT_CANCELED)
+        finish()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        onCancel()
     }
 
     companion object {
-        const val EXTRA_IMAGE_BASE64 = "image_base64"
-        const val EXTRA_IMAGE_PATH = "image_path"
+        const val EXTRA_IMAGE_PATHS = "image_paths"
         const val REQUEST_CODE = 4242
     }
 }

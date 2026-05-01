@@ -107,12 +107,23 @@ class MainActivity : AppCompatActivity() {
             pendingJsCallback = null
 
             if (resultCode == Activity.RESULT_OK && data != null) {
-                val b64 = data.getStringExtra(UsbCameraActivity.EXTRA_IMAGE_BASE64) ?: ""
-                val dataUrl = "data:image/jpeg;base64,$b64"
-                val js = "if(typeof $callback==='function'){$callback(${jsString(dataUrl)},null);}"
+                val paths = data.getStringArrayExtra(UsbCameraActivity.EXTRA_IMAGE_PATHS)
+                    ?: emptyArray()
+                val dataUrls = paths.mapNotNull { path ->
+                    runCatching {
+                        val bytes = java.io.File(path).readBytes()
+                        "data:image/jpeg;base64," + android.util.Base64.encodeToString(
+                            bytes, android.util.Base64.NO_WRAP
+                        )
+                    }.getOrNull()
+                }
+                paths.forEach { runCatching { java.io.File(it).delete() } }
+
+                val arrayJs = dataUrls.joinToString(",") { jsString(it) }
+                val js = "if(typeof $callback==='function'){$callback([$arrayJs],null);}"
                 webView.evaluateJavascript(js, null)
             } else {
-                val js = "if(typeof $callback==='function'){$callback(null,'cancelled');}"
+                val js = "if(typeof $callback==='function'){$callback([],'cancelled');}"
                 webView.evaluateJavascript(js, null)
             }
         }

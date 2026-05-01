@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="vc_primary">#1db9b3</color>
+    <color name="vc_primary_dark">#179c97</color>
+    <color name="vc_secondary">#c89d68</color>
+    <color name="vc_destructive">#dc2626</color>
+    <color name="vc_panel">#F2FFFFFF</color>
+    <color name="vc_panel_text">#111827</color>
+    <color name="vc_panel_muted">#6B7280</color>
+</resources>

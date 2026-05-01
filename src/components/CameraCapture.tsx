@@ -135,6 +135,8 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [selectedDevice, setSelectedDevice] = useState<string>('')
+  const [availableCameras, setAvailableCameras] = useState<CameraDevice[]>([])
+  const [showCameraSelector, setShowCameraSelector] = useState(false)
   const [isCapturing, setIsCapturing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [cameraError, setCameraError] = useState<string>('')
@@ -323,6 +325,7 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
         kind: device.kind
       }))
 
+      setAvailableCameras(cameraDevices)
       console.log('🔍 Câmeras encontradas:')
       cameraDevices.forEach((device, index) => {
         console.log(`${index + 1}. ID: ${device.deviceId}`)
@@ -926,7 +929,41 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
           </Button>
         )}
 
-
+        {/* Seletor de câmera manual */}
+        {availableCameras.length > 1 && (
+          <div className="relative">
+            <Button
+              onClick={() => setShowCameraSelector(v => !v)}
+              className="bg-black/60 hover:bg-black/80 text-white rounded-full w-14 h-14 p-0 shadow-lg border border-white/30"
+              title="Trocar câmera"
+            >
+              <RefreshCw className="w-5 h-5" />
+            </Button>
+            {showCameraSelector && (
+              <div className="absolute top-16 left-0 bg-white rounded-xl shadow-2xl z-50 min-w-64 max-w-xs overflow-hidden">
+                <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase bg-gray-50 border-b">
+                  Selecionar câmera
+                </p>
+                {availableCameras.map((cam) => (
+                  <button
+                    key={cam.deviceId}
+                    onClick={() => {
+                      setShowCameraSelector(false)
+                      if (stream) stream.getTracks().forEach(t => t.stop())
+                      setStream(null)
+                      setSelectedDevice(cam.deviceId)
+                    }}
+                    className={`w-full text-left px-4 py-3 text-sm hover:bg-blue-50 border-b last:border-0 ${
+                      selectedDevice === cam.deviceId ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-800'
+                    }`}
+                  >
+                    {cam.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
       </div>
 

@@ -1,7 +1,10 @@
 package com.vitallcam
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
+import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -17,8 +20,9 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private var pendingPermissionRequest: PermissionRequest? = null
+    private var pendingJsCallback: String? = null
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -34,6 +38,8 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
         }
 
+        webView.addJavascriptInterface(VitallCamBridge(), "VitallCam")
+
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url.toString()
@@ -42,6 +48,15 @@ class MainActivity : AppCompatActivity() {
                     return true
                 }
                 return false
+            }
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                super.onPageFinished(view, url)
+                view.evaluateJavascript(
+                    "window.__VITALLCAM_NATIVE__ = true;" +
+                    "window.dispatchEvent(new Event('vitallcam:ready'));",
+                    null
+                )
             }
         }
 
@@ -85,12 +100,66 @@ class MainActivity : AppCompatActivity() {
     }
 
     @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == UsbCameraActivity.REQUEST_CODE) {
+            val callback = pendingJsCallback ?: "window.__onIntraoralCapture"
+            pendingJsCallback = null
+
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                val b64 = data.getStringExtra(UsbCameraActivity.EXTRA_IMAGE_BASE64) ?: ""
+                val dataUrl = "data:image/jpeg;base64,$b64"
+                val js = "if(typeof $callback==='function'){$callback(${jsString(dataUrl)},null);}"
+                webView.evaluateJavascript(js, null)
+            } else {
+                val js = "if(typeof $callback==='function'){$callback(null,'cancelled');}"
+                webView.evaluateJavascript(js, null)
+            }
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (webView.canGoBack()) {
             webView.goBack()
         } else {
             super.onBackPressed()
         }
+    }
+
+    private fun jsString(s: String): String {
+        val sb = StringBuilder("\"")
+        for (c in s) {
+            when (c) {
+                '\\' -> sb.append("\\\\")
+                '"' -> sb.append("\\\"")
+                '\n' -> sb.append("\\n")
+                '\r' -> sb.append("\\r")
+                '\t' -> sb.append("\\t")
+                else -> sb.append(c)
+            }
+        }
+        sb.append("\"")
+        return sb.toString()
+    }
+
+    inner class VitallCamBridge {
+        @JavascriptInterface
+        fun isNative(): Boolean = true
+
+        @JavascriptInterface
+        fun openIntraoralCamera(jsCallbackName: String?) {
+            pendingJsCallback = if (jsCallbackName.isNullOrBlank())
+                "window.__onIntraoralCapture" else jsCallbackName
+            runOnUiThread {
+                val intent = Intent(this@MainActivity, UsbCameraActivity::class.java)
+                @Suppress("DEPRECATION")
+                startActivityForResult(intent, UsbCameraActivity.REQUEST_CODE)
+            }
+        }
+
+        @JavascriptInterface
+        fun openIntraoralCamera() = openIntraoralCamera(null)
     }
 
     companion object {

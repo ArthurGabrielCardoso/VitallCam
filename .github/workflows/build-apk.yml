@@ -62,6 +62,19 @@ jobs:
               -extent "${SIZE}x${SIZE}" \
               "android-app/app/src/main/res/mipmap-${DIR}/ic_launcher.png"
           done
+          # Gera splash icon em alta resolução para tela cheia
+          for density in mdpi:240 hdpi:360 xhdpi:480 xxhdpi:720 xxxhdpi:960; do
+            DIR="${density%%:*}"
+            SIZE="${density##*:}"
+            mkdir -p "android-app/app/src/main/res/drawable-${DIR}"
+            convert "$LOGO" \
+              -trim +repage \
+              -resize "${SIZE}x${SIZE}" \
+              -background none \
+              -gravity center \
+              -extent "${SIZE}x${SIZE}" \
+              "android-app/app/src/main/res/drawable-${DIR}/splash_icon.png"
+          done
 
       - name: Build APK debug
         working-directory: android-app

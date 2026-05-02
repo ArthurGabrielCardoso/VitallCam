@@ -12,9 +12,6 @@ export default function CameraTransition({ isDataReady }: { isDataReady: boolean
   const [visible, setVisible] = useState(false)   // fade-in do ícone
 
   useEffect(() => {
-    // Fade-in do ícone logo no mount
-    const tFade = setTimeout(() => setVisible(true), 30)
-
     // Pulso suave: alterna 1 ↔ 1.09 a cada 900ms
     let up = true
     const pulse = setInterval(() => {
@@ -32,7 +29,7 @@ export default function CameraTransition({ isDataReady }: { isDataReady: boolean
     // t=2.8s: inicia exit 0.4s antes do zoom terminar (overlap suave)
     const t2 = setTimeout(() => setZoomDone(true), 2800)
 
-    return () => { clearTimeout(tFade); clearInterval(pulse); clearTimeout(t1); clearTimeout(t2) }
+    return () => { clearInterval(pulse); clearTimeout(t1); clearTimeout(t2) }
   }, [])
 
   // Exit começa imediatamente quando o zoom termina — sem esperar dados
@@ -52,16 +49,19 @@ export default function CameraTransition({ isDataReady }: { isDataReady: boolean
     <div
       className={`fixed inset-0 z-[80] flex items-center justify-center overflow-hidden${exiting ? ' camera-reveal' : ''}`}
       style={{
-        backgroundColor: zooming ? '#0f766e' : '#ffffff',
+        backgroundColor: '#ffffff',
         pointerEvents:   exiting ? 'none' : 'auto',
-        transition:      'background-color 0.5s ease',
       }}
     >
+      {/* Teal expande do centro durante o zoom */}
+      {phase === 'zoom' && <div className="camera-teal-expand" />}
+
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/icon.png"
         alt=""
         aria-hidden
+        onLoad={() => setVisible(true)}
         style={{
           width:           176,
           height:          176,
@@ -72,6 +72,8 @@ export default function CameraTransition({ isDataReady }: { isDataReady: boolean
           transition:      phase === 'zoom'
             ? 'transform 1s ease-in'
             : 'transform 0.85s ease-in-out, opacity 0.55s ease',
+          position:        'relative',
+          zIndex:          1,
         }}
       />
     </div>

@@ -24,6 +24,7 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
+        setTheme(androidx.appcompat.R.style.Theme_AppCompat_NoActionBar)
         super.onCreate(savedInstanceState)
 
         webView = WebView(this)

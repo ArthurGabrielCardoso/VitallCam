@@ -37,6 +37,8 @@ export default function PatientPage() {
   const params = useParams()
   const router = useRouter()
   const patientId = params.id as string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
   
   // Broadcast: escuta mudanças de fotos em tempo real (leve, sem WAL)
   usePhotosBroadcast(patientId)
@@ -398,7 +400,7 @@ export default function PatientPage() {
             try {
               const imageData = e.target?.result as string
 
-              const { data, error } = await supabase
+              const { data, error } = await db
                 .from('photos')
                 .insert({
                   patient_id: patientId,
@@ -595,7 +597,7 @@ export default function PatientPage() {
     try {
       // Aqui você pode implementar a lógica para salvar a foto editada
       // Por exemplo, criar uma nova foto ou atualizar a existente
-      const { error } = await supabase
+      const { error } = await db
         .from('photos')
         .insert({
           patient_id: patientId,
@@ -740,7 +742,7 @@ export default function PatientPage() {
     if (!aiEnhancedImage || !selectedPhoto) return
 
     try {
-      const { error } = await supabase
+      const { error } = await db
         .from('photos')
         .insert({
           patient_id: patientId,
@@ -1022,7 +1024,7 @@ export default function PatientPage() {
 
   const loadTranscriptions = async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('transcriptions')
         .select('*')
         .eq('patient_id', patientId)
@@ -1037,7 +1039,7 @@ export default function PatientPage() {
 
   const loadAnamneses = async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('anamneses')
         .select('*')
         .eq('patient_id', patientId)

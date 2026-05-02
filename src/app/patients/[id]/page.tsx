@@ -30,6 +30,7 @@ import { transformSmileWithGemini } from '@/lib/gemini-smile'
 import TranscriptionViewer from '@/components/TranscriptionViewer'
 import TranscriptionDocument from '@/components/TranscriptionDocument'
 import AnamneseDocument from '@/components/AnamneseDocument'
+import PrintLayoutEditor from '@/components/PrintLayoutEditor'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Transcription, Anamnese } from '@/lib/types'
 
@@ -97,6 +98,7 @@ export default function PatientPage() {
   const profileStreamRef = useRef<MediaStream | null>(null)
   const [isUploadingProfilePhoto, setIsUploadingProfilePhoto] = useState(false)
   const [showProfileCamera, setShowProfileCamera] = useState(false)
+  const [printEditorPhotos, setPrintEditorPhotos] = useState<Photo[] | null>(null)
 
   const openProfileCamera = async () => {
     setShowProfileCamera(true)
@@ -864,30 +866,11 @@ export default function PatientPage() {
       return
     }
 
-    // Criar uma nova janela para impressão
-    const printWindow = window.open('', '_blank')
-    
-    if (!printWindow) {
-      toast({
-        variant: "destructive",
-        title: "Erro",
-        description: "Não foi possível abrir a janela de impressão"
-      })
-      return
-    }
-
-    // Obter objetos de foto completos a partir dos IDs selecionados
-    // Buscar nas fotos da pasta atual ou nas avulsas dependendo do contexto
     const currentPhotos = currentFolder ? sortedFolderPhotos : sortedUnfolderedPhotos
     const allAvailablePhotos = [...photos, ...currentPhotos]
-    
-    const selectedPhotoObjects = selectedPhotos.map(photoId => 
-      allAvailablePhotos.find(photo => photo.id === photoId)
-    ).filter(photo => photo !== undefined) as Photo[]
-
-    console.log('Fotos selecionadas para impressão:', selectedPhotoObjects.length)
-    console.log('IDs das fotos:', selectedPhotos)
-    console.log('Objetos das fotos:', selectedPhotoObjects)
+    const selectedPhotoObjects = selectedPhotos
+      .map(photoId => allAvailablePhotos.find(photo => photo.id === photoId))
+      .filter((p): p is Photo => Boolean(p))
 
     if (selectedPhotoObjects.length === 0) {
       toast({
@@ -895,175 +878,12 @@ export default function PatientPage() {
         title: "Erro",
         description: "Não foi possível encontrar as fotos selecionadas"
       })
-      printWindow.close()
       return
     }
 
-    // Organizar fotos em pares (2 por fileira) - 3 fileiras = 6 fotos por página
-    const photoPairs = []
-    for (let i = 0; i < selectedPhotoObjects.length; i += 2) {
-      photoPairs.push(selectedPhotoObjects.slice(i, i + 2))
-    }
-
-    const printContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Fotos - ${patient?.name}</title>
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              margin: 0;
-              padding: 20px;
-              background: white;
-            }
-            
-            .header {
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              margin-bottom: 30px;
-              padding-bottom: 20px;
-              border-bottom: 2px solid #1db9b3;
-            }
-            
-            .logo {
-              height: 60px;
-            }
-            
-            .patient-info {
-              text-align: right;
-            }
-            
-            .patient-name {
-              font-size: 24px;
-              font-weight: bold;
-              color: #1db9b3;
-              margin: 0;
-            }
-            
-            .print-date {
-              color: #666;
-              margin: 5px 0 0 0;
-            }
-            
-            .photos-grid {
-              margin-top: 30px;
-            }
-            
-            .photo-row {
-              display: flex;
-              justify-content: space-between;
-              margin-bottom: 15px;
-              page-break-inside: avoid;
-              width: 100%;
-            }
-            
-            .photo-container {
-              width: 48%;
-              text-align: center;
-              display: flex;
-              flex-direction: column;
-            }
-            
-            .photo-container:only-child {
-              width: 48%;
-              margin: 0 auto;
-            }
-            
-            .photo {
-              width: 100%;
-              max-width: 100%;
-              height: 320px;
-              object-fit: cover;
-              border: 2px solid #1db9b3;
-              border-radius: 8px;
-              display: block;
-            }
-            
-            @media print {
-              body {
-                margin: 0;
-                padding: 15px;
-              }
-              
-              .photo-row {
-                page-break-inside: avoid;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <img src="/assets/images/logo.png" alt="Logo" class="logo" />
-            <div class="patient-info">
-              <h1 class="patient-name">${patient?.name}</h1>
-              <p class="print-date">${new Date().toLocaleDateString('pt-BR', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-              })}</p>
-            </div>
-          </div>
-          
-          <div class="photos-grid">
-            ${photoPairs.map((pair, pairIndex) => `
-              <div class="photo-row">
-                ${pair.map((photo, photoIndex) => `
-                  <div class="photo-container">
-                    <img src="${photo.image_data}" alt="Foto ${pairIndex * 2 + photoIndex + 1}" class="photo" />
-                  </div>
-                `).join('')}
-              </div>
-            `).join('')}
-          </div>
-        </body>
-      </html>
-    `
-
-    printWindow.document.write(printContent)
-    printWindow.document.close()
-    
-    // Aguardar o carregamento das imagens antes de imprimir
-    printWindow.onload = () => {
-      const images = printWindow.document.querySelectorAll('img')
-      let loadedImages = 0
-      const totalImages = images.length
-      
-      if (totalImages === 0) {
-        setTimeout(() => {
-          printWindow.print()
-          printWindow.close()
-        }, 1000)
-        return
-      }
-      
-      const checkAllImagesLoaded = () => {
-        loadedImages++
-        if (loadedImages === totalImages) {
-          setTimeout(() => {
-            printWindow.print()
-            printWindow.close()
-          }, 500)
-        }
-      }
-      
-      images.forEach((img) => {
-        if (img.complete) {
-          checkAllImagesLoaded()
-        } else {
-          img.onload = checkAllImagesLoaded
-          img.onerror = checkAllImagesLoaded
-        }
-      })
-    }
-
-    toast({
-      title: "Sucesso!",
-      description: `Preparando impressão de ${selectedPhotoObjects.length} foto(s)`
-    })
+    setPrintEditorPhotos(selectedPhotoObjects)
   }
+
 
   const handleMovePhotoToFolder = async (folderId: string | null) => {
     try {
@@ -1574,7 +1394,7 @@ export default function PatientPage() {
                           <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-black/10 pointer-events-none" />
 
                           {/* Badge de contagem */}
-                          <div className="absolute top-2 right-2 h-6 pl-1.5 pr-2 rounded-full bg-white/95 backdrop-blur-sm flex items-center gap-1 shadow-sm">
+                          <div className="absolute top-2 right-2 h-6 pl-1.5 pr-2 rounded bg-white/95 backdrop-blur-sm flex items-center gap-1 shadow-sm">
                             <Folder className="w-3 h-3 text-teal-700" />
                             <span className="text-[10px] font-bold text-teal-800 leading-none">{folderPhotoCount}</span>
                           </div>
@@ -1627,27 +1447,32 @@ export default function PatientPage() {
                     {(currentFolder ? sortedFolderPhotos : sortedUnfolderedPhotos).length > 0 &&
                       ` (${(currentFolder ? sortedFolderPhotos : sortedUnfolderedPhotos).length})`}
                   </h3>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => scrollCarousel(photosScrollRef, 'left')}
-                      className="h-8 w-8 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
-                      title="Anterior"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => scrollCarousel(photosScrollRef, 'right')}
-                      className="h-8 w-8 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
-                      title="Próximo"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
+                  {!currentFolder && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => scrollCarousel(photosScrollRef, 'left')}
+                        className="h-8 w-8 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+                        title="Anterior"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => scrollCarousel(photosScrollRef, 'right')}
+                        className="h-8 w-8 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+                        title="Próximo"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div
                     ref={photosScrollRef}
-                    className="flex gap-3 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [scrollbar-width:none] scroll-smooth"
+                    className={currentFolder
+                      ? "grid gap-3 pb-2 grid-cols-[repeat(auto-fit,minmax(150px,1fr))]"
+                      : "flex gap-3 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [scrollbar-width:none] scroll-smooth"
+                    }
                   >
                     {photosLoading && Array.from({ length: 6 }).map((_, i) => (
                       <div key={`photo-skel-${i}`} className="w-40 h-40 rounded bg-gray-100 animate-pulse shrink-0" />
@@ -1679,7 +1504,7 @@ export default function PatientPage() {
                     {!photosLoading && (currentFolder ? sortedFolderPhotos : sortedUnfolderedPhotos).map((photo, index) => (
                       <div
                         key={photo.id}
-                        className={`w-40 h-40 shrink-0 bg-white border border-gray-200 rounded shadow-sm overflow-hidden cursor-pointer hover:shadow-md hover:border-teal-500 transition-all relative group ${
+                        className={`${currentFolder ? 'w-full aspect-square' : 'w-40 h-40 shrink-0'} bg-white border border-gray-200 rounded shadow-sm overflow-hidden cursor-pointer hover:shadow-md hover:border-teal-500 transition-all relative group ${
                           selectedPhotos.includes(photo.id) ? '!border-teal-600 ring-2 ring-teal-600 ring-offset-1' : ''
                         }`}
                         onClick={() => {
@@ -2263,6 +2088,17 @@ export default function PatientPage() {
           unfolderedPhotos={unfolderedPhotos}
           onFolderClick={handleComparisonFolderClick}
           onBackToFolders={handleComparisonBackToFolders}
+        />
+      )}
+
+      {/* Editor de impressão (laudo + fotos) */}
+      {printEditorPhotos && patient && (
+        <PrintLayoutEditor
+          patient={patient}
+          patientId={patientId}
+          initialFolderId={currentFolder}
+          initialPhotos={printEditorPhotos}
+          onClose={() => setPrintEditorPhotos(null)}
         />
       )}
 

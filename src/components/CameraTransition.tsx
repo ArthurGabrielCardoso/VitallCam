@@ -52,7 +52,7 @@ export default function CameraTransition({ isDataReady }: { isDataReady: boolean
       setPhase('zoom')
     }, 2200)
 
-    const t2 = setTimeout(() => setZoomDone(true), 3100)
+    const t2 = setTimeout(() => setZoomDone(true), 3000)
 
     return () => { clearInterval(pulse); clearTimeout(t1); clearTimeout(t2) }
   }, [])

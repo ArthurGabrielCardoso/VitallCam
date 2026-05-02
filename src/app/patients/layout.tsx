@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+import { Suspense } from "react"
 import { SidebarNav } from "@/components/SidebarNav"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useState, useEffect, useMemo, useRef } from "react"
@@ -28,7 +29,7 @@ function getRouteLabel(path: string) {
   return match ? match[1] : "Voltar"
 }
 
-export default function PatientsLayout({
+function PatientsLayoutContent({
   children,
 }: {
   children: React.ReactNode
@@ -209,5 +210,13 @@ export default function PatientsLayout({
         {children}
       </main>
     </div>
+  )
+}
+
+export default function PatientsLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background">{children}</div>}>
+      <PatientsLayoutContent>{children}</PatientsLayoutContent>
+    </Suspense>
   )
 }

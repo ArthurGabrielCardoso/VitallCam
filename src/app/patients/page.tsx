@@ -94,7 +94,7 @@ export default function PatientsPage() {
             muted
             playsInline
             style={{ width: 288, height: 288 }}
-            className="object-contain"
+            className="object-contain mix-blend-multiply"
           />
 
           <div className="text-center mt-4">

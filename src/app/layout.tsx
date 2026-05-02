@@ -11,9 +11,9 @@ export const metadata: Metadata = {
   title: "VitallCam - Excelência em diagnóstico",
   description: "Sistema completo para captura e gestão de fotos intraorais",
   icons: {
-    icon: [{ url: "/icon.png", type: "image/png", sizes: "any" }],
-    apple: [{ url: "/apple-icon.png", type: "image/png" }],
-    shortcut: [{ url: "/icon.png" }],
+    icon: "/icon.png",
+    shortcut: "/icon.png",
+    apple: "/icon.png",
   },
 };
 

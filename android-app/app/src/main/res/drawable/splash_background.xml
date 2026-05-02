@@ -3,10 +3,10 @@
     <item>
         <color android:color="#FFFFFF" />
     </item>
-    <item android:gravity="center">
+    <item>
         <bitmap
             android:src="@drawable/splash_icon"
-            android:gravity="center"
+            android:gravity="fill"
             android:tileMode="disabled" />
     </item>
 </layer-list>

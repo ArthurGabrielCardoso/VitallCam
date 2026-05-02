@@ -26,6 +26,7 @@ export default function RootLayout({
     <html lang="pt-BR" suppressHydrationWarning>
       <head>
         <link rel="preload" as="image" href="/icon.png" />
+        <link rel="preload" as="video" href="/lottie/SearchAnimation.mp4" type="video/mp4" />
       </head>
       <body className={`${inter.className} antialiased`} suppressHydrationWarning>
         <QueryProvider>

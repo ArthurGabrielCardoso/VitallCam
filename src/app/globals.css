@@ -224,20 +224,15 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 
 /* ─── Camera: teal expande do centro durante o zoom ────────────── */
-@property --teal-r {
-  syntax: '<percentage>';
-  inherits: false;
-  initial-value: 0%;
-}
 @keyframes tealFromCenter {
-  from { --teal-r: 0%;   }
-  to   { --teal-r: 160%; }
+  from { clip-path: circle(0% at 50% 50%); }
+  to   { clip-path: circle(160% at 50% 50%); }
 }
 .camera-teal-expand {
   position: absolute;
   inset: 0;
+  background: #0f766e;
   animation: tealFromCenter 0.7s ease-out forwards;
-  background: radial-gradient(circle at 50% 50%, #0f766e var(--teal-r), transparent var(--teal-r));
 }
 
 /* ─── Camera page-transition: reveal do centro para fora ─────── */

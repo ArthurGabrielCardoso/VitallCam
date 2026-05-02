@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Plus, Loader2, X } from 'lucide-react'
+import { Plus, Loader2, X, User } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 
 interface NewPatientModalProps {
@@ -13,21 +13,16 @@ export default function NewPatientModal({ onPatientCreated }: NewPatientModalPro
   const [isOpen, setIsOpen] = useState(false)
   const [patientName, setPatientName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
-  const { } = useToast()
+  const { toast } = useToast()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
-    // Pega o valor direto do input para compatibilidade com Android 7.x
     const form = e.target as HTMLFormElement
     const input = form.querySelector('input[name="patientName"]') as HTMLInputElement
     const name = input?.value?.trim() || patientName.trim()
 
-    console.log('🔄 Tentando criar paciente:', name)
-
     if (!name) {
-      console.log('❌ Nome vazio')
-      alert('Por favor, digite o nome do paciente')
+      toast({ variant: 'destructive', title: 'Nome obrigatório', description: 'Digite o nome do paciente' })
       return
     }
 
@@ -39,127 +34,98 @@ export default function NewPatientModal({ onPatientCreated }: NewPatientModalPro
         .select()
         .single()
 
-      if (error) {
-        console.error('❌ Erro do Supabase:', error)
-        throw error
-      }
+      if (error) throw error
 
-      console.log('✅ Paciente criado:', data)
       onPatientCreated()
       setPatientName('')
       setIsOpen(false)
-
-      alert(`✅ Paciente "${data.name}" criado com sucesso!`)
+      toast({ title: 'Paciente criado', description: `"${data.name}" foi adicionado com sucesso.` })
     } catch (error: unknown) {
-      console.error('❌ Erro completo:', error)
-      alert(`❌ Erro ao criar paciente: ${error instanceof Error ? error.message : 'Tente novamente'}`)
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao criar paciente',
+        description: error instanceof Error ? error.message : 'Tente novamente',
+      })
     } finally {
       setIsCreating(false)
     }
   }
 
-  const handleOpenModal = () => {
-    console.log('🔄 Abrindo modal de novo paciente')
-    setIsOpen(true)
-  }
-
   return (
     <>
-      {/* Botão para abrir modal */}
       <button
-        className="rounded-full shadow-lg px-6 py-3 text-white font-semibold hover:scale-105 transition-all duration-200 flex items-center gap-2 bg-primary hover:bg-primary/90"
-        style={{
-          cursor: 'pointer',
-          pointerEvents: 'auto',
-          position: 'relative',
-          WebkitBackfaceVisibility: 'hidden',
-          WebkitTransform: 'translateZ(0)',
-        }}
-        onMouseDown={handleOpenModal}
-        onClick={handleOpenModal}
-        onTouchStart={handleOpenModal}
         type="button"
+        onClick={() => setIsOpen(true)}
+        className="flex items-center gap-2 px-6 h-9 rounded text-sm font-semibold bg-transparent border border-dourado-500 text-dourado-600 hover:bg-dourado-50 transition-all shadow-none"
       >
-        <Plus className="w-5 h-5" />
-        Novo Paciente
+        <Plus className="h-4 w-4" />
+        Novo paciente
       </button>
 
-      {/* Modal simples */}
       {isOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-black">Criar Novo Paciente</h2>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in"
+          onClick={() => !isCreating && setIsOpen(false)}
+        >
+          <div
+            className="clean-dialog w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden"
+            data-state="open"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header surface-teal */}
+            <div className="surface-teal px-6 py-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-white/15 flex items-center justify-center">
+                  <User className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold">Novo Paciente</h2>
+                  <p className="text-xs text-white/80">Cadastre rápido — só o nome basta.</p>
+                </div>
+              </div>
               <button
-                onMouseDown={() => setIsOpen(false)}
-                onClick={() => setIsOpen(false)}
-                onTouchStart={() => setIsOpen(false)}
-                style={{
-                  cursor: 'pointer',
-                  pointerEvents: 'auto',
-                  position: 'relative',
-                  WebkitBackfaceVisibility: 'hidden',
-                  WebkitTransform: 'translateZ(0)',
-                }}
-                className="text-primary hover:text-primary/80 transition-colors"
                 type="button"
+                onClick={() => setIsOpen(false)}
+                disabled={isCreating}
+                className="p-1.5 rounded-md hover:bg-white/15 transition-colors disabled:opacity-50"
+                aria-label="Fechar"
               >
-                <X className="w-6 h-6" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Form */}
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
+            {/* Body */}
+            <form onSubmit={handleSubmit} className="p-6 space-y-5">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-gray-700 uppercase tracking-wide">
+                  Nome do paciente
+                </label>
                 <input
                   type="text"
                   name="patientName"
-                  placeholder="Nome do paciente"
+                  placeholder="Ex.: Maria Silva"
                   defaultValue={patientName}
                   onInput={(e) => setPatientName((e.target as HTMLInputElement).value)}
                   onChange={(e) => setPatientName(e.target.value)}
                   disabled={isCreating}
-                  style={{
-                    pointerEvents: 'auto',
-                    WebkitBackfaceVisibility: 'hidden',
-                    WebkitTransform: 'translateZ(0)',
-                  }}
-                  className="w-full px-4 py-3 border border-primary/30 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-colors text-black"
                   autoFocus
+                  className="w-full px-0 py-2.5 bg-transparent border-0 border-b-2 border-gray-200 focus:border-teal-600 outline-none text-gray-900 placeholder:text-gray-300 transition-colors"
                 />
               </div>
 
-              <div className="flex justify-end space-x-3 pt-4">
+              <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onMouseDown={() => setIsOpen(false)}
                   onClick={() => setIsOpen(false)}
-                  onTouchStart={() => setIsOpen(false)}
-                  style={{
-                    cursor: 'pointer',
-                    pointerEvents: 'auto',
-                    position: 'relative',
-                    WebkitBackfaceVisibility: 'hidden',
-                    WebkitTransform: 'translateZ(0)',
-                  }}
                   disabled={isCreating}
-                  className="px-4 py-2 text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50"
+                  className="btn-outline-teal disabled:opacity-50"
                 >
                   Cancelar
                 </button>
-
                 <button
                   type="submit"
-                  style={{
-                    cursor: 'pointer',
-                    pointerEvents: 'auto',
-                    position: 'relative',
-                    WebkitBackfaceVisibility: 'hidden',
-                    WebkitTransform: 'translateZ(0)',
-                  }}
                   disabled={isCreating || !patientName.trim()}
-                  className="px-6 py-2 text-white rounded-lg hover:opacity-90 transition-all flex items-center gap-2 disabled:opacity-50 bg-primary hover:bg-primary/90"
+                  className="btn-primary disabled:opacity-50 flex items-center gap-2"
                 >
                   {isCreating ? (
                     <>
@@ -167,7 +133,7 @@ export default function NewPatientModal({ onPatientCreated }: NewPatientModalPro
                       Criando...
                     </>
                   ) : (
-                    'Criar Paciente'
+                    'Criar paciente'
                   )}
                 </button>
               </div>

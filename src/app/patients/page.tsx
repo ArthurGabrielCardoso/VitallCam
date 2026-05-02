@@ -1,149 +1,164 @@
-'use client'
+"use client"
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
-import { useState, useMemo } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
-import NewPatientModal from '@/components/NewPatientModal'
-import { Search, User, Loader2, PlayCircle } from 'lucide-react'
-import { useToast } from '@/hooks/use-toast'
-import Link from 'next/link'
-import { usePatients, usePatientsBroadcast, usePrefetchPatient } from '@/hooks/usePatients'
-import IntersectionPrefetch from '@/components/IntersectionPrefetch'
+import { useState, useRef, useEffect, useMemo } from "react"
+import Link from "next/link"
+import { Search, ChevronRight, ImageIcon } from "lucide-react"
+
+import { usePatients, usePatientsBroadcast, usePrefetchPatient } from "@/hooks/usePatients"
+import NewPatientModal from "@/components/NewPatientModal"
+import IntersectionPrefetch from "@/components/IntersectionPrefetch"
+import { useToast } from "@/hooks/use-toast"
+import type { Patient } from "@/lib/types"
+
+function getIniciais(nome: string) {
+  return nome.split(" ").filter(Boolean).map((n) => n[0]).slice(0, 2).join("").toUpperCase()
+}
 
 export default function PatientsPage() {
-  const [searchTerm, setSearchTerm] = useState('')
   const { toast } = useToast()
-  const { data: patients = [], isLoading, error, refetch } = usePatients()
+  const [busca, setBusca] = useState("")
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const { data: pacientes = [], isLoading, error, refetch } = usePatients()
   usePatientsBroadcast()
   const { prefetchPatient } = usePrefetchPatient()
 
-  const handlePatientCreated = () => {
-    refetch()
+  const handlePatientCreated = () => { refetch() }
+  const handleHover = async (id: string) => {
+    try { await prefetchPatient(id) } catch { /* silent */ }
   }
 
-  const handlePatientHover = async (patientId: string) => {
-    try {
-      await prefetchPatient(patientId)
-    } catch {
-      // Falha silenciosa no prefetch
-    }
-  }
+  const resultados = useMemo<Patient[]>(() => {
+    const q = busca.trim().toLowerCase()
+    if (!q) return []
+    return pacientes.filter((p) => p.name.toLowerCase().includes(q))
+  }, [busca, pacientes])
 
-  const filteredPatients = useMemo(() => {
-    return searchTerm
-      ? patients.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
-      : patients
-  }, [patients, searchTerm])
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  const buscou = busca.trim().length > 0
+  const temResultados = buscou && !isLoading && resultados.length > 0
+  const semResultados = buscou && !isLoading && resultados.length === 0
+
+  // Scroll do main: bloqueia quando não há resultados
+  useEffect(() => {
+    document.body.style.overflow = temResultados ? "auto" : "hidden"
+    return () => { document.body.style.overflow = "" }
+  }, [temResultados])
 
   if (error) {
     toast({
       variant: "destructive",
       title: "Erro ao carregar pacientes",
-      description: "Verifique sua conexão"
+      description: "Verifique sua conexão",
     })
   }
 
   return (
-    <div className="min-h-screen relative patients-main-bg">
+    <div className="relative">
 
-      <div className="fixed top-6 left-6 z-50" style={{ position: 'fixed', pointerEvents: 'none' }}>
-        <Link
-          href="/patients/media"
-          style={{ pointerEvents: 'auto' }}
-          className="bg-primary hover:bg-primary/90 text-primary-foreground p-4 rounded-full shadow-lg transition-all hover:scale-105 flex items-center justify-center"
-        >
-          <PlayCircle className="w-6 h-6" />
-        </Link>
+      {/* Logo VitallCam — fixed, decorativo no canto direito */}
+      <div
+        className="pointer-events-none select-none fixed z-0 opacity-80 flex items-center"
+        style={{ height: "calc(100vh - 56px)", top: 56, right: 0, transform: "translateX(12%)" }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/IconVitall.png"
+          alt=""
+          aria-hidden
+          style={{ height: "80%", width: "auto" }}
+          className="object-contain"
+        />
       </div>
 
-      <div className="fixed top-6 right-6 z-50" style={{ position: 'fixed', pointerEvents: 'none' }}>
-        <div style={{ pointerEvents: 'auto' }}>
-          <NewPatientModal onPatientCreated={handlePatientCreated} />
-        </div>
+      {/* Botão canto superior esquerdo — z-20 p/ não ser coberto pelo container central */}
+      <div className="absolute top-6 left-6 z-20">
+        <NewPatientModal onPatientCreated={handlePatientCreated} />
       </div>
 
-      {/* Barra de Busca na Parte Inferior */}
-      <div className="absolute bottom-0 left-0 right-0 pb-6 px-6">
-        <div className="max-w-4xl mx-auto">
-          {/* Barra de Busca */}
-          <Card className="bg-primary/95 backdrop-blur-sm border-primary/20 shadow-2xl">
-            <CardContent className="p-6">
-              <div className="flex gap-2 mb-6">
-                <div className="relative flex-1">
-                <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-primary-foreground/70 w-5 h-5" style={{ pointerEvents: 'none' }} />
-                <input
-                  type="text"
-                  name="searchTerm"
-                  placeholder="Buscar paciente pelo nome..."
-                  defaultValue={searchTerm}
-                  onInput={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  onKeyUp={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
-                  style={{
-                    pointerEvents: 'auto',
-                    WebkitBackfaceVisibility: 'hidden',
-                    WebkitTransform: 'translateZ(0)',
-                  }}
-                  className="pl-12 bg-white/90 border-white/30 text-foreground placeholder:text-muted-foreground text-lg py-6 rounded-xl w-full px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-colors"
-                />
-                </div>
+      {/* Conteúdo */}
+      <div
+        className="relative z-10 flex flex-col items-center justify-center gap-6 px-4"
+        style={{ minHeight: "calc(100vh - 56px)" }}
+      >
+        <div className="flex flex-col items-center gap-0 w-full max-w-2xl -mt-[20vh]">
+
+          {/* Lottie video — exatamente como em /pacientes */}
+          <video
+            src="/lottie/SearchAnimation.mp4"
+            autoPlay
+            loop
+            muted
+            playsInline
+            style={{ width: 288, height: 288 }}
+            className="object-contain"
+          />
+
+          <div className="text-center mt-4">
+            <p className="text-2xl font-semibold text-gray-700">Busque por pacientes</p>
+            <p className="text-base text-gray-400 mt-1.5">Digite o nome para localizar o cadastro</p>
+          </div>
+
+          {/* Input */}
+          <div className="relative group w-full mt-5">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 group-focus-within:text-teal-600 transition-colors pointer-events-none" />
+            <input
+              ref={inputRef}
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Pesquisar..."
+              className="w-full pl-12 pr-10 py-4 border border-gray-200 rounded focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 outline-none text-base bg-white transition-all placeholder:text-gray-400 shadow-sm"
+            />
+            {isLoading && (
+              <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-teal-500 border-t-transparent" />
               </div>
+            )}
+          </div>
 
-              {/* Lista de Pacientes - só aparece quando há pesquisa */}
-              {searchTerm && (
-                <div className="max-h-64 overflow-y-auto space-y-3 w-full">
-                  {isLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin text-primary-foreground" />
-                      <span className="ml-2 text-primary-foreground">Carregando pacientes...</span>
+          {/* Resultados */}
+          {temResultados && (
+            <div className="w-full mt-5 border border-gray-200 rounded overflow-hidden shadow-sm bg-white">
+              {resultados.map((p, idx) => (
+                <IntersectionPrefetch key={p.id} patientId={p.id}>
+                  <Link
+                    href={`/patients/${p.id}`}
+                    prefetch={false}
+                    onMouseEnter={() => handleHover(p.id)}
+                    className={`flex items-center gap-4 px-5 py-3.5 bg-white hover:bg-teal-50 transition-colors group ${idx !== resultados.length - 1 ? "border-b border-gray-100" : ""}`}
+                  >
+                    <div className="h-9 w-9 rounded-full bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
+                      <span className="text-white font-semibold text-xs tracking-wide">{getIniciais(p.name)}</span>
                     </div>
-                  ) : filteredPatients.length === 0 ? (
-                    <div className="text-center py-8">
-                      <User className="w-12 h-12 text-primary-foreground/50 mx-auto mb-3" />
-                      <p className="text-primary-foreground/80 text-lg">
-                        Nenhum paciente encontrado
-                      </p>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 truncate leading-snug">{p.name}</p>
+                      <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                        <span className="flex items-center gap-1 text-xs text-gray-400">
+                          <ImageIcon className="h-3 w-3" />
+                          cadastro {new Date(p.created_at).toLocaleDateString("pt-BR")}
+                        </span>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {filteredPatients.map((patient) => (
-                        <IntersectionPrefetch key={patient.id} patientId={patient.id}>
-                          <Link
-                            href={`/patients/${patient.id}`}
-                            prefetch={true}
-                            onMouseEnter={() => handlePatientHover(patient.id)}
-                            style={{
-                              cursor: 'pointer',
-                              pointerEvents: 'auto',
-                              position: 'relative',
-                              WebkitBackfaceVisibility: 'hidden',
-                              WebkitTransform: 'translateZ(0)',
-                            }}
-                            className="h-auto p-4 bg-white/90 hover:bg-white text-left flex items-center space-x-3 rounded-xl border border-white/20 shadow-sm hover:shadow-md transition-all w-full block"
-                          >
-                          <div className="w-10 h-10 bg-secondary/20 rounded-full flex items-center justify-center flex-shrink-0">
-                            <User className="w-5 h-5 text-secondary" />
-                          </div>
-                          <div className="flex-1 min-w-0 overflow-hidden">
-                            <p className="font-medium text-foreground">
-                              {patient.name}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(patient.created_at).toLocaleDateString('pt-BR')}
-                            </p>
-                          </div>
-                        </Link>
-                        </IntersectionPrefetch>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+                    <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-teal-500 transition-colors shrink-0" />
+                  </Link>
+                </IntersectionPrefetch>
+              ))}
+            </div>
+          )}
 
+          {/* Sem resultados */}
+          {semResultados && (
+            <div className="flex flex-col items-center gap-2 py-4">
+              <p className="text-sm font-medium text-gray-500">Nenhum paciente encontrado</p>
+              <p className="text-xs text-gray-400">
+                para <span className="font-semibold text-gray-600">&quot;{busca}&quot;</span>
+              </p>
+            </div>
+          )}
 
-            </CardContent>
-          </Card>
         </div>
       </div>
     </div>

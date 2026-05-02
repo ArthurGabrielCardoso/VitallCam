@@ -2,93 +2,239 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  /* Cores da clínica - VALORES SÓLIDOS SEM TRANSPARÊNCIA */
-  --primary: #1db9b3;
-  /* turquesa */
-  --primary-foreground: #ffffff;
-  --secondary: #c89d68;
-  /* dourado */
-  --secondary-foreground: #ffffff;
-  --background: #ffffff;
-  --foreground: #000000;
-  /* preto sólido */
-  --card: #ffffff;
-  /* branco sólido */
-  --card-foreground: #000000;
-  /* preto sólido */
-  --popover: #ffffff;
-  --popover-foreground: #000000;
-  --muted: #f5f5f5;
-  /* cinza claro sólido */
-  --muted-foreground: #666666;
-  --accent: #e6f7f6;
-  /* turquesa muito claro sólido */
-  --accent-foreground: #1db9b3;
-  --destructive: #ef4444;
-  --destructive-foreground: #ffffff;
-  --border: #e5e5e5;
-  /* cinza claro sólido */
-  --input: #ffffff;
-  /* branco sólido */
-  --ring: #1db9b3;
-  --radius: 0.75rem;
+::selection {
+  background-color: #0d9488;
+  color: #ffffff;
 }
 
-/* Forçar modo claro sempre */
+@layer base {
+  :root {
+    --background: 240 10% 98%;
+    --foreground: 240 10% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 10%;
+
+    --primary: 174 77% 38%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 13% 95%;
+    --secondary-foreground: 240 10% 10%;
+
+    --muted: 220 13% 95%;
+    --muted-foreground: 240 5% 45%;
+
+    --accent: 220 13% 91%;
+    --accent-foreground: 240 10% 10%;
+
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 174 77% 38%;
+
+    --radius: 0.75rem;
+  }
+}
+
 * {
   color-scheme: light;
 }
 
-/* REGRAS GLOBAIS PARA GARANTIR CONSISTÊNCIA */
-.btn-primary {
-  background-color: var(--primary) !important;
-  color: var(--primary-foreground) !important;
-  border: none !important;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
 }
 
-.btn-primary:hover {
-  background-color: color-mix(in srgb, var(--primary) 90%, black) !important;
-}
-
-.text-primary {
-  color: var(--primary) !important;
-}
-
-.text-black {
-  color: #000000 !important;
-}
-
-.bg-primary {
-  background-color: var(--primary) !important;
-}
-
-.bg-secondary {
-  background-color: var(--secondary) !important;
-}
-
-body {
-  color: #000000 !important;
-  /* preto sólido */
-  background: #ffffff !important;
-  /* branco sólido */
-  min-height: 100vh;
-  font-family: 'Inter', system-ui, sans-serif;
-}
-
-/* Background especial apenas para a página principal de pacientes */
-.patients-main-bg {
-  background-image: url('/assets/images/Background.png') !important;
-  background-size: cover !important;
-  background-position: center !important;
-  background-attachment: fixed !important;
-  background-repeat: no-repeat !important;
-}
-
-
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESIGN SYSTEM — paleta teal + dourado, radius 12px
+   Primária : teal-500 (#14b8a6) … teal-700 (#0f766e)
+   Destaque : dourado-400 (#cca97e) … dourado-600 (#a87f5c)
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 @layer utilities {
+  .btn-primary {
+    @apply h-9 px-6 rounded-lg bg-gradient-to-r from-teal-600 to-teal-500
+           hover:from-teal-700 hover:to-teal-600 text-white font-semibold
+           text-sm transition-all shadow-none border-0;
+  }
+
+  .btn-accent {
+    @apply h-9 px-6 rounded-lg bg-gradient-to-r from-dourado-500 to-dourado-400
+           hover:from-dourado-600 hover:to-dourado-500 text-white font-semibold
+           text-sm transition-all shadow-none border-0;
+  }
+
+  .btn-outline-teal {
+    @apply h-9 px-6 rounded-lg border border-teal-600 text-teal-600
+           hover:bg-teal-50 bg-transparent font-semibold text-sm transition-all;
+  }
+
+  .btn-icon-light {
+    @apply p-1.5 rounded-md hover:bg-gray-100 transition-colors;
+  }
+
+  .surface-teal {
+    @apply bg-gradient-to-br from-teal-500 to-teal-700 text-white;
+  }
+
+  .surface-dourado {
+    @apply bg-gradient-to-br from-dourado-400 to-dourado-600 text-white;
+  }
+
+  .badge-teal {
+    @apply bg-gradient-to-br from-teal-600 to-teal-500 text-white
+           text-xs font-bold px-3 py-1 rounded-md;
+  }
+
+  .badge-dourado {
+    @apply bg-gradient-to-br from-dourado-400 to-dourado-600 text-white
+           text-xs font-bold px-3 py-1 rounded-md;
+  }
+
+  .card-clean {
+    @apply bg-white rounded-xl border border-gray-200 shadow-sm;
+  }
+
+  .card-hover {
+    @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5;
+  }
+
+  .glass {
+    @apply bg-white/80 backdrop-blur-md;
+  }
+
+  .scrollbar-hidden {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
   .text-balance {
     text-wrap: balance;
   }
+}
+
+/* ─── Animações ──────────────────────────────────────────────────── */
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+.animate-slide-in { animation: slideIn 0.3s ease-out; }
+.animate-fade-in  { animation: fadeIn 0.3s ease-out; }
+.animate-shimmer {
+  animation: shimmer 2s infinite linear;
+  background: linear-gradient(to right, transparent 0%, rgba(255, 255, 255, 0.3) 50%, transparent 100%);
+  background-size: 1000px 100%;
+}
+
+/* ─── Splash sequence ────────────────────────────────────────────
+   t=0    → 0.7s   ícone entra em escala (scale 0.5 → 1) centralizado
+   0.7    → 2.0s   ícone fica parado no centro exato do viewport
+   2.0    → 2.72s  painel de texto expande para a direita (React state)
+                   ícone desliza naturalmente para a esquerda
+   2.12   → 2.5s   "VitallCam" aparece junto com o painel
+   3.7    → 4.3s   "Excelência em diagnóstico" desliza para cima
+   7.2    → 8.0s   fade-out para branco
+   total ~8s
+*/
+
+@keyframes splashIconIn {
+  0%   { opacity: 0; transform: scale(0.45); }
+  55%  { opacity: 1; transform: scale(1.07); }
+  75%  { transform: scale(0.97); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Shimmer dourado: varre o texto uma única vez V→m, texto permanece visível */
+@keyframes splashBrandShimmer {
+  from { background-position: 100% center; }
+  to   { background-position:   0% center; }
+}
+
+.splash-icon {
+  animation: splashIconIn 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.splash-brand-shimmer {
+  animation-name: splashBrandShimmer;
+  animation-duration: 2.2s;
+  animation-timing-function: ease-in-out;
+  animation-delay: 2.6s;
+  animation-iteration-count: 1;
+  animation-fill-mode: forwards;
+}
+
+/* Mantido para uso decorativo no card central da /patients */
+@keyframes splashLogoInLegacy {
+  0%   { opacity: 0; transform: scale(0.6) translateY(20px); }
+  60%  { opacity: 1; transform: scale(1.05) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.splash-logo { animation: splashLogoInLegacy 0.8s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+
+/* Dialog (orcamento-style) slide */
+@keyframes dialogSlideDown {
+  from { opacity: 0; transform: translateY(-40px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes dialogSlideUp {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-40px) scale(0.96); }
+}
+.clean-dialog[data-state="open"]   { animation: dialogSlideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important; }
+.clean-dialog[data-state="closed"] { animation: dialogSlideUp 0.25s cubic-bezier(0.4, 0, 0.6, 1) !important; }
+
+/* Datas — input estilo */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+  filter: invert(0.3) sepia(1) saturate(5) hue-rotate(140deg);
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+
+/* ─── Camera page-transition: reveal do centro para fora ─────── */
+@property --mask-r {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+@keyframes revealFromCenter {
+  from { --mask-r: 0%;   }
+  to   { --mask-r: 160%; }
+}
+.camera-reveal {
+  animation: revealFromCenter 1.8s ease-out forwards;
+  mask-image: radial-gradient(circle at 50% 50%, transparent var(--mask-r), black var(--mask-r));
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent var(--mask-r), black var(--mask-r));
 }

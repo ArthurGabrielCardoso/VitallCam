@@ -10,6 +10,7 @@ import { usePatient, useUpdatePatient, useDeletePatient } from '@/hooks/usePatie
 import { usePhotos, usePhotosBroadcast, useDeletePhoto, useUnfolderedPhotos, useMovePhotosToFolder } from '@/hooks/usePhotos'
 import { useFolders, useCreateFolder, useFolderPhotos, useDeleteFolder, useUpdateFolder } from '@/hooks/useFolders'
 import CameraCapture from '@/components/CameraCapture'
+import CameraTransition from '@/components/CameraTransition'
 import ImageUpload from '@/components/ImageUpload'
 import CreateFolderModal from '@/components/CreateFolderModal'
 import EditFolderModal from '@/components/EditFolderModal'
@@ -19,7 +20,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
-import { Skeleton } from '@/components/ui/skeleton'
 import PhotoGridSkeleton from '@/components/PhotoGridSkeleton'
 import FolderCardSkeleton from '@/components/FolderCardSkeleton'
 import LazyImage from '@/components/LazyImage'
@@ -1061,46 +1061,7 @@ export default function PatientPage() {
     }
   }, [patientError, photosError, toast])
 
-  // Loading states com skeleton granular
-  if (patientLoading) {
-    return (
-      <div className="min-h-screen bg-white">
-        {/* Header Skeleton */}
-        <div className="flex items-center justify-between p-6 border-b">
-          <div className="flex items-center gap-3">
-            <Skeleton className="w-8 h-8 rounded-full" />
-            <div>
-              <Skeleton className="w-40 h-6 mb-2" />
-              <Skeleton className="w-28 h-4" />
-            </div>
-          </div>
-          <Skeleton className="w-20 h-10 rounded-md" />
-        </div>
-
-        {/* Toolbar Skeleton */}
-        <div className="flex items-center gap-4 p-6">
-          <Skeleton className="w-12 h-12 rounded-full" />
-          <Skeleton className="w-12 h-12 rounded-full" />
-          <Skeleton className="w-32 h-10 rounded-lg" />
-          <Skeleton className="w-32 h-10 rounded-lg" />
-        </div>
-
-        {/* Content Skeleton */}
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <Skeleton className="w-40 h-6" />
-            <div className="flex gap-2">
-              <Skeleton className="w-32 h-9" />
-              <Skeleton className="w-24 h-9" />
-            </div>
-          </div>
-          <PhotoGridSkeleton count={15} />
-        </div>
-      </div>
-    )
-  }
-
-  if (!patient) {
+  if (!patient && !patientLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="bg-card/95 backdrop-blur-sm">
@@ -1123,7 +1084,9 @@ export default function PatientPage() {
   }
 
   return (
-    <div
+    <>
+    <CameraTransition isDataReady={!patientLoading} />
+    {patient && <div
       className="min-h-screen bg-white relative"
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
@@ -1143,70 +1106,67 @@ export default function PatientPage() {
         </div>
       )}
 
-      {/* Header Simples */}
-      <div className="flex items-center justify-between p-6 border-b">
-        <div className="flex items-center gap-3">
-          <User className="w-8 h-8 text-black" />
-          <div>
-            {isEditingName ? (
-              <div className="flex items-center gap-2">
-                <input
-                  autoFocus
-                  value={editingName}
-                  onChange={e => setEditingName(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') handleSaveEditName()
-                    if (e.key === 'Escape') setIsEditingName(false)
-                  }}
-                  className="text-xl font-bold text-black border-b-2 border-primary outline-none bg-transparent"
-                />
-                <button onClick={handleSaveEditName} className="text-primary hover:text-primary/80">
-                  <Check className="w-5 h-5" />
-                </button>
-                <button onClick={() => setIsEditingName(false)} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-black">{patient.name}</h1>
-                <button
-                  onClick={handleStartEditName}
-                  className="text-gray-400 hover:text-primary transition-colors"
-                  title="Editar nome"
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="text-gray-400 hover:text-red-500 transition-colors"
-                  title="Deletar paciente"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-            <p className="text-black text-sm">
-              {photoCount} {photoCount === 1 ? 'foto' : 'fotos'} • {new Date(patient.created_at).toLocaleDateString('pt-BR')}
-            </p>
+      {/* Identity bar — global header já provê back/busca; aqui só identidade do paciente */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="px-6 py-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="h-11 w-11 rounded-full bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
+              <span className="text-white font-semibold text-sm tracking-wide">
+                {patient.name.split(' ').filter(Boolean).map(n => n[0]).slice(0, 2).join('').toUpperCase()}
+              </span>
+            </div>
+            <div className="min-w-0">
+              {isEditingName ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={editingName}
+                    onChange={e => setEditingName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleSaveEditName()
+                      if (e.key === 'Escape') setIsEditingName(false)
+                    }}
+                    className="text-lg font-bold text-gray-800 border-b-2 border-teal-500 outline-none bg-transparent"
+                  />
+                  <button onClick={handleSaveEditName} className="text-teal-600 hover:text-teal-700">
+                    <Check className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => setIsEditingName(false)} className="text-gray-400 hover:text-gray-600">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <h1 className="text-lg font-bold text-gray-800 truncate">{patient.name}</h1>
+                  <button
+                    onClick={handleStartEditName}
+                    className="text-gray-300 hover:text-teal-600 transition-colors p-1 rounded hover:bg-gray-100"
+                    title="Editar nome"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="text-gray-300 hover:text-red-500 transition-colors p-1 rounded hover:bg-gray-100"
+                    title="Deletar paciente"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+              <p className="text-xs text-gray-400 mt-0.5">
+                {photoCount} {photoCount === 1 ? 'foto' : 'fotos'} · cadastro {new Date(patient.created_at).toLocaleDateString('pt-BR')}
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="flex gap-2">
-          <Button
+          <button
             onClick={handleExportPatientPDF}
-            className="bg-secondary hover:bg-secondary/90 text-white"
             title="Exportar tudo como PDF"
+            className="h-9 px-4 rounded bg-gradient-to-r from-dourado-500 to-dourado-400 hover:from-dourado-600 hover:to-dourado-500 text-white font-semibold text-sm flex items-center gap-2 shadow-sm transition-all border-0 shrink-0"
           >
-            <Download className="w-4 h-4 mr-2" />
+            <Download className="w-4 h-4" />
             Exportar PDF
-          </Button>
-          <Button
-            onClick={() => router.push('/patients')}
-            className="bg-primary hover:bg-primary/90 text-white"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Voltar
-          </Button>
+          </button>
         </div>
       </div>
 
@@ -1251,30 +1211,30 @@ export default function PatientPage() {
       {/* Tabs para Fotos, Anamnese e Transcrições */}
       <div className="p-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="border-b border-gray-200 bg-transparent p-0 h-auto mb-6 w-full justify-start">
+          <TabsList className="border-b border-gray-200 bg-transparent p-0 h-auto mb-6 w-full justify-start gap-1">
             <TabsTrigger
               value="photos"
-              className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary rounded-none px-4 py-2"
+              className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-teal-600 data-[state=active]:text-teal-700 rounded-none px-4 py-2.5 font-semibold text-sm text-gray-500 hover:text-gray-700 transition-colors"
             >
               Fotos
             </TabsTrigger>
             <TabsTrigger
               value="anamnese"
-              className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary rounded-none px-4 py-2"
+              className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-teal-600 data-[state=active]:text-teal-700 rounded-none px-4 py-2.5 font-semibold text-sm text-gray-500 hover:text-gray-700 transition-colors"
             >
               Anamnese
             </TabsTrigger>
             <TabsTrigger
               value="transcriptions"
-              className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary rounded-none px-4 py-2"
+              className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-teal-600 data-[state=active]:text-teal-700 rounded-none px-4 py-2.5 font-semibold text-sm text-gray-500 hover:text-gray-700 transition-colors"
             >
               Transcrições ({transcriptions.length})
             </TabsTrigger>
             <TabsTrigger
               value="notes"
-              className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary rounded-none px-4 py-2"
+              className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-teal-600 data-[state=active]:text-teal-700 rounded-none px-4 py-2.5 font-semibold text-sm text-gray-500 hover:text-gray-700 transition-colors flex items-center"
             >
-              <NotebookPen className="w-4 h-4 mr-1" />
+              <NotebookPen className="w-4 h-4 mr-1.5" />
               Notas
             </TabsTrigger>
           </TabsList>
@@ -1286,7 +1246,7 @@ export default function PatientPage() {
           {/* Botão da Câmera */}
           <Button
             onClick={() => setShowCamera(true)}
-            className="w-12 h-12 rounded-full bg-primary hover:bg-primary/90 text-white p-0"
+            className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white p-0 shadow-md shadow-teal-500/25 border-0"
           >
             <Camera className="w-6 h-6" />
           </Button>
@@ -1295,30 +1255,35 @@ export default function PatientPage() {
           <ImageUpload
             patientId={patientId}
             onUpload={handleImageUpload}
-            className="w-12 h-12 rounded-full p-0"
+            className="w-12 h-12 rounded-xl p-0"
             folderId={currentFolder}
           />
         </div>
 
         {/* Header do Grid */}
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-black">
-            {currentFolder ? `Pasta: ${folders.find(f => f.id === currentFolder)?.name}` : 'Fotos Avulsas'}
+          <h3 className="text-base font-bold text-gray-800">
+            {currentFolder ? (
+              <span className="flex items-center gap-2">
+                <Folder className="w-4 h-4 text-dourado-500" />
+                {folders.find(f => f.id === currentFolder)?.name}
+              </span>
+            ) : 'Fotos Avulsas'}
           </h3>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {isSelectionMode && (
               <>
                 <Button
                   onClick={selectAllPhotos}
                   size="sm"
-                  className="bg-primary hover:bg-primary/90 text-white"
+                  className="btn-primary !h-8 !px-3"
                 >
                   Selecionar Todas
                 </Button>
                 <Button
                   onClick={clearSelection}
                   size="sm"
-                  className="bg-secondary hover:bg-secondary/90 text-white"
+                  className="btn-outline-teal !h-8 !px-3"
                 >
                   Limpar
                 </Button>
@@ -1326,7 +1291,7 @@ export default function PatientPage() {
                   onClick={handleMoveSelectedPhotos}
                   size="sm"
                   disabled={selectedPhotos.length === 0}
-                  className="bg-primary hover:bg-primary/90 text-white disabled:bg-gray-300"
+                  className="btn-primary !h-8 !px-3 disabled:opacity-50"
                 >
                   Mover ({selectedPhotos.length})
                 </Button>
@@ -1334,7 +1299,7 @@ export default function PatientPage() {
                   onClick={handleDeleteSelectedPhotos}
                   size="sm"
                   disabled={selectedPhotos.length === 0}
-                  className="bg-red-500 hover:bg-red-600 text-white disabled:bg-gray-300"
+                  className="h-8 px-3 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-semibold disabled:opacity-50 border-0"
                 >
                   <Trash2 className="w-4 h-4 mr-1" />
                   Deletar ({selectedPhotos.length})
@@ -1343,7 +1308,7 @@ export default function PatientPage() {
                   onClick={handlePrintSelected}
                   size="sm"
                   disabled={selectedPhotos.length === 0}
-                  className="bg-secondary hover:bg-secondary/90 text-white disabled:bg-gray-300"
+                  className="btn-accent !h-8 !px-3 disabled:opacity-50"
                 >
                   <Printer className="w-4 h-4 mr-1" />
                   Imprimir ({selectedPhotos.length})
@@ -1353,16 +1318,16 @@ export default function PatientPage() {
             <Button
               onClick={() => setSortOrder(sortOrder === 'newest' ? 'oldest' : 'newest')}
               size="sm"
-              className="bg-primary hover:bg-primary/90 text-white"
-              title={`Ordenar por: ${sortOrder === 'newest' ? 'Últimas capturadas primeiro' : 'Primeiras capturadas primeiro'}`}
+              className="btn-outline-teal !h-8 !px-3"
+              title={`Ordenar: ${sortOrder === 'newest' ? 'Últimas primeiro' : 'Primeiras primeiro'}`}
             >
               <ArrowUpDown className="w-4 h-4 mr-1" />
-              {sortOrder === 'newest' ? 'Última → Primeira' : 'Primeira → Última'}
+              {sortOrder === 'newest' ? 'Recentes' : 'Antigas'}
             </Button>
             <Button
               onClick={() => setShowCreateFolder(true)}
               size="sm"
-              className="bg-primary hover:bg-primary/90 text-white"
+              className="btn-primary !h-8 !px-3"
             >
               <FolderPlus className="w-4 h-4 mr-1" />
               Criar Pasta
@@ -1371,8 +1336,8 @@ export default function PatientPage() {
               onClick={toggleSelectionMode}
               size="sm"
               className={isSelectionMode
-                ? "bg-destructive hover:bg-destructive/90 text-white"
-                : "bg-secondary hover:bg-secondary/90 text-white"
+                ? "h-8 px-3 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-semibold border-0"
+                : "btn-outline-teal !h-8 !px-3"
               }
             >
               {isSelectionMode ? 'Cancelar' : 'Selecionar'}
@@ -1380,9 +1345,10 @@ export default function PatientPage() {
             {currentFolder && (
               <Button
                 onClick={() => handleFolderClick(currentFolder)}
-                className="bg-primary hover:bg-primary/90 text-white"
+                className="btn-outline-teal !h-8 !px-3"
               >
-                ← Voltar
+                <ArrowLeft className="w-4 h-4 mr-1" />
+                Voltar
               </Button>
             )}
           </div>
@@ -2042,6 +2008,7 @@ export default function PatientPage() {
           </div>
         </div>
       )}
-    </div>
+    </div>}
+    </>
   )
 }

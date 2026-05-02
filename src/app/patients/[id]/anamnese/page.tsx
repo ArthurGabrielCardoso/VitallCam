@@ -53,7 +53,7 @@ export default function AnamneseForm() {
           .from('patients')
           .select('name')
           .eq('id', patientId)
-          .single()
+          .single<{ name: string }>()
 
         if (error) throw error
 

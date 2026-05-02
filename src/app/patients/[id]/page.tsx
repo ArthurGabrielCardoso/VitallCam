@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { usePatient, useUpdatePatient, useDeletePatient } from '@/hooks/usePatients'
 import { usePhotos, usePhotosBroadcast, useDeletePhoto, useUnfolderedPhotos, useMovePhotosToFolder } from '@/hooks/usePhotos'
 import { useFolders, useCreateFolder, useFolderPhotos, useDeleteFolder, useUpdateFolder } from '@/hooks/useFolders'
+import { useFolderVideos, useUnfolderedVideos, getVideoSrc, VideoRow } from '@/hooks/useVideos'
 import CameraCapture from '@/components/CameraCapture'
 import CameraTransition from '@/components/CameraTransition'
 import ImageUpload from '@/components/ImageUpload'
@@ -150,6 +151,9 @@ export default function PatientPage() {
 
   // Hook para fotos da pasta atual
   const { data: folderPhotos = [] } = useFolderPhotos(currentFolder)
+  const { data: folderVideos = [], refetch: refetchFolderVideos } = useFolderVideos(currentFolder)
+  const { data: unfolderedVideos = [], refetch: refetchUnfolderedVideos } = useUnfolderedVideos(patientId)
+  const [selectedVideo, setSelectedVideo] = useState<VideoRow | null>(null)
 
   // Função para ordenar fotos por tempo de criação (mais preciso e confiável)
   const sortPhotos = (photos: Photo[]) => {
@@ -376,6 +380,8 @@ export default function PatientPage() {
     refetchPhotos()
     refetchUnfolderedPhotos()
     refetchFolders()
+    refetchFolderVideos()
+    refetchUnfolderedVideos()
     setShowCamera(false)
   }
 
@@ -1646,6 +1652,30 @@ export default function PatientPage() {
                     {photosLoading && Array.from({ length: 6 }).map((_, i) => (
                       <div key={`photo-skel-${i}`} className="w-40 h-40 rounded bg-gray-100 animate-pulse shrink-0" />
                     ))}
+                    {/* Vídeos da pasta/avulsos */}
+                    {(currentFolder ? folderVideos : unfolderedVideos).map((video) => (
+                      <div
+                        key={`video-${video.id}`}
+                        onClick={() => setSelectedVideo(video)}
+                        className="w-40 h-40 shrink-0 bg-black border border-gray-200 rounded shadow-sm overflow-hidden cursor-pointer hover:shadow-md hover:border-teal-500 transition-all relative group"
+                      >
+                        <video
+                          src={getVideoSrc(video)}
+                          preload="metadata"
+                          muted
+                          playsInline
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/25 group-hover:bg-black/10 transition-colors">
+                          <span className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                            <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-teal-700 ml-0.5"><path d="M8 5v14l11-7z" /></svg>
+                          </span>
+                        </div>
+                        <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-white text-[10px] font-semibold tabular-nums">
+                          {String(Math.floor(video.duration / 60)).padStart(2, '0')}:{String(video.duration % 60).padStart(2, '0')}
+                        </div>
+                      </div>
+                    ))}
                     {!photosLoading && (currentFolder ? sortedFolderPhotos : sortedUnfolderedPhotos).map((photo, index) => (
                       <div
                         key={photo.id}
@@ -1979,22 +2009,40 @@ export default function PatientPage() {
       )}
 
       {showCamera && (
-        <div className="fixed inset-0 bg-white z-50">
-          <div className="h-full flex flex-col">
-            {/* Botão Fechar no canto superior direito */}
-            <Button
-              onClick={() => setShowCamera(false)}
-              className="absolute top-2 right-2 sm:top-4 sm:right-4 bg-primary hover:bg-primary/90 text-white rounded-full w-8 h-8 sm:w-10 sm:h-10 p-0 z-10"
-            >
-              ✕
-            </Button>
+        <CameraCapture
+          patientId={patientId}
+          onPhotoCapture={handlePhotoCapture}
+          onClose={() => setShowCamera(false)}
+        />
+      )}
 
-            {/* Content da Câmera */}
-            <div className="flex-1">
-              <CameraCapture
-                patientId={patientId}
-                onPhotoCapture={handlePhotoCapture}
-              />
+      {/* Player de vídeo */}
+      {selectedVideo && (
+        <div
+          className="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setSelectedVideo(null)}
+        >
+          <div className="relative w-full max-w-4xl bg-black rounded overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setSelectedVideo(null)}
+              className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md text-white flex items-center justify-center"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <video
+              src={getVideoSrc(selectedVideo)}
+              controls
+              autoPlay
+              className="w-full max-h-[80vh]"
+            />
+            <div className="px-4 py-2 bg-black/60 text-white text-xs flex items-center gap-3">
+              <span className="tabular-nums">
+                {String(Math.floor(selectedVideo.duration / 60)).padStart(2, '0')}:{String(selectedVideo.duration % 60).padStart(2, '0')}
+              </span>
+              <span className="text-white/50">·</span>
+              <span>{selectedVideo.size_bytes ? `${(selectedVideo.size_bytes / 1024 / 1024).toFixed(1)} MB` : ''}</span>
+              <span className="text-white/50">·</span>
+              <span>{new Date(selectedVideo.created_at).toLocaleString('pt-BR')}</span>
             </div>
           </div>
         </div>

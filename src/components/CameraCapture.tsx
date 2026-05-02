@@ -7,7 +7,7 @@ import { Photo, CameraDevice } from '@/lib/types'
 import { useCreateFolder } from '@/hooks/useFolders'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Camera, Loader2, AlertCircle, RefreshCw, Save, X } from 'lucide-react'
+import { Camera, Loader2, AlertCircle, RefreshCw, X, FlipHorizontal2, Settings2, Video, Square, ChevronLeft, ChevronRight, Trash2, Check, Play } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 
 
@@ -15,7 +15,14 @@ import { useToast } from '@/hooks/use-toast'
 interface CameraCaptureProps {
   patientId: string
   onPhotoCapture: (photo: Photo) => void
+  onClose?: () => void
 }
+
+type CaptureMode = 'photo' | 'video'
+
+type CapturedItem =
+  | { kind: 'photo'; dataUrl: string }
+  | { kind: 'video'; dataUrl: string; blob: Blob; duration: number; mimeType: string }
 
 declare global {
   interface Window {
@@ -141,9 +148,14 @@ const classifyCamera = (label: string) => {
   return { priority: 5, type: 'unknown' }
 }
 
-export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptureProps) {
+export default function CameraCapture({ patientId, onPhotoCapture, onClose }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const thumbRef = useRef<HTMLButtonElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const recordedChunksRef = useRef<Blob[]>([])
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [selectedDevice, setSelectedDevice] = useState<string>('')
   const [availableCameras, setAvailableCameras] = useState<CameraDevice[]>([])
@@ -152,13 +164,21 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
   const [isSaving, setIsSaving] = useState(false)
   const [cameraError, setCameraError] = useState<string>('')
   const [isInitializing] = useState(false)
-  const [capturedPhotos, setCapturedPhotos] = useState<string[]>([])
+  const [capturedItems, setCapturedItems] = useState<CapturedItem[]>([])
   const [showSaveButton, setShowSaveButton] = useState(false)
   const [zoomTriggerEnabled] = useState(true)
   const [lastCaptureTime, setLastCaptureTime] = useState(0)
   const [stableStartTime, setStableStartTime] = useState<number | null>(null)
   const [goodFocusThreshold] = useState(50)
   const [zoomLevel, setZoomLevel] = useState(1)
+  const [mode, setMode] = useState<CaptureMode>('photo')
+  const [isMirrored, setIsMirrored] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordingTime, setRecordingTime] = useState(0)
+  const [showSettings, setShowSettings] = useState(false)
+  const [showGallery, setShowGallery] = useState(false)
+  const [galleryIndex, setGalleryIndex] = useState(0)
+  const [flyAnim, setFlyAnim] = useState<{ src: string; from: DOMRect; to: DOMRect } | null>(null)
   const { toast } = useToast()
   const router = useRouter()
   const createFolderMutation = useCreateFolder()
@@ -186,7 +206,7 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
         }
         return
       }
-      setCapturedPhotos(prev => [...dataUrls, ...prev])
+      setCapturedItems(prev => [...dataUrls.map(d => ({ kind: 'photo' as const, dataUrl: d })), ...prev])
       setShowSaveButton(true)
       toast({
         title: '🦷 Fotos intraorais capturadas',
@@ -283,10 +303,10 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
     }
   }, [selectedDevice]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Atualizar showSaveButton quando capturedPhotos mudar
+  // Atualizar showSaveButton quando capturedItems mudar
   useEffect(() => {
-    setShowSaveButton(capturedPhotos.length > 0)
-  }, [capturedPhotos])
+    setShowSaveButton(capturedItems.length > 0)
+  }, [capturedItems])
 
   // Sistema inteligente removido - câmera básica e rápida
 
@@ -722,43 +742,25 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
 
       const finalImageData = canvas.toDataURL('image/jpeg', 0.95)
 
-      setCapturedPhotos(prev => [finalImageData, ...prev])
+      // Flash sutil
+      if (stageRef.current) {
+        const flash = document.createElement('div')
+        flash.className = 'absolute inset-0 bg-white pointer-events-none z-30'
+        flash.style.animation = 'cameraFlash 0.35s ease-out forwards'
+        stageRef.current.appendChild(flash)
+        setTimeout(() => flash.remove(), 360)
+      }
+
+      // Animação: imagem voa do centro para o thumbnail no canto inferior esquerdo
+      const stageRect = stageRef.current?.getBoundingClientRect()
+      const thumbRect = thumbRef.current?.getBoundingClientRect()
+      if (stageRect && thumbRect) {
+        setFlyAnim({ src: finalImageData, from: stageRect, to: thumbRect })
+        setTimeout(() => setFlyAnim(null), 650)
+      }
+
+      setCapturedItems(prev => [{ kind: 'photo', dataUrl: finalImageData }, ...prev])
       setShowSaveButton(true)
-
-      // Efeito flash
-      const flashOverlay = document.createElement('div')
-      flashOverlay.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: white;
-        z-index: 9999;
-        pointer-events: none;
-        animation: flash 0.3s ease-out;
-      `
-
-      const style = document.createElement('style')
-      style.textContent = `
-        @keyframes flash {
-          0% { opacity: 0; }
-          50% { opacity: 0.8; }
-          100% { opacity: 0; }
-        }
-      `
-      document.head.appendChild(style)
-      document.body.appendChild(flashOverlay)
-
-      setTimeout(() => {
-        document.body.removeChild(flashOverlay)
-        document.head.removeChild(style)
-      }, 300)
-
-      toast({
-        title: "✅ Foto capturada",
-        description: "Imagem capturada com sucesso!"
-      })
 
     } catch {
       toast({
@@ -772,96 +774,181 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
   }
 
 
+  const startRecording = () => {
+    if (!stream) return
+    try {
+      const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4']
+        .find(m => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m)) || ''
+      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+      recordedChunksRef.current = []
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunksRef.current.push(e.data) }
+      recorder.onstop = handleRecordingStop
+      recorder.start()
+      mediaRecorderRef.current = recorder
+      setIsRecording(true)
+      setRecordingTime(0)
+      recordingTimerRef.current = setInterval(() => setRecordingTime(t => t + 1), 1000)
+    } catch (err) {
+      console.error('Erro ao iniciar gravação:', err)
+      toast({ variant: 'destructive', title: 'Gravação indisponível', description: 'Este dispositivo não suporta MediaRecorder.' })
+    }
+  }
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop()
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current)
+      recordingTimerRef.current = null
+    }
+    setIsRecording(false)
+  }
+
+  const handleRecordingStop = async () => {
+    const mimeType = recordedChunksRef.current[0]?.type || 'video/webm'
+    const blob = new Blob(recordedChunksRef.current, { type: mimeType })
+    const duration = recordingTime
+
+    try {
+      // Gera poster (primeiro frame visível) usando um <video> off-DOM
+      const poster = await generateVideoPoster(blob)
+
+      const item: CapturedItem = { kind: 'video', dataUrl: poster, blob, duration, mimeType }
+      setCapturedItems(prev => [item, ...prev])
+      setShowSaveButton(true)
+
+      // Animação: poster voa do centro para o thumbnail
+      const stageRect = stageRef.current?.getBoundingClientRect()
+      const thumbRect = thumbRef.current?.getBoundingClientRect()
+      if (stageRect && thumbRect) {
+        setFlyAnim({ src: poster, from: stageRect, to: thumbRect })
+        setTimeout(() => setFlyAnim(null), 650)
+      }
+
+      toast({ title: 'Vídeo capturado', description: `${formatTime(duration)} · ${(blob.size / 1024 / 1024).toFixed(1)}MB` })
+    } catch (err: any) {
+      console.error(err)
+      toast({ variant: 'destructive', title: 'Erro ao processar vídeo', description: err?.message || 'Tente novamente.' })
+    } finally {
+      setRecordingTime(0)
+    }
+  }
+
+  const generateVideoPoster = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob)
+      const video = document.createElement('video')
+      video.preload = 'metadata'
+      video.muted = true
+      video.playsInline = true
+      video.src = url
+      video.onloadeddata = () => {
+        try { video.currentTime = Math.min(0.1, (video.duration || 1) / 2) } catch { /* noop */ }
+      }
+      video.onseeked = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = video.videoWidth || 640
+        canvas.height = video.videoHeight || 480
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { URL.revokeObjectURL(url); return reject(new Error('canvas context')) }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        URL.revokeObjectURL(url)
+        resolve(canvas.toDataURL('image/jpeg', 0.8))
+      }
+      video.onerror = () => { URL.revokeObjectURL(url); reject(new Error('video load failed')) }
+    })
+  }
+
+  const uploadVideoItem = async (item: Extract<CapturedItem, { kind: 'video' }>, folderId: string) => {
+    const useStorage = item.duration > 10
+    const baseRow = {
+      patient_id: patientId,
+      folder_id: folderId,
+      duration: item.duration,
+      size_bytes: item.blob.size,
+      mime_type: item.mimeType,
+    }
+    let row: any
+    if (useStorage) {
+      const ext = item.mimeType.includes('mp4') ? 'mp4' : 'webm'
+      const storagePath = `${patientId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+      const { error: upErr } = await (supabase as any).storage
+        .from('patient-videos')
+        .upload(storagePath, item.blob, { contentType: item.mimeType, upsert: false })
+      if (upErr) throw upErr
+      const { data: pub } = (supabase as any).storage.from('patient-videos').getPublicUrl(storagePath)
+      row = { ...baseRow, storage_path: storagePath, video_url: pub?.publicUrl ?? null }
+    } else {
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const r = new FileReader()
+        r.onload = () => resolve(r.result as string)
+        r.onerror = () => reject(r.error)
+        r.readAsDataURL(item.blob)
+      })
+      row = { ...baseRow, video_data: dataUrl }
+    }
+    const { data, error } = await (supabase as any).from('videos').insert(row).select().single()
+    if (error) throw error
+    return data
+  }
+
+  const formatTime = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+
+  const handleMainAction = () => {
+    if (mode === 'photo') return capturePhoto()
+    if (isRecording) return stopRecording()
+    return startRecording()
+  }
+
+  const handleClose = () => {
+    if (isRecording) stopRecording()
+    if (stream) stream.getTracks().forEach(t => t.stop())
+    onClose?.()
+  }
+
   const savePhotos = async () => {
-    if (capturedPhotos.length === 0) return
+    if (capturedItems.length === 0) return
 
     setIsSaving(true)
 
     try {
-      // Verificar conexão com Supabase
-      console.log('Testando conexão com Supabase...')
-      const { error: testError } = await supabase
-        .from('photos')
-        .select('id')
-        .limit(1)
-
-      if (testError) {
-        console.error('Erro de conexão com Supabase:', testError)
-        throw new Error(`Erro de conexão: ${testError.message}`)
-      }
-
-      console.log('Conexão com Supabase OK')
-
-      // Criar ou verificar se a pasta existe
-      const today = new Date()
-      const folderDate = today.toLocaleDateString('pt-BR')
-      const folderName = `Pasta ${folderDate}`
-
-      console.log('Criando pasta:', folderName)
-
-      const folder = await createFolderMutation.mutateAsync({
-        name: folderName,
-        patient_id: patientId
-      })
-
+      const folderName = `Pasta ${new Date().toLocaleDateString('pt-BR')}`
+      const folder = await createFolderMutation.mutateAsync({ name: folderName, patient_id: patientId })
       const folderId = folder.id
-      console.log('✅ Pasta pronta! ID:', folderId)
 
-      // Salvar fotos em sequência com delay para garantir ordem por created_at
-      const savedPhotos: any[] = []
-      
-      // Inverter ordem para que a primeira capturada seja salva primeiro
-      const photosToSave = [...capturedPhotos].reverse()
-      
-      for (let index = 0; index < photosToSave.length; index++) {
-        const imageData = photosToSave[index]
-        
-        // Pequeno delay entre inserções para garantir timestamps únicos e sequenciais
-        if (index > 0) {
-          await new Promise(resolve => setTimeout(resolve, 50)) // 50ms delay
+      const itemsToSave = [...capturedItems].reverse()
+      const saved: any[] = []
+      let photoCount = 0
+      let videoCount = 0
+
+      for (let index = 0; index < itemsToSave.length; index++) {
+        const item = itemsToSave[index]
+        if (index > 0) await new Promise(r => setTimeout(r, 50))
+
+        if (item.kind === 'photo') {
+          const { data, error } = await (supabase as any)
+            .from('photos')
+            .insert({ patient_id: patientId, image_data: item.dataUrl, folder_id: folderId })
+            .select()
+            .single()
+          if (error) throw error
+          saved.push(data)
+          photoCount++
+        } else {
+          const data = await uploadVideoItem(item, folderId)
+          saved.push(data)
+          videoCount++
         }
-
-        console.log(`Salvando foto ${index + 1}/${photosToSave.length} na pasta ${folderName}`)
-
-        // Verificar se os dados estão válidos
-        if (!patientId || patientId.trim() === '') {
-          throw new Error('ID do paciente inválido')
-        }
-
-        if (!imageData || imageData.trim() === '') {
-          throw new Error('Dados da imagem inválidos')
-        }
-
-        // Inserir foto no Supabase
-        const { data, error } = await supabase
-          .from('photos')
-          .insert({
-            patient_id: patientId,
-            image_data: imageData,
-            folder_id: folderId
-          })
-          .select()
-          .single()
-
-        if (error) {
-          console.error('❌ Erro ao salvar foto:', error)
-          throw error
-        }
-
-        console.log(`✅ Foto ${index + 1} salva! ID: ${data.id}, Time: ${data.created_at}`)
-        savedPhotos.push(data)
       }
 
-      // Notificar componente pai sobre as fotos salvas
-      savedPhotos.forEach(photo => onPhotoCapture(photo))
+      saved.forEach(row => onPhotoCapture(row))
 
-      toast({
-        title: "Sucesso!",
-        description: `${capturedPhotos.length} foto(s) salva(s) na pasta "${folderName}"`
-      })
+      const parts = [
+        photoCount > 0 ? `${photoCount} foto(s)` : null,
+        videoCount > 0 ? `${videoCount} vídeo(s)` : null,
+      ].filter(Boolean).join(' + ')
+      toast({ title: 'Sucesso!', description: `${parts} salvos em "${folderName}"` })
 
-      // Limpar fotos capturadas
-      setCapturedPhotos([])
+      setCapturedItems([])
       setShowSaveButton(false)
 
       // No APK (fluxo da câmera intraoral USB), volta direto pro perfil do paciente
@@ -882,12 +969,10 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
   }
 
   const removePhoto = (index: number) => {
-    setCapturedPhotos(prev => {
-      const newPhotos = prev.filter((_, i) => i !== index)
-      if (newPhotos.length === 0) {
-        setShowSaveButton(false)
-      }
-      return newPhotos
+    setCapturedItems(prev => {
+      const next = prev.filter((_, i) => i !== index)
+      if (next.length === 0) setShowSaveButton(false)
+      return next
     })
   }
 
@@ -934,148 +1019,326 @@ export default function CameraCapture({ patientId, onPhotoCapture }: CameraCaptu
     )
   }
 
+  const lastItem = capturedItems[0]
+
   return (
-    <div className="h-screen w-screen relative bg-black overflow-hidden">
-      {/* Vídeo da Câmera Padrão - 100% da tela sem bordas */}
-      <video
-        ref={videoRef}
-        className="w-full h-full object-cover absolute inset-0 transition-transform duration-100"
-        style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'center center' }}
-        playsInline
-        muted
-      />
-
-      {!stream && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        </div>
-      )}
-
-      {/* Canvas oculto */}
-      <canvas ref={canvasRef} className="hidden" />
-
-      {/* Botões Flutuantes */}
-      <div className="absolute top-4 left-4 flex gap-4 items-center z-10">
-        {/* Botão Capturar */}
-        <Button
-          onClick={capturePhoto}
-          disabled={!stream || isCapturing}
-          className="bg-primary hover:bg-primary/90 text-white rounded-full w-14 h-14 p-0 shadow-lg"
-        >
-          {isCapturing ? (
-            <Loader2 className="w-6 h-6 animate-spin" />
-          ) : (
-            <Camera className="w-6 h-6" />
-          )}
-        </Button>
-
-        {/* Botão Salvar (se houver fotos) */}
-        {showSaveButton && (
-          <Button
-            onClick={savePhotos}
-            disabled={isSaving}
-            className="bg-secondary hover:bg-secondary/90 text-white rounded-full w-14 h-14 p-0 shadow-lg"
+    <div className="fixed inset-0 z-[60] bg-neutral-950 grid grid-cols-[clamp(140px,15vw,220px)_1fr_clamp(140px,15vw,220px)] items-stretch py-6 sm:py-8">
+      {/* COLUNA ESQUERDA — fechar + salvar (topo) e thumbnail (rodapé) */}
+      <aside className="flex flex-col items-center justify-between py-2 px-3">
+        {/* Topo: Fechar + Salvar */}
+        <div className="flex flex-col items-center gap-7">
+          <button
+            onClick={handleClose}
+            aria-label="Fechar câmera"
+            className="flex flex-col items-center gap-1.5 text-white/85 hover:text-white transition-colors group"
           >
-            {isSaving ? (
-              <Loader2 className="w-6 h-6 animate-spin" />
-            ) : (
-              <Save className="w-6 h-6" />
-            )}
-          </Button>
-        )}
+            <X className="w-7 h-7 group-hover:scale-110 transition-transform" strokeWidth={2.2} />
+            <span className="text-[11px] font-medium tracking-wide">Fechar</span>
+          </button>
 
-        {/* Seletor de câmera manual */}
-        {availableCameras.length > 1 && (
-          <div className="relative">
-            <Button
-              onClick={() => setShowCameraSelector(v => !v)}
-              className="bg-black/60 hover:bg-black/80 text-white rounded-full w-14 h-14 p-0 shadow-lg border border-white/30"
-              title="Trocar câmera"
+          {showSaveButton && (
+            <button
+              onClick={savePhotos}
+              disabled={isSaving}
+              className="flex flex-col items-center gap-1.5 text-teal-400 hover:text-teal-300 transition-colors group disabled:opacity-60"
             >
-              <RefreshCw className="w-5 h-5" />
-            </Button>
-            {showCameraSelector && (
-              <div className="absolute top-16 left-0 bg-white rounded-xl shadow-2xl z-50 min-w-64 max-w-xs overflow-hidden">
-                <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase bg-gray-50 border-b">
-                  Selecionar câmera
-                </p>
-                {availableCameras.map((cam) => (
-                  <button
-                    key={cam.deviceId}
-                    onClick={() => {
-                      setShowCameraSelector(false)
-                      if (stream) stream.getTracks().forEach(t => t.stop())
-                      setStream(null)
-                      setSelectedDevice(cam.deviceId)
-                    }}
-                    className={`w-full text-left px-4 py-3 text-sm hover:bg-blue-50 border-b last:border-0 ${
-                      selectedDevice === cam.deviceId ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-800'
-                    }`}
-                  >
-                    {cam.label}
-                  </button>
-                ))}
-              </div>
+              {isSaving ? (
+                <Loader2 className="w-7 h-7 animate-spin" />
+              ) : (
+                <Check className="w-7 h-7 group-hover:scale-110 transition-transform" strokeWidth={2.2} />
+              )}
+              <span className="text-[11px] font-medium tracking-wide">Salvar ({capturedItems.length})</span>
+            </button>
+          )}
+        </div>
+
+        {/* Inferior: Thumbnail */}
+        <button
+          ref={thumbRef}
+          onClick={() => { if (capturedItems.length) { setGalleryIndex(0); setShowGallery(true) } }}
+          aria-label="Ver capturas"
+          className={`relative w-full max-w-[160px] aspect-square rounded overflow-hidden ring-2 transition-all ${lastItem ? 'ring-white/80 hover:ring-teal-400' : 'ring-white/15 bg-white/5'}`}
+          style={lastItem ? { animation: 'thumbBounce 0.5s cubic-bezier(0.16,1,0.3,1)' } : undefined}
+          key={lastItem ? lastItem.dataUrl : 'empty'}
+        >
+          {lastItem ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={lastItem.dataUrl} alt="" className="w-full h-full object-cover" />
+              {lastItem.kind === 'video' && (
+                <span className="absolute inset-0 flex items-center justify-center bg-black/30">
+                  <span className="w-9 h-9 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                    <Play className="w-4 h-4 text-teal-700 fill-current ml-0.5" />
+                  </span>
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="flex items-center justify-center w-full h-full">
+              <Camera className="w-6 h-6 text-white/40" />
+            </span>
+          )}
+        </button>
+      </aside>
+
+      {/* CENTRO — Stage da câmera */}
+      <div className="flex items-center justify-center px-2">
+        <div
+          ref={stageRef}
+          className="relative w-full h-full max-w-[1400px] rounded bg-black overflow-hidden shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)] ring-1 ring-white/5"
+        >
+          <video
+            ref={videoRef}
+            className="absolute inset-0 w-full h-full object-cover transition-transform duration-150"
+            style={{ transform: `scale(${zoomLevel}) ${isMirrored ? 'scaleX(-1)' : ''}`, transformOrigin: 'center center' }}
+            playsInline
+            muted
+          />
+
+          {!stream && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 text-white">
+              <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
+              <p className="text-sm text-white/70">Iniciando câmera…</p>
+            </div>
+          )}
+
+          <canvas ref={canvasRef} className="hidden" />
+
+          {/* Indicador de gravação (dentro do stage) */}
+          {isRecording && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-black/55 backdrop-blur-md px-3 py-1.5 rounded-full ring-1 ring-white/10">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500" style={{ animation: 'recordPulse 1s ease-in-out infinite' }} />
+              <span className="text-white text-sm font-medium tabular-nums">{formatTime(recordingTime)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* COLUNA DIREITA — ações */}
+      <aside className="flex flex-col items-center justify-center gap-7 py-2 px-3 relative">
+        {/* Odontograma */}
+        <button
+          onClick={() => toast({ title: 'Odontograma', description: 'Em breve nesta tela.' })}
+          className="flex flex-col items-center gap-1.5 text-white/85 hover:text-white transition-colors group"
+        >
+          <ToothIcon className="w-7 h-7 group-hover:scale-110 transition-transform" />
+          <span className="text-[11px] font-medium tracking-wide">Odontograma</span>
+        </button>
+
+        {/* Toggle Foto / Vídeo — pílula teal/dourado, é o botão de captura */}
+        <div className="flex flex-col items-center gap-2">
+          <div className="bg-black/40 backdrop-blur-md ring-1 ring-white/10 rounded-full p-1.5 flex flex-col gap-1.5">
+            <button
+              onClick={() => { setMode('photo'); if (isRecording) stopRecording(); capturePhoto() }}
+              aria-label="Capturar foto"
+              disabled={!stream || isCapturing}
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all active:scale-95 disabled:opacity-50 ${
+                mode === 'photo'
+                  ? 'bg-gradient-to-br from-teal-500 to-teal-700 text-white shadow-[0_4px_14px_-4px_rgba(13,148,136,0.7)]'
+                  : 'text-white/70 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/assets/images/camera-intraoral.svg" alt="" className="w-6 h-6 object-contain brightness-0 invert" />
+            </button>
+            <button
+              onClick={() => { setMode('video'); isRecording ? stopRecording() : startRecording() }}
+              aria-label={isRecording ? 'Parar gravação' : 'Iniciar gravação'}
+              disabled={!stream}
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all active:scale-95 disabled:opacity-50 ${
+                mode === 'video'
+                  ? 'bg-gradient-to-br from-dourado-400 to-dourado-600 text-white shadow-[0_4px_14px_-4px_rgba(168,127,92,0.7)]'
+                  : 'text-white/70 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              {isRecording ? <Square className="w-4 h-4 fill-current" /> : <Video className="w-5 h-5" strokeWidth={2} />}
+            </button>
+          </div>
+          <span className="text-[11px] font-medium tracking-wide text-white/85">
+            {mode === 'photo' ? 'Capturar' : isRecording ? 'Parar' : 'Gravar'}
+          </span>
+        </div>
+
+        {/* Espelhar */}
+        <button
+          onClick={() => setIsMirrored(m => !m)}
+          className={`flex flex-col items-center gap-1.5 transition-colors group ${isMirrored ? 'text-teal-400' : 'text-white/85 hover:text-white'}`}
+        >
+          <FlipHorizontal2 className="w-7 h-7 group-hover:scale-110 transition-transform" strokeWidth={1.8} />
+          <span className="text-[11px] font-medium tracking-wide">Espelhar</span>
+        </button>
+
+        {/* Ajustes */}
+        <button
+          onClick={() => setShowSettings(s => !s)}
+          className={`flex flex-col items-center gap-1.5 transition-colors group ${showSettings ? 'text-teal-400' : 'text-white/85 hover:text-white'}`}
+        >
+          <Settings2 className="w-7 h-7 group-hover:scale-110 transition-transform" strokeWidth={1.8} />
+          <span className="text-[11px] font-medium tracking-wide">Ajustes</span>
+        </button>
+
+        {/* Painel de Ajustes (popover ancorado à coluna direita) */}
+        {showSettings && (
+          <div className="absolute top-1/2 right-full -translate-y-1/2 mr-2 z-30 w-72 bg-white rounded shadow-2xl ring-1 ring-black/5 p-4 animate-fade-in">
+            <h4 className="text-sm font-semibold text-gray-800 mb-3">Ajustes</h4>
+            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Zoom</label>
+            <div className="flex items-center gap-2 mt-1.5 mb-4">
+              <button onClick={() => setZoomLevel(z => Math.max(1, parseFloat((z - 0.25).toFixed(2))))} className="w-8 h-8 rounded bg-gray-100 hover:bg-gray-200 text-gray-700">−</button>
+              <input type="range" min="1" max="4" step="0.1" value={zoomLevel} onChange={e => setZoomLevel(parseFloat(e.target.value))} className="flex-1 accent-teal-600" />
+              <button onClick={() => setZoomLevel(z => Math.min(4, parseFloat((z + 0.25).toFixed(2))))} className="w-8 h-8 rounded bg-gray-100 hover:bg-gray-200 text-gray-700">+</button>
+              <span className="text-xs text-gray-600 w-8 text-right tabular-nums">{zoomLevel.toFixed(1)}×</span>
+            </div>
+            {availableCameras.length > 1 && (
+              <>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Câmera</label>
+                <div className="mt-1.5 space-y-1 max-h-44 overflow-y-auto">
+                  {availableCameras.map(cam => (
+                    <button
+                      key={cam.deviceId}
+                      onClick={() => {
+                        if (stream) stream.getTracks().forEach(t => t.stop())
+                        setStream(null)
+                        setSelectedDevice(cam.deviceId)
+                      }}
+                      className={`w-full text-left px-3 py-2 text-xs rounded transition-colors ${selectedDevice === cam.deviceId ? 'bg-teal-50 text-teal-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                    >
+                      {cam.label}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         )}
+      </aside>
 
-      </div>
-
-
-
-      {/* Controle de Zoom */}
-      {stream && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 bg-black/60 backdrop-blur-sm px-4 py-2 rounded-full">
-          <button
-            onClick={() => setZoomLevel(z => Math.max(1, parseFloat((z - 0.25).toFixed(2))))}
-            className="text-white text-xl font-bold w-8 h-8 flex items-center justify-center hover:text-primary"
-          >−</button>
-          <input
-            type="range"
-            min="1"
-            max="4"
-            step="0.1"
-            value={zoomLevel}
-            onChange={e => setZoomLevel(parseFloat(e.target.value))}
-            className="w-32 accent-primary"
-          />
-          <button
-            onClick={() => setZoomLevel(z => Math.min(4, parseFloat((z + 0.25).toFixed(2))))}
-            className="text-white text-xl font-bold w-8 h-8 flex items-center justify-center hover:text-primary"
-          >+</button>
-          <span className="text-white text-sm min-w-[40px]">{zoomLevel.toFixed(1)}×</span>
-        </div>
+      {/* Animação de voo (overlay no wrapper, usa coords do viewport) */}
+      {flyAnim && (
+        <FlyToThumb src={flyAnim.src} to={flyAnim.to} stage={stageRef.current!} />
       )}
 
-      {/* Área das Fotos Capturadas - Lado Direito */}
-      {capturedPhotos.length > 0 && (
-        <div className="absolute top-0 right-0 bottom-0 w-80 bg-white/95 backdrop-blur-sm p-4 shadow-xl">
-          <h3 className="text-lg font-semibold text-black mb-4 flex items-center gap-2">
-            <Camera className="w-5 h-5 text-primary" />
-            Fotos Capturadas ({capturedPhotos.length})
-          </h3>
-          <div className="flex flex-col gap-2 max-h-full overflow-y-auto">
-            {capturedPhotos.map((photo, index) => (
-              <div key={index} className="relative group">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={photo}
-                  alt={`Capturada ${index + 1}`}
-                  className="w-full aspect-square object-cover rounded-md border border-primary/20"
-                />
-                <button
-                  onClick={() => removePhoto(index)}
-                  className="absolute top-1 right-1 bg-destructive hover:bg-destructive/90 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                >
+      {/* Galeria de capturas (modal) */}
+      {showGallery && capturedItems.length > 0 && (() => {
+        const current = capturedItems[galleryIndex]
+        return (
+          <div className="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowGallery(false)}>
+            <div className="relative w-full max-w-3xl bg-white rounded overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <span className="text-sm font-semibold text-gray-800">
+                  {current.kind === 'video' ? 'Vídeo' : 'Foto'} {galleryIndex + 1} de {capturedItems.length}
+                </span>
+                <button onClick={() => setShowGallery(false)} className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500">
                   <X className="w-4 h-4" />
                 </button>
               </div>
-            ))}
+              <div className="relative bg-black aspect-video flex items-center justify-center">
+                {current.kind === 'video' ? (
+                  <video src={URL.createObjectURL(current.blob)} controls className="max-h-full max-w-full" />
+                ) : (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={current.dataUrl} alt="" className="max-h-full max-w-full object-contain" />
+                )}
+                {capturedItems.length > 1 && (
+                  <>
+                    <button
+                      onClick={() => setGalleryIndex(i => Math.max(0, i - 1))}
+                      disabled={galleryIndex === 0}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md text-white flex items-center justify-center disabled:opacity-30"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => setGalleryIndex(i => Math.min(capturedItems.length - 1, i + 1))}
+                      disabled={galleryIndex === capturedItems.length - 1}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md text-white flex items-center justify-center disabled:opacity-30"
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  </>
+                )}
+              </div>
+              <div className="px-4 py-3 flex gap-2 overflow-x-auto bg-gray-50">
+                {capturedItems.map((it, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setGalleryIndex(i)}
+                    className={`relative shrink-0 w-16 h-16 rounded overflow-hidden ring-2 transition-all ${i === galleryIndex ? 'ring-teal-500' : 'ring-transparent hover:ring-gray-300'}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={it.dataUrl} alt="" className="w-full h-full object-cover" />
+                    {it.kind === 'video' && (
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/30">
+                        <Play className="w-4 h-4 text-white fill-current" />
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+                <button
+                  onClick={() => {
+                    removePhoto(galleryIndex)
+                    setGalleryIndex(i => Math.max(0, Math.min(i, capturedItems.length - 2)))
+                    if (capturedItems.length <= 1) setShowGallery(false)
+                  }}
+                  className="h-9 px-4 rounded text-red-600 hover:bg-red-50 text-sm font-medium flex items-center gap-2"
+                >
+                  <Trash2 className="w-4 h-4" /> Remover
+                </button>
+                <button
+                  onClick={() => { setShowGallery(false); savePhotos() }}
+                  disabled={isSaving}
+                  className="h-9 px-5 rounded bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white text-sm font-semibold flex items-center gap-2 disabled:opacity-60"
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  Salvar todas
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
-
+        )
+      })()}
     </div>
+  )
+}
+
+// Ícone de dente (lucide não tem nativo) — outline simples
+function ToothIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
+      <path d="M12 5.5C9.5 3 6 3 4.5 4.5 3 6 3 8.5 4 11l1.5 4c.5 1.5 1 3.5 1.5 5 .3.9 1 1.5 1.8 1.5.9 0 1.5-.6 1.7-1.5l.7-3c.2-.8.7-1.3 1.5-1.3s1.3.5 1.5 1.3l.7 3c.2.9.8 1.5 1.7 1.5.8 0 1.5-.6 1.8-1.5.5-1.5 1-3.5 1.5-5L20 11c1-2.5 1-5-.5-6.5C18 3 14.5 3 12 5.5Z" />
+    </svg>
+  )
+}
+
+// Componente: anima a imagem capturada do centro do stage até o thumbnail (coords de viewport)
+function FlyToThumb({ src, to, stage }: { src: string; to: DOMRect; stage: HTMLElement }) {
+  const [phase, setPhase] = useState<0 | 1>(0)
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setPhase(1))
+    return () => cancelAnimationFrame(id)
+  }, [])
+
+  const stageRect = stage.getBoundingClientRect()
+  // Tamanho inicial: ~30% do stage, máx 280px, igual ao aspect-ratio do thumbnail (1:1)
+  const startSize = Math.min(stageRect.width * 0.3, stageRect.height * 0.5, 280)
+  const startX = stageRect.left + stageRect.width / 2 - startSize / 2
+  const startY = stageRect.top + stageRect.height / 2 - startSize / 2
+  const endX = to.left
+  const endY = to.top
+  const endScale = to.width / startSize
+
+  const style: React.CSSProperties = phase === 0
+    ? { width: startSize, height: startSize, transform: `translate(${startX}px, ${startY}px) scale(1)`, opacity: 1 }
+    : { width: startSize, height: startSize, transform: `translate(${endX}px, ${endY}px) scale(${endScale})`, opacity: 0.9 }
+
+  return (
+    /* eslint-disable-next-line @next/next/no-img-element */
+    <img
+      src={src}
+      alt=""
+      className="fixed top-0 left-0 z-[65] rounded object-cover ring-2 ring-white/80 shadow-2xl pointer-events-none"
+      style={{ ...style, transition: 'transform 0.55s cubic-bezier(0.5, 0, 0.2, 1), opacity 0.55s ease, width 0.55s ease, height 0.55s ease', transformOrigin: 'top left' }}
+    />
   )
 }

@@ -69,9 +69,8 @@ export default function SplashScreen() {
 
             {/* Brand */}
             <span
-              className="text-7xl font-extrabold tracking-tight leading-none splash-brand-shimmer"
+              className="text-7xl font-medium tracking-tight leading-none splash-brand-shimmer"
               style={{
-                fontFamily: 'var(--font-geist-mono), monospace',
                 background: 'linear-gradient(90deg, #0f766e 0%, #0f766e 20%, #cca97e 50%, #0f766e 80%, #0f766e 100%)',
                 backgroundSize: '300% auto',
                 backgroundPosition: '100% center',
@@ -87,7 +86,6 @@ export default function SplashScreen() {
             <span
               className="text-xl text-gray-400 font-medium mt-3 tracking-wide pl-4"
               style={{
-                fontFamily: 'var(--font-geist-mono), monospace',
                 opacity:    showTag ? 1          : 0,
                 transform:  showTag ? 'translateY(0)' : 'translateY(10px)',
                 transition: 'opacity 0.6s ease, transform 0.6s ease',

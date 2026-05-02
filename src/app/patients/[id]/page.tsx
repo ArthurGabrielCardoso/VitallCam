@@ -92,7 +92,6 @@ export default function PatientPage() {
   }
   const foldersScrollRef = useRef<HTMLDivElement>(null)
   const photosScrollRef = useRef<HTMLDivElement>(null)
-  const profileUploadRef = useRef<HTMLInputElement>(null)
   const profileVideoRef = useRef<HTMLVideoElement>(null)
   const profileStreamRef = useRef<MediaStream | null>(null)
   const [isUploadingProfilePhoto, setIsUploadingProfilePhoto] = useState(false)
@@ -1224,8 +1223,8 @@ export default function PatientPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
               {/* Coluna esquerda: foto/avatar do paciente */}
               <div className="lg:col-span-1">
-                {/* input oculto para upload */}
-                <input ref={profileUploadRef} type="file" accept="image/*" className="hidden"
+                {/* input oculto para upload — label nativo funciona em iOS/Android */}
+                <input id="profile-photo-upload" type="file" accept="image/*" className="hidden"
                   onChange={e => { const f = e.target.files?.[0]; if (f) handleProfilePhotoFile(f); e.target.value = '' }} />
 
                 <div className="bg-white border border-gray-200 rounded shadow-sm overflow-hidden">
@@ -1249,14 +1248,15 @@ export default function PatientPage() {
                       )}
                     </div>
 
-                    {/* Botão upload na parte inferior */}
-                    <button
-                      onClick={e => { e.stopPropagation(); profileUploadRef.current?.click() }}
-                      className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-2 py-3 bg-black/50 hover:bg-black/70 text-white text-sm font-medium transition-colors"
+                    {/* Botão upload na parte inferior — usa label para funcionar em tablet/iOS */}
+                    <label
+                      htmlFor="profile-photo-upload"
+                      onClick={e => e.stopPropagation()}
+                      className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-2 py-3 bg-black/50 hover:bg-black/70 text-white text-sm font-medium transition-colors cursor-pointer"
                     >
                       <Upload className="w-4 h-4" />
                       Upload foto
-                    </button>
+                    </label>
                   </div>
                 </div>
               </div>
@@ -1305,19 +1305,19 @@ export default function PatientPage() {
                     {!isEditingName && (
                       <div className="flex items-center gap-2 shrink-0">
                         <button
-                          onClick={handleStartEditName}
-                          title="Editar nome"
-                          className="h-9 w-9 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
                           onClick={handleExportPatientPDF}
                           title="Exportar PDF"
                           className="h-9 px-3 flex items-center gap-1.5 rounded bg-gradient-to-r from-dourado-500 to-dourado-400 hover:from-dourado-600 hover:to-dourado-500 text-white text-sm font-semibold shadow-sm transition-all border-0"
                         >
                           <Download className="w-4 h-4" />
                           PDF
+                        </button>
+                        <button
+                          onClick={handleStartEditName}
+                          title="Editar nome"
+                          className="h-9 w-9 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+                        >
+                          <Pencil className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => setShowDeleteConfirm(true)}

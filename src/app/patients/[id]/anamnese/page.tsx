@@ -822,7 +822,8 @@ export default function AnamneseForm() {
       })
 
       // Salvar no Supabase
-      const { data, error } = await supabase
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
         .from('anamneses')
         .insert({
           patient_id: patientId,

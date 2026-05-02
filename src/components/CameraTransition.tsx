@@ -42,19 +42,16 @@ export default function CameraTransition({ isDataReady }: { isDataReady: boolean
 
   if (hidden) return null
 
-  const zooming = phase === 'zoom' || phase === 'exit'
-  const exiting  = phase === 'exit'
+  const exiting = phase === 'exit'
 
   return (
     <div
       className={`fixed inset-0 z-[80] flex items-center justify-center overflow-hidden${exiting ? ' camera-reveal' : ''}`}
       style={{
-        backgroundColor: zooming ? '#0f766e' : '#ffffff',
+        backgroundColor: exiting ? '#0f766e' : '#ffffff',
         pointerEvents:   exiting ? 'none' : 'auto',
       }}
     >
-      {/* Teal expande do centro durante o zoom (clip-path: circle) */}
-      {phase === 'zoom' && <div className="camera-teal-expand" />}
 
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img

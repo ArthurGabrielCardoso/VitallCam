@@ -57,7 +57,7 @@ export default function PatientsPage() {
   }
 
   return (
-    <div className="relative">
+    <div className="relative bg-white">
 
       {/* Logo VitallCam — fixed, decorativo no canto direito */}
       <div
@@ -110,7 +110,7 @@ export default function PatientsPage() {
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Pesquisar..."
-              className="w-full pl-12 pr-10 py-4 border border-gray-200 rounded focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 outline-none text-base bg-white transition-all placeholder:text-gray-400 shadow-sm"
+              className="w-full pl-12 pr-10 py-4 border border-gray-200 rounded focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 outline-none text-base bg-gray-100 transition-all placeholder:text-gray-400 shadow-sm"
             />
             {isLoading && (
               <div className="absolute right-4 top-1/2 -translate-y-1/2">

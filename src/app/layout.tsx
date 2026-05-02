@@ -24,6 +24,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR" suppressHydrationWarning>
+      <head>
+        <link rel="preload" as="image" href="/icon.png" />
+      </head>
       <body className={`${inter.className} antialiased`} suppressHydrationWarning>
         <QueryProvider>
           <SplashScreen />

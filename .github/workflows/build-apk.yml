@@ -39,43 +39,6 @@ jobs:
         with:
           gradle-version: '8.6'
 
-      - name: Install ImageMagick
-        run: sudo apt-get install -y imagemagick
-
-      - name: Generate mipmap icons from icon
-        run: |
-          # Prioridade: icon.svg > icon.png > logo.svg > logo.png
-          LOGO="public/assets/images/logo.png"
-          [ -f "public/assets/images/logo.svg" ] && LOGO="public/assets/images/logo.svg"
-          [ -f "public/assets/images/icon.png" ] && LOGO="public/assets/images/icon.png"
-          [ -f "public/assets/images/icon.svg" ] && LOGO="public/assets/images/icon.svg"
-          echo "Usando ícone: $LOGO"
-          for density in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
-            DIR="${density%%:*}"
-            SIZE="${density##*:}"
-            mkdir -p "android-app/app/src/main/res/mipmap-${DIR}"
-            convert "$LOGO" \
-              -trim +repage \
-              -resize "${SIZE}x${SIZE}^" \
-              -background none \
-              -gravity center \
-              -extent "${SIZE}x${SIZE}" \
-              "android-app/app/src/main/res/mipmap-${DIR}/ic_launcher.png"
-          done
-          # Gera splash icon em alta resolução para tela cheia
-          for density in mdpi:240 hdpi:360 xhdpi:480 xxhdpi:720 xxxhdpi:960; do
-            DIR="${density%%:*}"
-            SIZE="${density##*:}"
-            mkdir -p "android-app/app/src/main/res/drawable-${DIR}"
-            convert "$LOGO" \
-              -trim +repage \
-              -resize "${SIZE}x${SIZE}" \
-              -background none \
-              -gravity center \
-              -extent "${SIZE}x${SIZE}" \
-              "android-app/app/src/main/res/drawable-${DIR}/splash_icon.png"
-          done
-
       - name: Build APK debug
         working-directory: android-app
         run: gradle assembleDebug --no-daemon

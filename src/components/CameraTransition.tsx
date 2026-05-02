@@ -48,7 +48,7 @@ export default function CameraTransition({ isDataReady }: { isDataReady: boolean
     <div
       className={`fixed inset-0 z-[80] flex items-center justify-center overflow-hidden${exiting ? ' camera-reveal' : ''}`}
       style={{
-        backgroundColor: exiting ? '#0f766e' : '#ffffff',
+        backgroundColor: '#ffffff',
         pointerEvents:   exiting ? 'none' : 'auto',
       }}
     >

@@ -14,9 +14,11 @@ interface ImageUploadProps {
   onUpload: (photos: Photo[]) => void
   className?: string
   folderId?: string | null
+  label?: string
+  iconClassName?: string
 }
 
-export default function ImageUpload({ patientId, onUpload, className = '', folderId = null }: ImageUploadProps) {
+export default function ImageUpload({ patientId, onUpload, className = '', folderId = null, label, iconClassName = 'w-6 h-6' }: ImageUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
   const createFolderMutation = useCreateFolder()
@@ -162,9 +164,12 @@ export default function ImageUpload({ patientId, onUpload, className = '', folde
         disabled={createFolderMutation.isPending}
       >
         {createFolderMutation.isPending ? (
-          <Loader2 className="w-6 h-6 animate-spin" />
+          <Loader2 className={`${iconClassName} animate-spin`} />
         ) : (
-          <Upload className="w-6 h-6" />
+          <>
+            <Upload className={iconClassName} />
+            {label && <span>{label}</span>}
+          </>
         )}
       </Button>
     </>

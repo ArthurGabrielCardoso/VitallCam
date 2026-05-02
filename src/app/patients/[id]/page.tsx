@@ -2,8 +2,8 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useState, useEffect, useRef } from 'react'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Photo } from '@/lib/types'
 import { supabase } from '@/lib/supabase'
 import { usePatient, useUpdatePatient, useDeletePatient } from '@/hooks/usePatients'
@@ -18,7 +18,7 @@ import PhotoComparison from '@/components/PhotoComparison'
 import PhotoEditor from '@/components/PhotoEditor'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download } from 'lucide-react'
+import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download, ChevronRight, ChevronLeft, Mic } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import PhotoGridSkeleton from '@/components/PhotoGridSkeleton'
 import FolderCardSkeleton from '@/components/FolderCardSkeleton'
@@ -26,16 +26,16 @@ import LazyImage from '@/components/LazyImage'
 import BeforeAfterSlider from '@/components/BeforeAfterSlider'
 import AIProcessingLoader from '@/components/AIProcessingLoader'
 import { transformSmileWithGemini } from '@/lib/gemini-smile'
-import TranscriptionButton from '@/components/TranscriptionButton'
 import TranscriptionViewer from '@/components/TranscriptionViewer'
 import TranscriptionDocument from '@/components/TranscriptionDocument'
 import AnamneseDocument from '@/components/AnamneseDocument'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Transcription, Anamnese } from '@/lib/types'
 
 export default function PatientPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const patientId = params.id as string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any
@@ -85,7 +85,60 @@ export default function PatientPage() {
   const [selectedTranscription, setSelectedTranscription] = useState<Transcription | null>(null)
   const [anamneses, setAnamneses] = useState<Anamnese[]>([])
   const [selectedAnamnese, setSelectedAnamnese] = useState<Anamnese | null>(null)
-  const [activeTab, setActiveTab] = useState('photos')
+  const activeTab = searchParams.get('tab') || 'overview'
+  const setActiveTab = (tab: string) => {
+    const url = tab === 'overview' ? `/patients/${patientId}` : `/patients/${patientId}?tab=${tab}`
+    router.push(url, { scroll: false })
+  }
+  const foldersScrollRef = useRef<HTMLDivElement>(null)
+  const photosScrollRef = useRef<HTMLDivElement>(null)
+  const profileUploadRef = useRef<HTMLInputElement>(null)
+  const profileVideoRef = useRef<HTMLVideoElement>(null)
+  const profileStreamRef = useRef<MediaStream | null>(null)
+  const [isUploadingProfilePhoto, setIsUploadingProfilePhoto] = useState(false)
+  const [showProfileCamera, setShowProfileCamera] = useState(false)
+
+  const openProfileCamera = async () => {
+    setShowProfileCamera(true)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+      profileStreamRef.current = stream
+      if (profileVideoRef.current) {
+        profileVideoRef.current.srcObject = stream
+        profileVideoRef.current.play()
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Não foi possível acessar a câmera' })
+      setShowProfileCamera(false)
+    }
+  }
+
+  const closeProfileCamera = () => {
+    profileStreamRef.current?.getTracks().forEach(t => t.stop())
+    profileStreamRef.current = null
+    setShowProfileCamera(false)
+  }
+
+  const captureProfilePhoto = () => {
+    const video = profileVideoRef.current
+    if (!video) return
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    canvas.getContext('2d')?.drawImage(video, 0, 0)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
+    closeProfileCamera()
+    setIsUploadingProfilePhoto(true)
+    updatePatientMutation.mutateAsync({ patientId, profile_photo: dataUrl })
+      .then(() => toast({ title: 'Foto de perfil atualizada!' }))
+      .catch(() => toast({ variant: 'destructive', title: 'Erro ao salvar foto' }))
+      .finally(() => setIsUploadingProfilePhoto(false))
+  }
+  const scrollCarousel = (ref: React.RefObject<HTMLDivElement>, dir: 'left' | 'right') => {
+    if (!ref.current) return
+    const amount = ref.current.clientWidth * 0.8
+    ref.current.scrollBy({ left: dir === 'left' ? -amount : amount, behavior: 'smooth' })
+  }
   const [isEditingName, setIsEditingName] = useState(false)
   const [editingName, setEditingName] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -285,6 +338,28 @@ export default function PatientPage() {
       toast({ variant: 'destructive', title: 'Erro ao atualizar nome' })
     }
     setIsEditingName(false)
+  }
+
+  const handleProfilePhotoFile = async (file: File) => {
+    if (!file.type.startsWith('image/')) return
+    setIsUploadingProfilePhoto(true)
+    try {
+      const reader = new FileReader()
+      reader.onload = async (e) => {
+        const dataUrl = e.target?.result as string
+        await updatePatientMutation.mutateAsync({ patientId, profile_photo: dataUrl })
+        toast({ title: 'Foto de perfil atualizada!' })
+        setIsUploadingProfilePhoto(false)
+      }
+      reader.onerror = () => {
+        toast({ variant: 'destructive', title: 'Erro ao ler imagem' })
+        setIsUploadingProfilePhoto(false)
+      }
+      reader.readAsDataURL(file)
+    } catch {
+      toast({ variant: 'destructive', title: 'Erro ao salvar foto de perfil' })
+      setIsUploadingProfilePhoto(false)
+    }
   }
 
   const handleDeletePatient = async () => {
@@ -1108,70 +1183,6 @@ export default function PatientPage() {
         </div>
       )}
 
-      {/* Identity bar — global header já provê back/busca; aqui só identidade do paciente */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-6 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="h-11 w-11 rounded-full bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
-              <span className="text-white font-semibold text-sm tracking-wide">
-                {patient.name.split(' ').filter(Boolean).map(n => n[0]).slice(0, 2).join('').toUpperCase()}
-              </span>
-            </div>
-            <div className="min-w-0">
-              {isEditingName ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    autoFocus
-                    value={editingName}
-                    onChange={e => setEditingName(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') handleSaveEditName()
-                      if (e.key === 'Escape') setIsEditingName(false)
-                    }}
-                    className="text-lg font-bold text-gray-800 border-b-2 border-teal-500 outline-none bg-transparent"
-                  />
-                  <button onClick={handleSaveEditName} className="text-teal-600 hover:text-teal-700">
-                    <Check className="w-4 h-4" />
-                  </button>
-                  <button onClick={() => setIsEditingName(false)} className="text-gray-400 hover:text-gray-600">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5">
-                  <h1 className="text-lg font-bold text-gray-800 truncate">{patient.name}</h1>
-                  <button
-                    onClick={handleStartEditName}
-                    className="text-gray-300 hover:text-teal-600 transition-colors p-1 rounded hover:bg-gray-100"
-                    title="Editar nome"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setShowDeleteConfirm(true)}
-                    className="text-gray-300 hover:text-red-500 transition-colors p-1 rounded hover:bg-gray-100"
-                    title="Deletar paciente"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
-              <p className="text-xs text-gray-400 mt-0.5">
-                {photoCount} {photoCount === 1 ? 'foto' : 'fotos'} · cadastro {new Date(patient.created_at).toLocaleDateString('pt-BR')}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={handleExportPatientPDF}
-            title="Exportar tudo como PDF"
-            className="h-9 px-4 rounded bg-gradient-to-r from-dourado-500 to-dourado-400 hover:from-dourado-600 hover:to-dourado-500 text-white font-semibold text-sm flex items-center gap-2 shadow-sm transition-all border-0 shrink-0"
-          >
-            <Download className="w-4 h-4" />
-            Exportar PDF
-          </button>
-        </div>
-      </div>
-
       {/* Modal de Confirmação de Delete */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
@@ -1205,279 +1216,506 @@ export default function PatientPage() {
         </div>
       )}
 
-      {/* Botão de Transcrição - Sempre visível e flutuante */}
-      <div className="fixed bottom-6 right-6 z-40">
-        <TranscriptionButton patientId={patientId} />
-      </div>
-
-      {/* Tabs para Fotos, Anamnese e Transcrições */}
+      {/* Conteúdo principal: overview ou seção selecionada */}
       <div className="p-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="border-b border-gray-200 bg-transparent p-0 h-auto mb-6 w-full justify-start gap-1">
-            <TabsTrigger
-              value="photos"
-              className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-teal-600 data-[state=active]:text-teal-700 rounded-none px-4 py-2.5 font-semibold text-sm text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              Fotos
-            </TabsTrigger>
-            <TabsTrigger
-              value="anamnese"
-              className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-teal-600 data-[state=active]:text-teal-700 rounded-none px-4 py-2.5 font-semibold text-sm text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              Anamnese
-            </TabsTrigger>
-            <TabsTrigger
-              value="transcriptions"
-              className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-teal-600 data-[state=active]:text-teal-700 rounded-none px-4 py-2.5 font-semibold text-sm text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              Transcrições ({transcriptions.length})
-            </TabsTrigger>
-            <TabsTrigger
-              value="notes"
-              className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-teal-600 data-[state=active]:text-teal-700 rounded-none px-4 py-2.5 font-semibold text-sm text-gray-500 hover:text-gray-700 transition-colors flex items-center"
-            >
-              <NotebookPen className="w-4 h-4 mr-1.5" />
-              Notas
-            </TabsTrigger>
-          </TabsList>
+          {/* Tab Content: Overview */}
+          <TabsContent value="overview" className="mt-0">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+              {/* Coluna esquerda: foto/avatar do paciente */}
+              <div className="lg:col-span-1">
+                {/* input oculto para upload */}
+                <input ref={profileUploadRef} type="file" accept="image/*" className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handleProfilePhotoFile(f); e.target.value = '' }} />
 
-          {/* Tab Content: Fotos */}
+                <div className="bg-white border border-gray-200 rounded shadow-sm overflow-hidden">
+                  <div className="relative aspect-square group cursor-pointer" onClick={openProfileCamera}>
+                    {/* Foto ou placeholder */}
+                    {patient.profile_photo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={patient.profile_photo} alt={patient.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center">
+                        <Camera className="w-16 h-16 text-white/60" />
+                      </div>
+                    )}
+
+                    {/* Overlay escuro no hover */}
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                      {isUploadingProfilePhoto ? (
+                        <div className="h-8 w-8 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                      ) : (
+                        <Camera className="w-10 h-10 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+                      )}
+                    </div>
+
+                    {/* Botão upload na parte inferior */}
+                    <button
+                      onClick={e => { e.stopPropagation(); profileUploadRef.current?.click() }}
+                      className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-2 py-3 bg-black/50 hover:bg-black/70 text-white text-sm font-medium transition-colors"
+                    >
+                      <Upload className="w-4 h-4" />
+                      Upload foto
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Coluna direita: identidade + seções */}
+              <div className="lg:col-span-2 space-y-4">
+                {/* Card de identidade */}
+                <div className="bg-white border border-gray-200 rounded shadow-sm p-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      {isEditingName ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            autoFocus
+                            value={editingName}
+                            onChange={e => setEditingName(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') handleSaveEditName()
+                              if (e.key === 'Escape') setIsEditingName(false)
+                            }}
+                            className="flex-1 min-w-0 text-2xl font-semibold text-gray-700 border-b-2 border-teal-500 outline-none bg-transparent pb-1"
+                          />
+                          <button
+                            onClick={handleSaveEditName}
+                            className="h-9 w-9 flex items-center justify-center rounded text-teal-600 hover:text-teal-700 hover:bg-teal-50 transition-colors"
+                            title="Salvar"
+                          >
+                            <Check className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => setIsEditingName(false)}
+                            className="h-9 w-9 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                            title="Cancelar"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <h1 className="text-2xl font-semibold text-gray-700 truncate">{patient.name}</h1>
+                      )}
+                      <div className="flex items-center gap-1.5 mt-2 text-sm text-gray-400">
+                        <Calendar className="w-4 h-4" />
+                        Cadastrado em {new Date(patient.created_at).toLocaleDateString('pt-BR')}
+                      </div>
+                    </div>
+                    {!isEditingName && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={handleStartEditName}
+                          title="Editar nome"
+                          className="h-9 w-9 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={handleExportPatientPDF}
+                          title="Exportar PDF"
+                          className="h-9 px-3 flex items-center gap-1.5 rounded bg-gradient-to-r from-dourado-500 to-dourado-400 hover:from-dourado-600 hover:to-dourado-500 text-white text-sm font-semibold shadow-sm transition-all border-0"
+                        >
+                          <Download className="w-4 h-4" />
+                          PDF
+                        </button>
+                        <button
+                          onClick={() => setShowDeleteConfirm(true)}
+                          title="Deletar paciente"
+                          className="h-9 w-9 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:text-red-600 hover:border-red-400 hover:bg-red-50 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Seção: Anamnese */}
+                <button
+                  onClick={() => setActiveTab('anamnese')}
+                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm p-2">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src="/assets/images/anamnese.svg" alt="Anamnese" className="w-8 h-8 object-contain brightness-0 invert" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">Anamnese</h3>
+                      <p className="text-sm text-gray-400 mt-0.5">
+                        {anamneses.length} {anamneses.length === 1 ? 'ficha registrada' : 'fichas registradas'}
+                      </p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-teal-600 transition-colors" />
+                  </div>
+                </button>
+
+                {/* Seção: Câmera Intraoral */}
+                <button
+                  onClick={() => setActiveTab('photos')}
+                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm p-2">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src="/assets/images/camera-intraoral.svg" alt="Câmera Intraoral" className="w-8 h-8 object-contain brightness-0 invert" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">Câmera Intraoral</h3>
+                      <p className="text-sm text-gray-400 mt-0.5">
+                        {photoCount} {photoCount === 1 ? 'foto capturada' : 'fotos capturadas'}
+                      </p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-teal-600 transition-colors" />
+                  </div>
+                </button>
+
+                {/* Seção: Transcrições */}
+                <button
+                  onClick={() => setActiveTab('transcriptions')}
+                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
+                      <Mic className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">Transcrições</h3>
+                      <p className="text-sm text-gray-400 mt-0.5">
+                        {transcriptions.length} {transcriptions.length === 1 ? 'transcrição salva' : 'transcrições salvas'}
+                      </p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-teal-600 transition-colors" />
+                  </div>
+                </button>
+
+                {/* Seção: Notas */}
+                <button
+                  onClick={() => setActiveTab('notes')}
+                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
+                      <NotebookPen className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">Notas</h3>
+                      <p className="text-sm text-gray-400 mt-0.5">
+                        Anotações rápidas sobre o paciente
+                      </p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-teal-600 transition-colors" />
+                  </div>
+                </button>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Tab Content: Câmera Intraoral */}
           <TabsContent value="photos" className="mt-0">
-        {/* Toolbar com Botões */}
-        <div className="flex items-center gap-4 mb-6">
-          {/* Botão da Câmera */}
-          <Button
-            onClick={() => setShowCamera(true)}
-            className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white p-0 shadow-md shadow-teal-500/25 border-0"
-          >
-            <Camera className="w-6 h-6" />
-          </Button>
+            <div className="max-w-6xl mx-auto">
+              {/* Breadcrumb (apenas dentro de uma pasta) */}
+              {currentFolder && (
+                <div className="flex items-center gap-2 text-sm mb-4">
+                  <button
+                    onClick={() => handleFolderClick(currentFolder)}
+                    className="text-gray-400 hover:text-teal-700 transition-colors flex items-center gap-1"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    Voltar para pastas
+                  </button>
+                  <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
+                  <span className="text-gray-700 font-medium truncate">
+                    {folders.find(f => f.id === currentFolder)?.name}
+                  </span>
+                </div>
+              )}
 
-          {/* Botão Upload */}
-          <ImageUpload
-            patientId={patientId}
-            onUpload={handleImageUpload}
-            className="w-12 h-12 rounded-xl p-0"
-            folderId={currentFolder}
-          />
-        </div>
-
-        {/* Header do Grid */}
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-bold text-gray-800">
-            {currentFolder ? (
-              <span className="flex items-center gap-2">
-                <Folder className="w-4 h-4 text-dourado-500" />
-                {folders.find(f => f.id === currentFolder)?.name}
-              </span>
-            ) : 'Fotos Avulsas'}
-          </h3>
-          <div className="flex items-center gap-2 flex-wrap">
-            {isSelectionMode && (
-              <>
+              {/* Action row: Capturar + Upload + ações secundárias */}
+              <div className="flex items-center gap-3 mb-8 flex-wrap">
+                {/* Capturar (gradiente teal) */}
                 <Button
-                  onClick={selectAllPhotos}
-                  size="sm"
-                  className="btn-primary !h-8 !px-3"
+                  onClick={() => setShowCamera(true)}
+                  className="!w-28 !h-28 !p-0 !rounded !text-white !flex !flex-col !items-center !justify-center !gap-2 bg-gradient-to-br from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800 border-0 shadow-md shadow-teal-600/20 transition-all"
                 >
-                  Selecionar Todas
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/assets/images/camera-intraoral.svg" alt="" className="w-9 h-9 object-contain brightness-0 invert" />
+                  <span className="text-sm font-semibold">Capturar</span>
                 </Button>
-                <Button
-                  onClick={clearSelection}
-                  size="sm"
-                  className="btn-outline-teal !h-8 !px-3"
-                >
-                  Limpar
-                </Button>
-                <Button
-                  onClick={handleMoveSelectedPhotos}
-                  size="sm"
-                  disabled={selectedPhotos.length === 0}
-                  className="btn-primary !h-8 !px-3 disabled:opacity-50"
-                >
-                  Mover ({selectedPhotos.length})
-                </Button>
-                <Button
-                  onClick={handleDeleteSelectedPhotos}
-                  size="sm"
-                  disabled={selectedPhotos.length === 0}
-                  className="h-8 px-3 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-semibold disabled:opacity-50 border-0"
-                >
-                  <Trash2 className="w-4 h-4 mr-1" />
-                  Deletar ({selectedPhotos.length})
-                </Button>
-                <Button
-                  onClick={handlePrintSelected}
-                  size="sm"
-                  disabled={selectedPhotos.length === 0}
-                  className="btn-accent !h-8 !px-3 disabled:opacity-50"
-                >
-                  <Printer className="w-4 h-4 mr-1" />
-                  Imprimir ({selectedPhotos.length})
-                </Button>
-              </>
-            )}
-            <Button
-              onClick={() => setSortOrder(sortOrder === 'newest' ? 'oldest' : 'newest')}
-              size="sm"
-              className="btn-outline-teal !h-8 !px-3"
-              title={`Ordenar: ${sortOrder === 'newest' ? 'Últimas primeiro' : 'Primeiras primeiro'}`}
-            >
-              <ArrowUpDown className="w-4 h-4 mr-1" />
-              {sortOrder === 'newest' ? 'Recentes' : 'Antigas'}
-            </Button>
-            <Button
-              onClick={() => setShowCreateFolder(true)}
-              size="sm"
-              className="btn-primary !h-8 !px-3"
-            >
-              <FolderPlus className="w-4 h-4 mr-1" />
-              Criar Pasta
-            </Button>
-            <Button
-              onClick={toggleSelectionMode}
-              size="sm"
-              className={isSelectionMode
-                ? "h-8 px-3 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-semibold border-0"
-                : "btn-outline-teal !h-8 !px-3"
-              }
-            >
-              {isSelectionMode ? 'Cancelar' : 'Selecionar'}
-            </Button>
-            {currentFolder && (
-              <Button
-                onClick={() => handleFolderClick(currentFolder)}
-                className="btn-outline-teal !h-8 !px-3"
-              >
-                <ArrowLeft className="w-4 h-4 mr-1" />
-                Voltar
-              </Button>
-            )}
-          </div>
-        </div>
 
-        <div className="grid grid-cols-5 gap-4">
-          {/* Loading state para fotos */}
-          {photosLoading && <PhotoGridSkeleton count={10} />}
+                {/* Upload (gradiente dourado) — mesmo tamanho */}
+                <ImageUpload
+                  patientId={patientId}
+                  onUpload={handleImageUpload}
+                  className="!w-28 !h-28 !p-0 !rounded !text-white !flex !flex-col !items-center !justify-center !gap-2 [&_svg]:!size-8 bg-gradient-to-br from-dourado-500 to-dourado-400 hover:from-dourado-600 hover:to-dourado-500 border-0 shadow-md shadow-dourado-500/20 transition-all"
+                  label="Upload"
+                  iconClassName=""
+                  folderId={currentFolder}
+                />
 
-          {/* Loading state para pastas */}
-          {!currentFolder && foldersLoading && (
-            <>
-              {Array.from({ length: 5 }).map((_, i) => (
-                <FolderCardSkeleton key={`folder-skeleton-${i}`} />
-              ))}
-            </>
-          )}
-
-          {/* Renderizar fotos da pasta atual ou fotos avulsas ordenadas */}
-          {!photosLoading && (currentFolder ? sortedFolderPhotos : sortedUnfolderedPhotos).map((photo, index) => (
-            <div
-              key={photo.id}
-              className={`aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition-opacity relative group ${
-                selectedPhotos.includes(photo.id) ? 'ring-4 ring-primary' : ''
-              }`}
-              onClick={() => {
-                if (isSelectionMode) {
-                  togglePhotoSelection(photo.id)
-                } else {
-                  setSelectedPhoto(photo)
-                }
-              }}
-            >
-              <LazyImage
-                src={photo.image_data}
-                alt={`Foto ${index + 1}`}
-                className="w-full h-full object-cover"
-              />
-              <div className="p-2 bg-white">
-                <p className="text-xs text-black font-medium">
-                  Foto #{index + 1}
-                </p>
-                <p className="text-xs text-gray-500">
-                  {new Date(photo.created_at).toLocaleString('pt-BR')}
-                </p>
-              </div>
-
-              {/* Checkbox de seleção */}
-              {isSelectionMode && (
-                <div className="absolute top-2 left-2 w-5 h-5 bg-white rounded border-2 border-primary flex items-center justify-center">
-                  {selectedPhotos.includes(photo.id) && (
-                    <div className="w-3 h-3 bg-primary rounded"></div>
+                {/* Spacer */}
+                <div className="ml-auto flex items-center gap-2">
+                  {!currentFolder && (
+                    <button
+                      onClick={() => setShowCreateFolder(true)}
+                      className="h-9 px-3 flex items-center gap-1.5 rounded border border-gray-200 bg-white text-sm font-medium text-gray-600 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+                    >
+                      <FolderPlus className="w-4 h-4" />
+                      Nova pasta
+                    </button>
                   )}
+                  <button
+                    onClick={() => setSortOrder(sortOrder === 'newest' ? 'oldest' : 'newest')}
+                    title={sortOrder === 'newest' ? 'Mais recentes primeiro' : 'Mais antigas primeiro'}
+                    className="h-9 w-9 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+                  >
+                    <ArrowUpDown className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={toggleSelectionMode}
+                    title={isSelectionMode ? 'Sair da seleção' : 'Selecionar fotos'}
+                    className={isSelectionMode
+                      ? "h-9 w-9 flex items-center justify-center rounded border border-red-400 bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                      : "h-9 w-9 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+                    }
+                  >
+                    {isSelectionMode ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Barra de seleção (somente quando ativa) */}
+              {isSelectionMode && (
+                <div className="bg-teal-50 border border-teal-200 rounded p-3 mb-6 flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-semibold text-teal-800 mr-2">
+                    {selectedPhotos.length} {selectedPhotos.length === 1 ? 'foto selecionada' : 'fotos selecionadas'}
+                  </span>
+                  <div className="flex-1" />
+                  <button onClick={selectAllPhotos} className="h-8 px-3 rounded text-sm font-medium text-teal-700 hover:bg-teal-100 transition-colors">Selecionar todas</button>
+                  <button onClick={clearSelection} className="h-8 px-3 rounded text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors">Limpar</button>
+                  <div className="w-px h-5 bg-teal-200" />
+                  <button onClick={handleMoveSelectedPhotos} disabled={selectedPhotos.length === 0} className="h-8 px-3 rounded border border-teal-200 bg-white text-sm font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5">
+                    <Folder className="w-4 h-4" />
+                    Mover
+                  </button>
+                  <button onClick={handlePrintSelected} disabled={selectedPhotos.length === 0} className="h-8 px-3 rounded border border-dourado-400 bg-white text-sm font-medium text-dourado-600 hover:bg-dourado-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5">
+                    <Printer className="w-4 h-4" />
+                    Imprimir
+                  </button>
+                  <button onClick={handleDeleteSelectedPhotos} disabled={selectedPhotos.length === 0} className="h-8 px-3 rounded bg-red-500 hover:bg-red-600 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5">
+                    <Trash2 className="w-4 h-4" />
+                    Deletar
+                  </button>
                 </div>
               )}
 
-              {/* Botões de ação no hover */}
-              {!isSelectionMode && (
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                <Button
-                  size="sm"
-                  className="bg-primary hover:bg-primary/90 text-white w-8 h-8 p-0"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleMoveToFolder(photo.id)
-                  }}
-                  title="Mover para pasta"
-                >
-                  <Folder className="w-4 h-4" />
-                </Button>
-                <Button
-                  size="sm"
-                  className="bg-red-500 hover:bg-red-600 text-white w-8 h-8 p-0"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setConfirmDeletePhotoId(photo.id)
-                  }}
-                  title="Deletar foto"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
+              {/* Carrossel: Pastas (apenas no nível raiz) */}
+              {!currentFolder && (foldersLoading || folders.length > 0) && (
+                <div className="mb-8">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                      Pastas {folders.length > 0 && `(${folders.length})`}
+                    </h3>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => scrollCarousel(foldersScrollRef, 'left')}
+                        className="h-8 w-8 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+                        title="Anterior"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => scrollCarousel(foldersScrollRef, 'right')}
+                        className="h-8 w-8 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+                        title="Próximo"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    ref={foldersScrollRef}
+                    className="flex gap-3 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [scrollbar-width:none] scroll-smooth"
+                  >
+                    {foldersLoading && Array.from({ length: 4 }).map((_, i) => (
+                      <div key={`folder-skel-${i}`} className="w-40 h-48 rounded bg-gray-100 animate-pulse shrink-0" />
+                    ))}
+                    {!foldersLoading && folders.map((folder) => {
+                      const folderPhotos = photos.filter(p => p.folder_id === folder.id)
+                      const folderPhotoCount = folderPhotos.length
+                      const coverPhoto = folderPhotos[0]
+                      return (
+                        <div
+                          key={folder.id}
+                          onClick={() => handleFolderClick(folder.id)}
+                          className="w-40 h-48 shrink-0 rounded overflow-hidden cursor-pointer transition-all relative group bg-gradient-to-br from-teal-700 to-teal-900 border border-gray-200 shadow-sm hover:shadow-lg hover:border-teal-500"
+                        >
+                          {/* Capa: primeira foto ou fallback com ícone */}
+                          {coverPhoto ? (
+                            <LazyImage
+                              src={coverPhoto.image_data}
+                              alt={folder.name}
+                              className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            />
+                          ) : (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <Folder className="w-14 h-14 text-white/40" strokeWidth={1.5} />
+                            </div>
+                          )}
+
+                          {/* Gradiente escuro para legibilidade */}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-black/10 pointer-events-none" />
+
+                          {/* Badge de contagem */}
+                          <div className="absolute top-2 right-2 h-6 pl-1.5 pr-2 rounded-full bg-white/95 backdrop-blur-sm flex items-center gap-1 shadow-sm">
+                            <Folder className="w-3 h-3 text-teal-700" />
+                            <span className="text-[10px] font-bold text-teal-800 leading-none">{folderPhotoCount}</span>
+                          </div>
+
+                          {/* Nome da pasta — overlay inferior */}
+                          <div className="absolute inset-x-0 bottom-0 p-3">
+                            <p className="text-sm font-semibold text-white truncate drop-shadow-md">
+                              {folder.name}
+                            </p>
+                            <p className="text-[10px] text-white/70 mt-0.5">
+                              {folderPhotoCount} {folderPhotoCount === 1 ? 'foto' : 'fotos'}
+                            </p>
+                          </div>
+
+                          {/* Ações no hover */}
+                          <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                            <button
+                              className="h-6 w-6 flex items-center justify-center rounded bg-white/95 backdrop-blur-sm text-gray-600 hover:text-teal-700 hover:bg-white transition-colors shadow-sm"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleFolderRename(folder.id, folder.name)
+                              }}
+                              title="Editar pasta"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <button
+                              className="h-6 w-6 flex items-center justify-center rounded bg-white/95 backdrop-blur-sm text-gray-600 hover:text-red-600 hover:bg-white transition-colors shadow-sm"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleFolderDelete(folder.id)
+                              }}
+                              title="Deletar pasta"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
-            </div>
-          ))}
 
-          {/* Pastas no grid (só mostrar se não estiver dentro de uma pasta) */}
-          {!currentFolder && !foldersLoading && folders.map((folder) => (
-            <div
-              key={folder.id}
-              className="aspect-square bg-orange-100 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-orange-200 transition-colors relative group"
-              onClick={() => handleFolderClick(folder.id)}
-            >
-              <Folder className="w-12 h-12 text-primary mb-2" />
-              <span className="text-sm text-black font-medium">{folder.name}</span>
-              <span className="text-xs text-gray-500 mt-1">
-                {photos.filter(p => p.folder_id === folder.id).length} fotos
-              </span>
+              {/* Carrossel: Fotos */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    {currentFolder ? 'Fotos da pasta' : 'Fotos avulsas'}
+                    {(currentFolder ? sortedFolderPhotos : sortedUnfolderedPhotos).length > 0 &&
+                      ` (${(currentFolder ? sortedFolderPhotos : sortedUnfolderedPhotos).length})`}
+                  </h3>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => scrollCarousel(photosScrollRef, 'left')}
+                      className="h-8 w-8 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+                      title="Anterior"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => scrollCarousel(photosScrollRef, 'right')}
+                      className="h-8 w-8 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+                      title="Próximo"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
 
-              {/* Botões de ação no hover */}
-              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                <Button
-                  size="sm"
-                  className="bg-primary hover:bg-primary/90 text-white w-8 h-8 p-0"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleFolderRename(folder.id, folder.name)
-                  }}
-                  title="Editar pasta"
-                >
-                  <Edit className="w-4 h-4" />
-                </Button>
-                <Button
-                  size="sm"
-                  className="bg-red-500 hover:bg-red-600 text-white w-8 h-8 p-0"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleFolderDelete(folder.id)
-                  }}
-                  title="Deletar pasta"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
+                <div
+                    ref={photosScrollRef}
+                    className="flex gap-3 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [scrollbar-width:none] scroll-smooth"
+                  >
+                    {photosLoading && Array.from({ length: 6 }).map((_, i) => (
+                      <div key={`photo-skel-${i}`} className="w-40 h-40 rounded bg-gray-100 animate-pulse shrink-0" />
+                    ))}
+                    {!photosLoading && (currentFolder ? sortedFolderPhotos : sortedUnfolderedPhotos).map((photo, index) => (
+                      <div
+                        key={photo.id}
+                        className={`w-40 h-40 shrink-0 bg-white border border-gray-200 rounded shadow-sm overflow-hidden cursor-pointer hover:shadow-md hover:border-teal-500 transition-all relative group ${
+                          selectedPhotos.includes(photo.id) ? '!border-teal-600 ring-2 ring-teal-600 ring-offset-1' : ''
+                        }`}
+                        onClick={() => {
+                          if (isSelectionMode) {
+                            togglePhotoSelection(photo.id)
+                          } else {
+                            setSelectedPhoto(photo)
+                          }
+                        }}
+                      >
+                        <LazyImage
+                          src={photo.image_data}
+                          alt={`Foto ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+
+                        {/* Overlay gradient com data */}
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <p className="text-xs text-white font-medium">
+                            {new Date(photo.created_at).toLocaleDateString('pt-BR')}
+                          </p>
+                        </div>
+
+                        {/* Checkbox de seleção */}
+                        {isSelectionMode && (
+                          <div className={`absolute top-2 left-2 h-6 w-6 rounded flex items-center justify-center transition-all ${
+                            selectedPhotos.includes(photo.id)
+                              ? 'bg-teal-600 border-2 border-white shadow-md'
+                              : 'bg-white/90 border-2 border-white shadow-sm'
+                          }`}>
+                            {selectedPhotos.includes(photo.id) && (
+                              <Check className="w-4 h-4 text-white" />
+                            )}
+                          </div>
+                        )}
+
+                        {/* Ações no hover */}
+                        {!isSelectionMode && (
+                          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                            <button
+                              className="h-7 w-7 flex items-center justify-center rounded bg-white border border-gray-200 text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors shadow-sm"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleMoveToFolder(photo.id)
+                              }}
+                              title="Mover para pasta"
+                            >
+                              <Folder className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              className="h-7 w-7 flex items-center justify-center rounded bg-white border border-gray-200 text-gray-500 hover:text-red-600 hover:border-red-400 hover:bg-red-50 transition-colors shadow-sm"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setConfirmDeletePhotoId(photo.id)
+                              }}
+                              title="Deletar foto"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
               </div>
             </div>
-          ))}
-        </div>
           </TabsContent>
 
           {/* Tab Content: Anamnese */}
@@ -1713,6 +1951,33 @@ export default function PatientPage() {
       )}
 
       {/* Modal da Câmera */}
+      {/* Modal câmera de perfil */}
+      {showProfileCamera && (
+        <div className="fixed inset-0 bg-black z-50 flex flex-col items-center justify-center">
+          <video
+            ref={profileVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full max-w-lg aspect-square object-cover rounded-lg"
+          />
+          <div className="flex items-center gap-4 mt-6">
+            <button
+              onClick={closeProfileCamera}
+              className="h-12 px-6 rounded-full bg-white/20 hover:bg-white/30 text-white font-medium transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={captureProfilePhoto}
+              className="h-16 w-16 rounded-full bg-white hover:bg-gray-100 flex items-center justify-center shadow-lg transition-colors"
+            >
+              <Camera className="w-7 h-7 text-teal-700" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {showCamera && (
         <div className="fixed inset-0 bg-white z-50">
           <div className="h-full flex flex-col">

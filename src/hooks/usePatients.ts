@@ -69,10 +69,13 @@ export const useUpdatePatient = () => {
 
 
   return useMutation({
-    mutationFn: async ({ patientId, name }: { patientId: string; name: string }) => {
+    mutationFn: async ({ patientId, name, profile_photo }: { patientId: string; name?: string; profile_photo?: string | null }) => {
+      const updates: Record<string, unknown> = {}
+      if (name !== undefined) updates.name = name
+      if (profile_photo !== undefined) updates.profile_photo = profile_photo
       const { data, error } = await supabase
         .from('patients')
-        .update({ name })
+        .update(updates)
         .eq('id', patientId)
         .select()
         .single()
@@ -82,10 +85,10 @@ export const useUpdatePatient = () => {
     },
     onSuccess: (data) => {
       queryClient.setQueryData(['patients'], (old: Patient[] | undefined) =>
-        old ? old.map(p => p.id === data.id ? { ...p, name: data.name } : p) : old
+        old ? old.map(p => p.id === data.id ? { ...p, ...data } : p) : old
       )
       queryClient.setQueryData(['patient', data.id], (old: Patient | undefined) =>
-        old ? { ...old, name: data.name } : old
+        old ? { ...old, ...data } : old
       )
       broadcastPatientsChanged()
     },

@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { SidebarNav } from "@/components/SidebarNav"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useState, useEffect, useMemo, useRef } from "react"
 import { PanelLeftOpen, Search, Settings, ChevronRight, ArrowLeft, ImageIcon } from "lucide-react"
 import Link from "next/link"
@@ -35,6 +35,8 @@ export default function PatientsLayout({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const tabParam = searchParams.get("tab")
   const [isClient, setIsClient] = useState(false)
   const prevPathRef = useRef<string | null>(null)
   const [prevPath, setPrevPath] = useState<string | null>(null)
@@ -57,7 +59,9 @@ export default function PatientsLayout({
     prevPathRef.current = pathname
   }, [pathname, isClient])
 
-  const showBack = isClient && pathname !== "/patients" && prevPath !== null
+  // Quando estamos numa seção interna do perfil (?tab=...), o "voltar" leva ao perfil em vez da rota anterior
+  const showBackToProfile = isClient && !!tabParam
+  const showBack = isClient && pathname !== "/patients" && prevPath !== null && !showBackToProfile
 
   const handleOpenSidebar = () => {
     window.dispatchEvent(new Event("sidebar-open"))
@@ -104,6 +108,18 @@ export default function PatientsLayout({
           >
             <PanelLeftOpen className="h-5 w-5 text-white" />
           </button>
+
+          {/* Voltar ao perfil — quando dentro de uma seção interna (?tab=...) */}
+          {showBackToProfile && (
+            <button
+              onClick={() => router.push(pathname)}
+              className="flex items-center gap-1.5 h-9 px-2 rounded hover:bg-teal-700 transition-colors shrink-0 text-white"
+              title="Voltar ao perfil"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span className="text-sm font-medium">Perfil</span>
+            </button>
+          )}
 
           {/* Voltar — exceto em /patients raiz */}
           {showBack && (

@@ -33,6 +33,7 @@ import android.content.pm.PackageManager
 import com.herohan.uvcapp.CameraHelper
 import com.herohan.uvcapp.ICameraHelper
 import com.herohan.uvcapp.IImageCapture
+import com.herohan.uvcapp.IVideoCapture
 import com.serenegiant.widget.AspectRatioSurfaceView
 import java.io.File
 
@@ -53,6 +54,8 @@ class MainActivity : AppCompatActivity() {
     private var openWatchdog: Runnable? = null
     private var openRetries = 0
     private var usbReceiverRegistered = false
+    private var recordingFile: File? = null
+    private var connectedDevice: UsbDevice? = null
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -235,6 +238,7 @@ class MainActivity : AppCompatActivity() {
 
     private val stateListener = object : ICameraHelper.StateCallback {
         override fun onAttach(device: UsbDevice) {
+            connectedDevice = device
             cameraHelper?.selectDevice(device)
             emitState("connecting")
         }
@@ -507,6 +511,201 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun captureIntraoralFrame() = captureIntraoralFrame(null)
+
+        @JavascriptInterface
+        fun setIntraoralMirror(mirror: Boolean) {
+            // "Espelhar" aqui significa inverter verticalmente (cima ↔ baixo).
+            runOnUiThread {
+                previewSurface.scaleY = if (mirror) -1f else 1f
+            }
+        }
+
+        @JavascriptInterface
+        fun startIntraoralRecording(callbackName: String?) {
+            val cb = if (callbackName.isNullOrBlank()) "window.__onIntraoralVideo" else callbackName
+            val helper = cameraHelper
+            if (helper == null || !helper.isCameraOpened) {
+                runOnUiThread {
+                    webView.evaluateJavascript(
+                        "if(typeof $cb==='function'){$cb(null,${jsString("not-ready")});}",
+                        null,
+                    )
+                }
+                return
+            }
+            if (recordingFile != null) return // já gravando
+            val file = File(cacheDir, "intraoral_${System.currentTimeMillis()}.mp4")
+            recordingFile = file
+            val opts = IVideoCapture.OutputFileOptions.Builder(file).build()
+            try {
+                helper.startRecording(opts, object : IVideoCapture.OnVideoCaptureCallback {
+                    override fun onStart() { /* started */ }
+                    override fun onVideoSaved(result: IVideoCapture.OutputFileResults) {
+                        val saved = recordingFile
+                        recordingFile = null
+                        val dataUrl = runCatching {
+                            val bytes = saved!!.readBytes()
+                            "data:video/mp4;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        }.getOrNull()
+                        runCatching { saved?.delete() }
+                        runOnUiThread {
+                            if (dataUrl == null) {
+                                webView.evaluateJavascript(
+                                    "if(typeof $cb==='function'){$cb(null,${jsString("read-failed")});}",
+                                    null,
+                                )
+                            } else {
+                                webView.evaluateJavascript(
+                                    "if(typeof $cb==='function'){$cb(${jsString(dataUrl)},null);}",
+                                    null,
+                                )
+                            }
+                        }
+                    }
+                    override fun onError(code: Int, message: String, cause: Throwable?) {
+                        recordingFile?.let { runCatching { it.delete() } }
+                        recordingFile = null
+                        runOnUiThread {
+                            webView.evaluateJavascript(
+                                "if(typeof $cb==='function'){$cb(null,${jsString(message)});}",
+                                null,
+                            )
+                        }
+                    }
+                })
+            } catch (e: Throwable) {
+                recordingFile = null
+                runOnUiThread {
+                    webView.evaluateJavascript(
+                        "if(typeof $cb==='function'){$cb(null,${jsString(e.message ?: "start-failed")});}",
+                        null,
+                    )
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun startIntraoralRecording() = startIntraoralRecording(null)
+
+        @JavascriptInterface
+        fun stopIntraoralRecording() {
+            val helper = cameraHelper ?: return
+            runCatching { helper.stopRecording() }
+        }
+
+        @JavascriptInterface
+        fun isIntraoralRecording(): Boolean {
+            return recordingFile != null
+        }
+
+        @JavascriptInterface
+        fun getIntraoralCapabilities(callbackName: String?) {
+            val cb = if (callbackName.isNullOrBlank()) "window.__onIntraoralCapabilities" else callbackName
+            val helper = cameraHelper
+            val sb = StringBuilder()
+            sb.append("{")
+            // Device
+            val dev = connectedDevice
+            sb.append("\"device\":")
+            if (dev != null) {
+                sb.append("{")
+                sb.append("\"vid\":\"0x").append(String.format("%04X", dev.vendorId)).append("\",")
+                sb.append("\"pid\":\"0x").append(String.format("%04X", dev.productId)).append("\",")
+                sb.append("\"name\":").append(jsString(dev.deviceName ?: ""))
+                runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        dev.productName?.let { sb.append(",\"productName\":").append(jsString(it)) }
+                        dev.manufacturerName?.let { sb.append(",\"manufacturer\":").append(jsString(it)) }
+                    }
+                }
+                sb.append("}")
+            } else {
+                sb.append("null")
+            }
+            sb.append(",\"cameraOpened\":").append(helper?.isCameraOpened == true)
+            // Current size
+            val cur = runCatching { helper?.previewSize }.getOrNull()
+            if (cur != null) {
+                sb.append(",\"currentSize\":{\"w\":").append(cur.width).append(",\"h\":").append(cur.height).append("}")
+            } else {
+                sb.append(",\"currentSize\":null")
+            }
+            // Supported sizes
+            sb.append(",\"supportedSizes\":[")
+            runCatching {
+                helper?.supportedSizeList?.forEachIndexed { i, s ->
+                    if (i > 0) sb.append(",")
+                    sb.append("{\"w\":").append(s.width).append(",\"h\":").append(s.height).append("}")
+                }
+            }
+            sb.append("]")
+            // Supported formats
+            sb.append(",\"supportedFormats\":[")
+            runCatching {
+                helper?.supportedFormatList?.forEachIndexed { i, f ->
+                    if (i > 0) sb.append(",")
+                    sb.append(jsString(f.toString()))
+                }
+            }
+            sb.append("]")
+            // UVC controls (zoom)
+            sb.append(",\"uvc\":")
+            runCatching {
+                val uvc = helper?.uvcControl
+                if (uvc != null) {
+                    val zoomEnabled = runCatching { uvc.isZoomAbsoluteEnable }.getOrNull() ?: false
+                    val zoomLimit = runCatching { uvc.updateZoomAbsoluteLimit() }.getOrNull()
+                    val zoomVal = runCatching { uvc.zoomAbsolute }.getOrNull()
+                    sb.append("{\"zoomEnabled\":").append(zoomEnabled)
+                    if (zoomLimit != null && zoomLimit.size >= 2) {
+                        sb.append(",\"zoomMin\":").append(zoomLimit[0])
+                        sb.append(",\"zoomMax\":").append(zoomLimit[1])
+                    }
+                    if (zoomVal != null) sb.append(",\"zoomCurrent\":").append(zoomVal)
+                    sb.append("}")
+                } else {
+                    sb.append("null")
+                }
+            }.onFailure { sb.append("null") }
+            sb.append("}")
+
+            val json = sb.toString()
+            runOnUiThread {
+                webView.evaluateJavascript(
+                    "if(typeof $cb==='function'){$cb($json);}",
+                    null,
+                )
+            }
+        }
+
+        @JavascriptInterface
+        fun getIntraoralCapabilities() = getIntraoralCapabilities(null)
+
+        @JavascriptInterface
+        fun setIntraoralResolution(width: Int, height: Int) {
+            val helper = cameraHelper ?: return
+            val target = runCatching { helper.supportedSizeList }
+                .getOrNull()
+                ?.firstOrNull { it.width == width && it.height == height } ?: return
+            runOnUiThread {
+                runCatching {
+                    if (helper.isCameraOpened) {
+                        runCatching { helper.removeSurface(previewSurface.holder.surface) }
+                        runCatching { helper.stopPreview() }
+                        runCatching { helper.closeCamera() }
+                    }
+                    helper.previewSize = target
+                    val dev = connectedDevice
+                    if (dev != null) helper.selectDevice(dev) else helper.openCamera(target)
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun setIntraoralZoomPercent(percent: Int) {
+            val uvc = cameraHelper?.uvcControl ?: return
+            runCatching { uvc.setZoomAbsolutePercent(percent.coerceIn(0, 100)) }
+        }
     }
 
     companion object {

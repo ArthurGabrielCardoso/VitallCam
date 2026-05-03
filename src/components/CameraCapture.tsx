@@ -33,11 +33,28 @@ declare global {
       stopIntraoralPreview?: () => void
       setIntraoralPreviewBounds?: (x: number, y: number, w: number, h: number) => void
       captureIntraoralFrame?: (callbackName?: string) => void
+      setIntraoralMirror?: (mirror: boolean) => void
+      startIntraoralRecording?: (callbackName?: string) => void
+      stopIntraoralRecording?: () => void
+      getIntraoralCapabilities?: (callbackName?: string) => void
+      setIntraoralResolution?: (width: number, height: number) => void
+      setIntraoralZoomPercent?: (percent: number) => void
     }
     __onIntraoralCapture?: (dataUrls: string[], error: string | null) => void
     __onIntraoralFrame?: (dataUrl: string | null, error: string | null) => void
+    __onIntraoralVideo?: (dataUrl: string | null, error: string | null) => void
     __onIntraoralState?: (state: string) => void
+    __onIntraoralCapabilities?: (caps: IntraoralCapabilities) => void
   }
+}
+
+interface IntraoralCapabilities {
+  device: { vid: string; pid: string; name?: string; productName?: string; manufacturer?: string } | null
+  cameraOpened: boolean
+  currentSize: { w: number; h: number } | null
+  supportedSizes: { w: number; h: number }[]
+  supportedFormats: string[]
+  uvc: { zoomEnabled: boolean; zoomMin?: number; zoomMax?: number; zoomCurrent?: number } | null
 }
 
 type NativePreviewState = 'idle' | 'connecting' | 'ready' | 'lost' | 'error'
@@ -194,6 +211,8 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   const previewSlotRef = useRef<HTMLDivElement>(null)
   const [isNative, setIsNative] = useState(false)
   const [nativePreviewState, setNativePreviewState] = useState<NativePreviewState>('idle')
+  const [capabilities, setCapabilities] = useState<IntraoralCapabilities | null>(null)
+  const [showDebug, setShowDebug] = useState(false)
 
   // Native overlay flow: WebView mostra o design web e o nativo desenha o vídeo
   // ao vivo da câmera USB intraoral (libuvccamera) sobre o stage central.
@@ -259,12 +278,45 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     }
   }, [isNative])
 
+  // Sincroniza espelhar (vertical) com a SurfaceView nativa
+  useEffect(() => {
+    if (!isNative) return
+    window.VitallCam?.setIntraoralMirror?.(isMirrored)
+  }, [isNative, isMirrored])
+
+  // Busca capabilities da câmera quando ela ficar pronta
+  useEffect(() => {
+    if (!isNative || nativePreviewState !== 'ready') return
+    if (!window.VitallCam?.getIntraoralCapabilities) return
+    window.__onIntraoralCapabilities = (caps) => setCapabilities(caps)
+    window.VitallCam.getIntraoralCapabilities('window.__onIntraoralCapabilities')
+  }, [isNative, nativePreviewState])
+
+  const flipDataUrlVertically = (dataUrl: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => {
+        const c = document.createElement('canvas')
+        c.width = img.naturalWidth
+        c.height = img.naturalHeight
+        const ctx = c.getContext('2d')
+        if (!ctx) return reject(new Error('canvas'))
+        ctx.translate(0, c.height)
+        ctx.scale(1, -1)
+        ctx.drawImage(img, 0, 0)
+        resolve(c.toDataURL('image/jpeg', 0.95))
+      }
+      img.onerror = () => reject(new Error('image-load'))
+      img.src = dataUrl
+    })
+  }
+
   const captureNativeFrame = () => {
     if (!window.VitallCam?.captureIntraoralFrame) return
     setIsCapturing(true)
-    window.__onIntraoralFrame = (dataUrl, error) => {
-      setIsCapturing(false)
+    window.__onIntraoralFrame = async (dataUrl, error) => {
       if (error || !dataUrl) {
+        setIsCapturing(false)
         toast({
           variant: 'destructive',
           title: 'Falha ao capturar',
@@ -272,6 +324,15 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         })
         return
       }
+      let finalDataUrl = dataUrl
+      if (isMirrored) {
+        try {
+          finalDataUrl = await flipDataUrlVertically(dataUrl)
+        } catch {
+          // se falhar, mantém a original
+        }
+      }
+      setIsCapturing(false)
       // Flash sutil
       if (stageRef.current) {
         const flash = document.createElement('div')
@@ -283,10 +344,10 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       const stageRect = stageRef.current?.getBoundingClientRect()
       const thumbRect = thumbRef.current?.getBoundingClientRect()
       if (stageRect && thumbRect) {
-        setFlyAnim({ src: dataUrl, from: stageRect, to: thumbRect })
+        setFlyAnim({ src: finalDataUrl, from: stageRect, to: thumbRect })
         setTimeout(() => setFlyAnim(null), 650)
       }
-      setCapturedItems(prev => [{ kind: 'photo', dataUrl }, ...prev])
+      setCapturedItems(prev => [{ kind: 'photo', dataUrl: finalDataUrl }, ...prev])
       setShowSaveButton(true)
     }
     window.VitallCam.captureIntraoralFrame('window.__onIntraoralFrame')
@@ -815,7 +876,16 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
 
-      context.drawImage(video, 0, 0, canvas.width, canvas.height)
+      if (isMirrored) {
+        // Espelhar vertical: o que está em cima vai pra baixo.
+        context.save()
+        context.translate(0, canvas.height)
+        context.scale(1, -1)
+        context.drawImage(video, 0, 0, canvas.width, canvas.height)
+        context.restore()
+      } else {
+        context.drawImage(video, 0, 0, canvas.width, canvas.height)
+      }
 
       const finalImageData = canvas.toDataURL('image/jpeg', 0.95)
 
@@ -852,6 +922,50 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
 
   const startRecording = () => {
+    if (isNativeRef.current) {
+      if (!window.VitallCam?.startIntraoralRecording) return
+      window.__onIntraoralVideo = async (dataUrl, error) => {
+        if (recordingTimerRef.current) {
+          clearInterval(recordingTimerRef.current)
+          recordingTimerRef.current = null
+        }
+        setIsRecording(false)
+        if (error || !dataUrl) {
+          toast({
+            variant: 'destructive',
+            title: 'Erro ao gravar',
+            description: error === 'not-ready' ? 'Câmera ainda não está pronta.' : (error || 'Tente novamente.'),
+          })
+          setRecordingTime(0)
+          return
+        }
+        try {
+          const res = await fetch(dataUrl)
+          const blob = await res.blob()
+          const duration = recordingTime
+          const poster = await generateVideoPoster(blob)
+          const item: CapturedItem = { kind: 'video', dataUrl: poster, blob, duration, mimeType: 'video/mp4' }
+          setCapturedItems(prev => [item, ...prev])
+          setShowSaveButton(true)
+          const stageRect = stageRef.current?.getBoundingClientRect()
+          const thumbRect = thumbRef.current?.getBoundingClientRect()
+          if (stageRect && thumbRect) {
+            setFlyAnim({ src: poster, from: stageRect, to: thumbRect })
+            setTimeout(() => setFlyAnim(null), 650)
+          }
+          toast({ title: 'Vídeo capturado', description: `${formatTime(duration)} · ${(blob.size / 1024 / 1024).toFixed(1)}MB` })
+        } catch (err: any) {
+          toast({ variant: 'destructive', title: 'Erro ao processar vídeo', description: err?.message || 'Tente novamente.' })
+        } finally {
+          setRecordingTime(0)
+        }
+      }
+      window.VitallCam.startIntraoralRecording('window.__onIntraoralVideo')
+      setIsRecording(true)
+      setRecordingTime(0)
+      recordingTimerRef.current = setInterval(() => setRecordingTime(t => t + 1), 1000)
+      return
+    }
     if (!stream) return
     try {
       const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4']
@@ -872,6 +986,11 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   }
 
   const stopRecording = () => {
+    if (isNativeRef.current) {
+      // O callback __onIntraoralVideo zera isRecording e o timer.
+      window.VitallCam?.stopIntraoralRecording?.()
+      return
+    }
     mediaRecorderRef.current?.stop()
     if (recordingTimerRef.current) {
       clearInterval(recordingTimerRef.current)
@@ -1028,11 +1147,6 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       setCapturedItems([])
       setShowSaveButton(false)
 
-      // No APK (fluxo da câmera intraoral USB), volta direto pro perfil do paciente
-      if (isNativeRef.current) {
-        router.push(`/patients/${patientId}`)
-      }
-
     } catch (error) {
       console.error('Erro completo ao salvar fotos:', error)
       toast({
@@ -1168,7 +1282,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
             <video
               ref={videoRef}
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-150"
-              style={{ transform: `scale(${zoomLevel}) ${isMirrored ? 'scaleX(-1)' : ''}`, transformOrigin: 'center center' }}
+              style={{ transform: `scale(${zoomLevel}) ${isMirrored ? 'scaleY(-1)' : ''}`, transformOrigin: 'center center' }}
               playsInline
               muted
             />
@@ -1243,7 +1357,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
             <button
               onClick={() => { setMode('video'); isRecording ? stopRecording() : startRecording() }}
               aria-label={isRecording ? 'Parar gravação' : 'Iniciar gravação'}
-              disabled={!stream}
+              disabled={isNative ? nativePreviewState !== 'ready' : !stream}
               className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95 disabled:opacity-50 ${
                 mode === 'video'
                   ? 'bg-gradient-to-br from-dourado-400 to-dourado-600 text-white shadow-[0_4px_14px_-4px_rgba(168,127,92,0.9)] ring-2 ring-white/40'
@@ -1307,6 +1421,42 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
                 </div>
               </>
             )}
+
+            {isNative && capabilities && capabilities.supportedSizes.length > 0 && (
+              <>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mt-2 block">Resolução (FOV)</label>
+                <div className="mt-1.5 space-y-1 max-h-44 overflow-y-auto">
+                  {capabilities.supportedSizes.map(s => {
+                    const isCurrent = capabilities.currentSize?.w === s.w && capabilities.currentSize?.h === s.h
+                    return (
+                      <button
+                        key={`${s.w}x${s.h}`}
+                        onClick={() => {
+                          window.VitallCam?.setIntraoralResolution?.(s.w, s.h)
+                          // Atualiza display após troca
+                          setTimeout(() => window.VitallCam?.getIntraoralCapabilities?.('window.__onIntraoralCapabilities'), 1500)
+                        }}
+                        className={`w-full text-left px-3 py-2 text-xs rounded transition-colors ${isCurrent ? 'bg-teal-50 text-teal-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'}`}
+                      >
+                        {s.w} × {s.h}{isCurrent ? ' • atual' : ''}
+                      </button>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+
+            {isNative && (
+              <button
+                onClick={() => {
+                  window.VitallCam?.getIntraoralCapabilities?.('window.__onIntraoralCapabilities')
+                  setShowDebug(true)
+                }}
+                className="mt-3 w-full text-center px-3 py-2 text-xs rounded bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium"
+              >
+                🔍 Diagnóstico da câmera
+              </button>
+            )}
           </div>
         )}
       </aside>
@@ -1317,6 +1467,54 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       )}
 
       {/* Galeria de capturas (modal) */}
+      {showDebug && (
+        <div className="fixed inset-0 z-[80] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowDebug(false)}>
+          <div className="relative w-full max-w-2xl max-h-[85vh] bg-white rounded overflow-hidden shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <span className="text-sm font-semibold text-gray-800">🔍 Diagnóstico da câmera intraoral</span>
+              <button onClick={() => setShowDebug(false)} className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4 bg-gray-50">
+              <pre className="text-[11px] leading-relaxed text-gray-800 whitespace-pre-wrap font-mono">
+{capabilities ? JSON.stringify(capabilities, null, 2) : 'Aguardando dados…'}
+              </pre>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-100">
+              <button
+                onClick={() => window.VitallCam?.getIntraoralCapabilities?.('window.__onIntraoralCapabilities')}
+                className="px-3 py-1.5 text-xs rounded bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium"
+              >
+                Atualizar
+              </button>
+              <button
+                onClick={async () => {
+                  const text = capabilities ? JSON.stringify(capabilities, null, 2) : ''
+                  try {
+                    await navigator.clipboard.writeText(text)
+                    toast({ title: 'Copiado!', description: 'Cole no chat e me envia.' })
+                  } catch {
+                    // Fallback pra WebView Android
+                    const ta = document.createElement('textarea')
+                    ta.value = text
+                    document.body.appendChild(ta)
+                    ta.select()
+                    document.execCommand('copy')
+                    document.body.removeChild(ta)
+                    toast({ title: 'Copiado!', description: 'Cole no chat e me envia.' })
+                  }
+                }}
+                disabled={!capabilities}
+                className="px-3 py-1.5 text-xs rounded bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white font-medium"
+              >
+                📋 Copiar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showGallery && capturedItems.length > 0 && (() => {
         const current = capturedItems[galleryIndex]
         return (

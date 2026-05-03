@@ -7,7 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
-import android.graphics.SurfaceTexture
+import android.graphics.PixelFormat
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
@@ -15,8 +15,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
-import android.view.Surface
-import android.view.TextureView
+import android.view.SurfaceHolder
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
@@ -35,19 +34,19 @@ import com.herohan.uvcapp.CameraHelper
 import com.herohan.uvcapp.ICameraHelper
 import com.herohan.uvcapp.IImageCapture
 import com.herohan.uvcapp.VideoCapture
+import com.serenegiant.widget.AspectRatioSurfaceView
 import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var rootLayout: FrameLayout
     private lateinit var webView: WebView
-    private lateinit var previewTexture: TextureView
+    private lateinit var previewSurface: AspectRatioSurfaceView
     private var pendingPermissionRequest: PermissionRequest? = null
     private var pendingJsCallback: String? = null
 
     // Live intraoral preview state
     private var cameraHelper: ICameraHelper? = null
-    private var previewSurface: Surface? = null
     private var surfaceReady = false
     private var previewActive = false
     private var stateCallbackJs: String? = null
@@ -76,28 +75,26 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
             )
-            // WebView transparente — TextureView abaixo aparece pelos pixels
-            // sem alpha. Popovers/modais HTML continuam acima e clicáveis.
-            setBackgroundColor(Color.TRANSPARENT)
         }
 
-        previewTexture = TextureView(this).apply {
+        previewSurface = AspectRatioSurfaceView(this).apply {
             layoutParams = FrameLayout.LayoutParams(1, 1).apply {
                 leftMargin = 0
                 topMargin = 0
             }
             visibility = View.GONE
-            // Opaco: frames da câmera são RGB sem alpha
-            isOpaque = true
-            surfaceTextureListener = textureListener
+            holder.setFormat(PixelFormat.OPAQUE)
+            // setZOrderOnTop: SurfaceView SEMPRE aparece acima do WebView
+            // dentro dos seus bounds. Bounds são o stage central — fora deles
+            // o WebView (e portanto popovers HTML) volta a ficar em cima.
+            // Por isso os popovers precisam ficar DENTRO das colunas laterais
+            // (asides), não invadindo a área central do vídeo.
+            setZOrderOnTop(true)
+            holder.addCallback(surfaceCallback)
         }
 
-        // TextureView ANTES do WebView — fica abaixo na hierarquia.
-        // TextureView é uma view normal (não usa compositor de surface),
-        // então fica naturalmente embaixo do WebView e aparece através
-        // dos pixels transparentes do HTML.
-        rootLayout.addView(previewTexture)
         rootLayout.addView(webView)
+        rootLayout.addView(previewSurface)
         setContentView(rootLayout)
 
         webView.settings.apply {
@@ -229,35 +226,18 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- Live preview overlay ----------
 
-    private val textureListener = object : TextureView.SurfaceTextureListener {
-        override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-            // Se a câmera já está aberta, pega o tamanho atual pra alinhar
-            // o buffer da SurfaceTexture com o frame que vem da UVC.
-            val helper = cameraHelper
-            val size = runCatching { helper?.previewSize }.getOrNull()
-            if (size != null) {
-                runCatching { st.setDefaultBufferSize(size.width, size.height) }
-            }
-            previewSurface = Surface(st)
+    private val surfaceCallback = object : SurfaceHolder.Callback {
+        override fun surfaceCreated(holder: SurfaceHolder) {
             surfaceReady = true
-            if (helper != null && helper.isCameraOpened) {
-                previewSurface?.let { runCatching { helper.addSurface(it, false) } }
+            cameraHelper?.let {
+                if (it.isCameraOpened) it.addSurface(holder.surface, false)
             }
         }
-        override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
-            val size = runCatching { cameraHelper?.previewSize }.getOrNull()
-            if (size != null) {
-                runCatching { st.setDefaultBufferSize(size.width, size.height) }
-            }
-        }
-        override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+        override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, ht: Int) {}
+        override fun surfaceDestroyed(holder: SurfaceHolder) {
             surfaceReady = false
-            previewSurface?.let { runCatching { cameraHelper?.removeSurface(it) } }
-            runCatching { previewSurface?.release() }
-            previewSurface = null
-            return true
+            cameraHelper?.removeSurface(holder.surface)
         }
-        override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
     }
 
     private val stateListener = object : ICameraHelper.StateCallback {
@@ -282,30 +262,26 @@ class MainActivity : AppCompatActivity() {
                     ?: supported.maxByOrNull { it.width * it.height }
                 if (chosen != null) {
                     helper.previewSize = chosen
-                    // CRÍTICO pra TextureView: o SurfaceTexture precisa saber o
-                    // tamanho do buffer que vai receber. Sem isso os frames chegam
-                    // mas a view não desenha nada (fica preto eterno).
+                    // setAspectRatio impede a SurfaceView de calcular tamanho 0
+                    // em algumas situações (causaria tela preta).
                     runOnUiThread {
-                        runCatching {
-                            previewTexture.surfaceTexture?.setDefaultBufferSize(chosen.width, chosen.height)
-                        }
+                        runCatching { previewSurface.setAspectRatio(chosen.width, chosen.height) }
                     }
                 }
             }
             cameraHelper?.startPreview()
-            if (surfaceReady) previewSurface?.let { cameraHelper?.addSurface(it, false) }
+            if (surfaceReady) cameraHelper?.addSurface(previewSurface.holder.surface, false)
             // Re-attach surface 200ms later as a belt-and-suspenders against race
             mainHandler.postDelayed({
                 val h = cameraHelper ?: return@postDelayed
-                val s = previewSurface
-                if (h.isCameraOpened && surfaceReady && s != null) {
-                    runCatching { h.addSurface(s, false) }
+                if (h.isCameraOpened && surfaceReady) {
+                    runCatching { h.addSurface(previewSurface.holder.surface, false) }
                 }
             }, 200)
             emitState("ready")
         }
         override fun onCameraClose(device: UsbDevice) {
-            previewSurface?.let { runCatching { cameraHelper?.removeSurface(it) } }
+            runCatching { cameraHelper?.removeSurface(previewSurface.holder.surface) }
         }
         override fun onDeviceClose(device: UsbDevice) {}
         override fun onDetach(device: UsbDevice) {
@@ -373,7 +349,7 @@ class MainActivity : AppCompatActivity() {
         // com "device is occupied".
         if (helper != null) {
             runCatching { if (helper.isRecording) helper.stopRecording() }
-            previewSurface?.let { runCatching { helper.removeSurface(it) } }
+            runCatching { helper.removeSurface(previewSurface.holder.surface) }
             runCatching { helper.stopPreview() }
             runCatching { helper.closeCamera() }
             // releaseAll é mais profundo que release — limpa o serviço da lib
@@ -394,7 +370,7 @@ class MainActivity : AppCompatActivity() {
             runCatching { unregisterReceiver(usbReceiver) }
             usbReceiverRegistered = false
         }
-        runOnUiThread { previewTexture.visibility = View.GONE }
+        runOnUiThread { previewSurface.visibility = View.GONE }
         stateCallbackJs = null
     }
 
@@ -419,15 +395,15 @@ class MainActivity : AppCompatActivity() {
             val top = yPx.toInt().coerceAtLeast(0)
             val width = wPx.toInt().coerceAtLeast(1)
             val height = hPx.toInt().coerceAtLeast(1)
-            val lp = previewTexture.layoutParams as FrameLayout.LayoutParams
+            val lp = previewSurface.layoutParams as FrameLayout.LayoutParams
             lp.width = width
             lp.height = height
             lp.leftMargin = left
             lp.topMargin = top
-            previewTexture.layoutParams = lp
-            previewTexture.requestLayout()
-            if (previewTexture.visibility != View.VISIBLE && previewActive) {
-                previewTexture.visibility = View.VISIBLE
+            previewSurface.layoutParams = lp
+            previewSurface.requestLayout()
+            if (previewSurface.visibility != View.VISIBLE && previewActive) {
+                previewSurface.visibility = View.VISIBLE
             }
         }
     }
@@ -569,7 +545,7 @@ class MainActivity : AppCompatActivity() {
         fun setIntraoralMirror(mirror: Boolean) {
             // "Espelhar" aqui significa inverter verticalmente (cima ↔ baixo).
             runOnUiThread {
-                previewTexture.scaleY = if (mirror) -1f else 1f
+                previewSurface.scaleY = if (mirror) -1f else 1f
             }
         }
 
@@ -743,7 +719,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 runCatching {
                     if (helper.isCameraOpened) {
-                        previewSurface?.let { runCatching { helper.removeSurface(it) } }
+                        runCatching { helper.removeSurface(previewSurface.holder.surface) }
                         runCatching { helper.stopPreview() }
                         runCatching { helper.closeCamera() }
                     }
@@ -758,6 +734,16 @@ class MainActivity : AppCompatActivity() {
         fun setIntraoralZoomPercent(percent: Int) {
             val uvc = cameraHelper?.uvcControl ?: return
             runCatching { uvc.setZoomAbsolutePercent(percent.coerceIn(0, 100)) }
+        }
+
+        @JavascriptInterface
+        fun setIntraoralPreviewVisible(visible: Boolean) {
+            // Esconde temporariamente a SurfaceView (mantém câmera ligada).
+            // Usado quando modais HTML fullscreen abrem (Galeria, Diagnóstico)
+            // — sem isso a SurfaceView com setZOrderOnTop ficaria por cima.
+            runOnUiThread {
+                previewSurface.visibility = if (visible && previewActive) View.VISIBLE else View.GONE
+            }
         }
     }
 

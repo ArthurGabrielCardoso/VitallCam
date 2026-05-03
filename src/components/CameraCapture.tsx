@@ -40,6 +40,7 @@ declare global {
       getIntraoralCapabilities?: (callbackName?: string) => void
       setIntraoralResolution?: (width: number, height: number) => void
       setIntraoralZoomPercent?: (percent: number) => void
+      setIntraoralPreviewVisible?: (visible: boolean) => void
     }
     __onIntraoralCapture?: (dataUrls: string[], error: string | null) => void
     __onIntraoralFrame?: (dataUrl: string | null, error: string | null) => void
@@ -214,6 +215,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   const [nativePreviewState, setNativePreviewState] = useState<NativePreviewState>('idle')
   const [capabilities, setCapabilities] = useState<IntraoralCapabilities | null>(null)
   const [showDebug, setShowDebug] = useState(false)
+  const [portalReady, setPortalReady] = useState(false)
 
   // Native overlay flow: WebView mostra o design web e o nativo desenha o vídeo
   // ao vivo da câmera USB intraoral (libuvccamera) sobre o stage central.
@@ -290,11 +292,19 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     window.VitallCam?.setIntraoralMirror?.(isMirrored)
   }, [isNative, isMirrored])
 
+  // Esconde a SurfaceView quando modais fullscreen estão abertos
+  // (Galeria, Diagnóstico). Sem isso ela fica por cima do modal por
+  // causa do setZOrderOnTop. Ajustes NÃO esconde — popover fica no aside.
+  useEffect(() => {
+    if (!isNative) return
+    const shouldHide = showDebug || showGallery
+    window.VitallCam?.setIntraoralPreviewVisible?.(!shouldHide)
+  }, [isNative, showDebug, showGallery])
+
   // Rect do stage central pra renderizar o "moldura" opaca em volta
   // (4 barras top/bottom/left/right que escondem a página atrás e deixam
   // só a área do stage transparente — SurfaceView aparece por essa janela).
   const [stageRect, setStageRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null)
-  const [portalReady, setPortalReady] = useState(false)
 
   const portalContainerRef = useRef<HTMLDivElement | null>(null)
 
@@ -330,6 +340,8 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       if (container.parentNode) container.parentNode.removeChild(container)
       portalContainerRef.current = null
       setPortalReady(false)
+      // Garante que a SurfaceView volte a ficar visível ao sair
+      window.VitallCam?.setIntraoralPreviewVisible?.(true)
     }
   }, [isNative])
 
@@ -1271,18 +1283,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
   const content = (
     <>
-    {/* Moldura opaca em volta do stage: 4 barras (top/bottom/left/right)
-        que cobrem ao redor SEM tampar o stage. SurfaceView aparece pelo
-        "buraco" do stage. */}
-    {isNative && stageRect && (
-      <div className="fixed inset-0 z-[59] pointer-events-none">
-        <div className="absolute bg-neutral-950" style={{ left: 0, right: 0, top: 0, height: stageRect.top }} />
-        <div className="absolute bg-neutral-950" style={{ left: 0, right: 0, top: stageRect.top + stageRect.height, bottom: 0 }} />
-        <div className="absolute bg-neutral-950" style={{ left: 0, width: stageRect.left, top: stageRect.top, height: stageRect.height }} />
-        <div className="absolute bg-neutral-950" style={{ left: stageRect.left + stageRect.width, right: 0, top: stageRect.top, height: stageRect.height }} />
-      </div>
-    )}
-    <div className={`fixed inset-0 z-[60] grid grid-cols-[clamp(140px,15vw,220px)_1fr_clamp(140px,15vw,220px)] items-stretch py-6 sm:py-8 ${isNative ? 'bg-transparent' : 'bg-neutral-950'}`} data-vitallcam-camera-content="true">
+    <div className="fixed inset-0 z-[60] grid grid-cols-[clamp(140px,15vw,220px)_1fr_clamp(140px,15vw,220px)] items-stretch py-6 sm:py-8 bg-neutral-950" data-vitallcam-camera-content="true">
       {/* COLUNA ESQUERDA — fechar + salvar (topo) e thumbnail (rodapé) */}
       <aside className="flex flex-col items-center justify-between py-2 px-3">
         {/* Topo: Fechar + Salvar */}
@@ -1345,7 +1346,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       <div className="flex items-center justify-center px-2">
         <div
           ref={stageRef}
-          className={`relative w-full h-full max-w-[1400px] rounded overflow-hidden shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)] ring-1 ring-white/5 ${isNative ? 'bg-transparent' : 'bg-black'}`}
+          className="relative w-full h-full max-w-[1400px] rounded bg-black overflow-hidden shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)] ring-1 ring-white/5"
         >
           {!isNative && (
             <video
@@ -1459,9 +1460,10 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
           <span className="text-[11px] font-medium tracking-wide">Ajustes</span>
         </button>
 
-        {/* Painel de Ajustes (popover ancorado à coluna direita) */}
+        {/* Painel de Ajustes — DENTRO da coluna direita (não invade a área
+            do vídeo, pra SurfaceView nativa com setZOrderOnTop não cobrir). */}
         {showSettings && (
-          <div className="absolute top-1/2 right-full -translate-y-1/2 mr-2 z-30 w-72 bg-white rounded shadow-2xl ring-1 ring-black/5 p-4 animate-fade-in">
+          <div className="absolute inset-x-1 bottom-full mb-2 z-30 bg-white rounded shadow-2xl ring-1 ring-black/5 p-3 animate-fade-in max-h-[80vh] overflow-y-auto">
             <h4 className="text-sm font-semibold text-gray-800 mb-3">Ajustes</h4>
             <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Zoom</label>
             <div className="flex items-center gap-2 mt-1.5 mb-4">

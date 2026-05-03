@@ -250,6 +250,8 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     let raf = 0
     const push = () => {
       const r = el.getBoundingClientRect()
+      // Estado em CSS px pra "moldura" opaca volta
+      setStageRect({ top: r.top, left: r.left, width: r.width, height: r.height })
       // Enviar em device px — o WebView Android espera dimensões físicas.
       const dpr = window.devicePixelRatio || 1
       window.VitallCam?.setIntraoralPreviewBounds?.(
@@ -284,19 +286,10 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     window.VitallCam?.setIntraoralMirror?.(isMirrored)
   }, [isNative, isMirrored])
 
-  // Punch-through: body transparente no app pra SurfaceView aparecer
-  // através do HTML onde for transparente.
-  useEffect(() => {
-    if (!isNative) return
-    const prevBody = document.body.style.background
-    const prevHtml = document.documentElement.style.background
-    document.body.style.background = 'transparent'
-    document.documentElement.style.background = 'transparent'
-    return () => {
-      document.body.style.background = prevBody
-      document.documentElement.style.background = prevHtml
-    }
-  }, [isNative])
+  // Rect do stage central pra renderizar o "moldura" opaca em volta
+  // (4 barras top/bottom/left/right que escondem a página atrás e deixam
+  // só a área do stage transparente — SurfaceView aparece por essa janela).
+  const [stageRect, setStageRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null)
 
   // Capabilities são buscadas SOB DEMANDA (botão Diagnóstico ou ao abrir
   // o seletor de resolução). Auto-fetch causava conflito USB em algumas
@@ -1235,9 +1228,21 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   const lastItem = capturedItems[0]
 
   return (
+    <>
+    {/* Moldura opaca em volta do stage: 4 barras (top/bottom/left/right)
+        que cobrem a página por trás SEM tampar o stage. Só no modo nativo,
+        pra deixar a SurfaceView aparecer pelo "buraco" do stage. */}
+    {isNative && stageRect && (
+      <div className="fixed inset-0 z-[59] pointer-events-none">
+        <div className="absolute bg-neutral-950" style={{ left: 0, right: 0, top: 0, height: stageRect.top }} />
+        <div className="absolute bg-neutral-950" style={{ left: 0, right: 0, top: stageRect.top + stageRect.height, bottom: 0 }} />
+        <div className="absolute bg-neutral-950" style={{ left: 0, width: stageRect.left, top: stageRect.top, height: stageRect.height }} />
+        <div className="absolute bg-neutral-950" style={{ left: stageRect.left + stageRect.width, right: 0, top: stageRect.top, height: stageRect.height }} />
+      </div>
+    )}
     <div className={`fixed inset-0 z-[60] grid grid-cols-[clamp(140px,15vw,220px)_1fr_clamp(140px,15vw,220px)] items-stretch py-6 sm:py-8 ${isNative ? 'bg-transparent' : 'bg-neutral-950'}`}>
       {/* COLUNA ESQUERDA — fechar + salvar (topo) e thumbnail (rodapé) */}
-      <aside className={`flex flex-col items-center justify-between py-2 px-3 ${isNative ? 'bg-neutral-950' : ''}`}>
+      <aside className="flex flex-col items-center justify-between py-2 px-3">
         {/* Topo: Fechar + Salvar */}
         <div className="flex flex-col items-center gap-7">
           <button
@@ -1345,7 +1350,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       </div>
 
       {/* COLUNA DIREITA — ações */}
-      <aside className={`flex flex-col items-center justify-center gap-7 py-2 px-3 relative ${isNative ? 'bg-neutral-950' : ''}`}>
+      <aside className="flex flex-col items-center justify-center gap-7 py-2 px-3 relative">
         {/* Odontograma */}
         <button
           onClick={() => toast({ title: 'Odontograma', description: 'Em breve nesta tela.' })}
@@ -1632,6 +1637,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         )
       })()}
     </div>
+    </>
   )
 }
 

@@ -284,13 +284,21 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     window.VitallCam?.setIntraoralMirror?.(isMirrored)
   }, [isNative, isMirrored])
 
-  // Busca capabilities da câmera quando ela ficar pronta
+  // Capabilities são buscadas SOB DEMANDA (botão Diagnóstico ou ao abrir
+  // o seletor de resolução). Auto-fetch causava conflito USB em algumas
+  // câmeras intraorais — UVC control transfer enquanto o stream isócrono
+  // ainda estava negociando travava o dispositivo.
   useEffect(() => {
-    if (!isNative || nativePreviewState !== 'ready') return
-    if (!window.VitallCam?.getIntraoralCapabilities) return
+    if (!isNative) return
     window.__onIntraoralCapabilities = (caps) => setCapabilities(caps)
-    window.VitallCam.getIntraoralCapabilities('window.__onIntraoralCapabilities')
-  }, [isNative, nativePreviewState])
+  }, [isNative])
+
+  // Quando o usuário abre o painel Ajustes (no app), busca capabilities
+  // pra mostrar a lista de resoluções. Espera a câmera estar pronta.
+  useEffect(() => {
+    if (!isNative || !showSettings || nativePreviewState !== 'ready') return
+    window.VitallCam?.getIntraoralCapabilities?.('window.__onIntraoralCapabilities')
+  }, [isNative, showSettings, nativePreviewState])
 
   const flipDataUrlVertically = (dataUrl: string): Promise<string> => {
     return new Promise((resolve, reject) => {

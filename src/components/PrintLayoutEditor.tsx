@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Photo, Patient } from '@/lib/types'
 import {
   X, Printer, Plus, Bold, Italic, List, ListOrdered,
   Heading2, Sparkles, Trash2, Underline as UnderlineIcon,
   AlignLeft, AlignCenter, ArrowUp, ArrowDown, FileText, ImagePlus,
-  Check, ArrowLeft, Folder, ChevronLeft, ChevronRight, Pencil,
+  ArrowLeft, Folder, ChevronLeft, ChevronRight, Pencil, PanelLeftOpen, PanelLeftClose,
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { usePhotos, useUnfolderedPhotos } from '@/hooks/usePhotos'
@@ -51,7 +52,7 @@ function buildInitialPages(initialPhotos: Photo[]): Page[] {
   pages.push({
     id: uid('t'),
     type: 'text',
-    html: `<h2>Laudo</h2><p><br></p>`,
+    html: `<h2>LAUDO ODONTOLÓGICO</h2><p><br></p>`,
   })
   return pages
 }
@@ -60,7 +61,7 @@ const LAUDO_PLACEHOLDER = 'Descreva aqui o laudo do paciente, observações clí
 
 function isTextEditorEmpty(html: string): boolean {
   const cleaned = html
-    .replace(/<h2[^>]*>\s*Laudo\s*<\/h2>/i, '')
+    .replace(/<h2[^>]*>\s*LAUDO[^<]*<\/h2>/i, '')
     .replace(/<p[^>]*>\s*<\/p>/gi, '')
     .replace(/<p[^>]*>\s*<br\s*\/?>\s*<\/p>/gi, '')
     .replace(/<br\s*\/?>/gi, '')
@@ -90,6 +91,17 @@ export default function PrintLayoutEditor({
   const [captions, setCaptions] = useState<Record<string, string>>({})
 
   const [animState, setAnimState] = useState<'enter' | 'open' | 'close'>('enter')
+  const [portalReady, setPortalReady] = useState(false)
+  const [asideOpen, setAsideOpen] = useState(true)
+  const [isDesktop, setIsDesktop] = useState(true)
+  useEffect(() => {
+    setPortalReady(true)
+    const mq = window.matchMedia('(min-width: 768px)')
+    const apply = () => setIsDesktop(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
   const [reportTitle, setReportTitle] = useState(`Compor relatório — ${patient.name}`)
   const [editingTitle, setEditingTitle] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
@@ -182,27 +194,29 @@ export default function PrintLayoutEditor({
   }
 
   const handleClickPoolPhoto = (photo: Photo) => {
-    if (selectedSlot) {
-      // Replace selected slot. If photo was already placed elsewhere, clear that slot first (move).
-      setPages(prev => {
-        return prev.map(pg => {
-          if (pg.type !== 'photos') return pg
-          const slots = pg.slots.map((id, i) => {
-            if (pg.id === selectedSlot.pageId && i === selectedSlot.slotIndex) return photo.id
-            if (id === photo.id) return null
-            return id
-          })
-          return { ...pg, slots }
+    // Captura e limpa imediatamente o slot selecionado para garantir que o próximo clique
+    // sempre seja avaliado contra estado fresco (não acumular intenção de "trocar").
+    const target = selectedSlot
+    setSelectedSlot(null)
+
+    if (target) {
+      setPages(prev => prev.map(pg => {
+        if (pg.type !== 'photos') return pg
+        const slots = pg.slots.map((id, i) => {
+          if (pg.id === target.pageId && i === target.slotIndex) return photo.id
+          if (id === photo.id) return null
+          return id
         })
-      })
-      setSelectedSlot(null)
+        return { ...pg, slots }
+      }))
       return
     }
-    // No slot selected: just add to next empty slot. If already placed, ignore (don't remove).
+
+    // Sem slot selecionado: adiciona ao próximo slot vazio. Foto já no documento → ignora.
     if (photoPositionById.has(photo.id)) return
-    // Find first empty slot, else create a new photos page after the last photos page
-    let placed = false
+
     setPages(prev => {
+      let placed = false
       const next = prev.map(pg => {
         if (placed || pg.type !== 'photos') return pg
         const idx = pg.slots.findIndex(s => s === null)
@@ -213,7 +227,7 @@ export default function PrintLayoutEditor({
         return { ...pg, slots }
       })
       if (placed) return next
-      // No empty slot: insert a new photos page after the last photos page (or at end)
+      // Nenhum slot vazio: cria nova página de fotos após a última de fotos
       const newPage: PhotosPage = {
         id: uid('p'),
         type: 'photos',
@@ -229,11 +243,19 @@ export default function PrintLayoutEditor({
   }
 
   const handleClickSlot = (pageId: string, slotIndex: number) => {
+    // Toggle deselection if same slot clicked again
     if (selectedSlot && selectedSlot.pageId === pageId && selectedSlot.slotIndex === slotIndex) {
       setSelectedSlot(null)
       return
     }
-    setSelectedSlot({ pageId, slotIndex })
+    // Só permite selecionar slots VAZIOS — assim clicar num slot preenchido não dispara
+    // o modo "trocar" sem querer. Para trocar uma foto preenchida, clicar no X dela.
+    const page = pages.find(p => p.id === pageId)
+    if (!page || page.type !== 'photos') return
+    const isEmpty = !page.slots[slotIndex]
+    if (isEmpty) {
+      setSelectedSlot({ pageId, slotIndex })
+    }
   }
 
   const clearSlot = (pageId: string, slotIndex: number) => {
@@ -366,22 +388,39 @@ export default function PrintLayoutEditor({
       return
     }
     setSelectedSlot(null)
+    // Sincroniza valores dos inputs de legenda antes do print (alguns navegadores
+    // não imprimem o `value` digitado em inputs sem que o atributo seja setado).
+    document.querySelectorAll('#print-document input.ple-photo-caption').forEach((el) => {
+      const inp = el as HTMLInputElement
+      inp.setAttribute('value', inp.value)
+    })
     const previousTitle = document.title
-    document.title = reportTitle.trim() || previousTitle
-    window.print()
-    setTimeout(() => { document.title = previousTitle }, 0)
+    document.title = (reportTitle.trim() || previousTitle).replace(/[<>&]/g, '')
+    // Pequeno delay para garantir layout estável antes do diálogo de impressão.
+    setTimeout(() => {
+      window.print()
+      setTimeout(() => { document.title = previousTitle }, 100)
+    }, 50)
   }
 
-  return (
+  if (!portalReady) return null
+  return createPortal(
     <div className="fixed inset-0 z-50 bg-gray-100 flex flex-col print:bg-white print:static" id="ple-root" data-anim={animState}>
       {/* Topbar */}
-      <div className="h-14 bg-teal-800 border-b border-teal-900/40 shadow-[0_4px_12px_rgba(0,0,0,0.25)] flex items-center px-4 gap-3 shrink-0 print:hidden ple-topbar">
+      <div className="h-14 bg-teal-800 border-b border-teal-900/40 shadow-[0_4px_12px_rgba(0,0,0,0.25)] flex items-center px-4 gap-2 shrink-0 print:hidden ple-topbar">
         <button
           onClick={requestClose}
           className="h-9 w-9 rounded hover:bg-teal-700 transition-colors flex items-center justify-center text-white"
           title="Fechar"
         >
           <X className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setAsideOpen(o => !o)}
+          className="h-9 w-9 rounded hover:bg-teal-700 transition-colors flex items-center justify-center text-white"
+          title={asideOpen ? 'Fechar galeria' : 'Abrir galeria'}
+        >
+          {asideOpen ? <PanelLeftClose className="w-5 h-5" /> : <PanelLeftOpen className="w-5 h-5" />}
         </button>
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <FileText className="w-4 h-4 text-teal-200 shrink-0" />
@@ -430,8 +469,43 @@ export default function PrintLayoutEditor({
         </div>
       </div>
 
+      {/* Toolbar (largura total) */}
+      <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-1 shrink-0 overflow-x-auto print:hidden ple-toolbar">
+        <ToolbarBtn onClick={() => exec('bold')} title="Negrito"><Bold className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => exec('italic')} title="Itálico"><Italic className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => exec('underline')} title="Sublinhado"><UnderlineIcon className="w-4 h-4" /></ToolbarBtn>
+        <Divider />
+        <ToolbarBtn onClick={() => exec('formatBlock', 'H2')} title="Título"><Heading2 className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => exec('insertUnorderedList')} title="Tópicos"><List className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => exec('insertOrderedList')} title="Numerada"><ListOrdered className="w-4 h-4" /></ToolbarBtn>
+        <Divider />
+        <ToolbarBtn onClick={() => exec('justifyLeft')} title="Alinhar à esquerda"><AlignLeft className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => exec('justifyCenter')} title="Centralizar"><AlignCenter className="w-4 h-4" /></ToolbarBtn>
+        <Divider />
+        <button
+          onMouseDown={(e) => { e.preventDefault(); captureSelection() }}
+          onClick={aiImproveSelection}
+          disabled={aiLoading}
+          className="h-8 px-2.5 rounded border border-teal-200 bg-teal-50 text-xs font-medium text-teal-700 hover:bg-teal-100 disabled:opacity-50 transition-colors flex items-center gap-1"
+          title="Melhorar texto selecionado com IA"
+        >
+          <Sparkles className={`w-3.5 h-3.5 ${aiLoading ? 'animate-pulse' : ''}`} />
+          {aiLoading ? 'Melhorando...' : 'Melhorar com IA'}
+        </button>
+        <div className="ml-auto text-[11px] text-gray-500 px-2">
+          {pages.length} {pages.length === 1 ? 'página' : 'páginas'}
+        </div>
+      </div>
+
       {/* Body */}
-      <div className="flex-1 flex min-h-0 print:block">
+      <div className="flex-1 flex min-h-0 print:block relative">
+        {/* Backdrop mobile quando aside aberto */}
+        {asideOpen && !isDesktop && (
+          <div
+            className="absolute inset-0 bg-black/40 z-30 print:hidden"
+            onClick={() => setAsideOpen(false)}
+          />
+        )}
         {/* Left: album/photo navigation */}
         <LeftAlbumPanel
           patientId={patientId}
@@ -441,79 +515,60 @@ export default function PrintLayoutEditor({
           selectedSlot={selectedSlot}
           onPhotoClick={handleClickPoolPhoto}
           width={asideWidthPct}
+          isOpen={asideOpen}
+          isDesktop={isDesktop}
+          onClose={() => setAsideOpen(false)}
         />
-        {/* Divider (resize handle) */}
-        <div
-          className="ple-divider print:hidden"
-          onMouseDown={startDrag}
-          title="Arraste para redimensionar"
-        >
-          <div className="ple-divider-grip" />
-        </div>
+        {/* Divider (resize handle) — só no desktop e com aside aberto */}
+        {isDesktop && asideOpen && (
+          <div
+            className="ple-divider print:hidden"
+            onMouseDown={startDrag}
+            title="Arraste para redimensionar"
+          >
+            <div className="ple-divider-grip" />
+          </div>
+        )}
 
         {/* Right: document */}
         <main className="flex-1 min-w-0 flex flex-col print:block ple-main">
-          {/* Toolbar */}
-          <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-1 shrink-0 overflow-x-auto print:hidden">
-            <ToolbarBtn onClick={() => exec('bold')} title="Negrito"><Bold className="w-4 h-4" /></ToolbarBtn>
-            <ToolbarBtn onClick={() => exec('italic')} title="Itálico"><Italic className="w-4 h-4" /></ToolbarBtn>
-            <ToolbarBtn onClick={() => exec('underline')} title="Sublinhado"><UnderlineIcon className="w-4 h-4" /></ToolbarBtn>
-            <Divider />
-            <ToolbarBtn onClick={() => exec('formatBlock', 'H2')} title="Título"><Heading2 className="w-4 h-4" /></ToolbarBtn>
-            <ToolbarBtn onClick={() => exec('insertUnorderedList')} title="Tópicos"><List className="w-4 h-4" /></ToolbarBtn>
-            <ToolbarBtn onClick={() => exec('insertOrderedList')} title="Numerada"><ListOrdered className="w-4 h-4" /></ToolbarBtn>
-            <Divider />
-            <ToolbarBtn onClick={() => exec('justifyLeft')} title="Alinhar à esquerda"><AlignLeft className="w-4 h-4" /></ToolbarBtn>
-            <ToolbarBtn onClick={() => exec('justifyCenter')} title="Centralizar"><AlignCenter className="w-4 h-4" /></ToolbarBtn>
-            <Divider />
-            <button
-              onMouseDown={(e) => { e.preventDefault(); captureSelection() }}
-              onClick={aiImproveSelection}
-              disabled={aiLoading}
-              className="h-8 px-2.5 rounded border border-teal-200 bg-teal-50 text-xs font-medium text-teal-700 hover:bg-teal-100 disabled:opacity-50 transition-colors flex items-center gap-1"
-              title="Melhorar texto selecionado com IA"
-            >
-              <Sparkles className={`w-3.5 h-3.5 ${aiLoading ? 'animate-pulse' : ''}`} />
-              {aiLoading ? 'Melhorando...' : 'Melhorar com IA'}
-            </button>
-            <div className="ml-auto text-[11px] text-gray-500 px-2">
-              {pages.length} {pages.length === 1 ? 'página' : 'páginas'}
-            </div>
-          </div>
-
           {/* Document */}
           <div className="flex-1 overflow-y-auto bg-gray-100 print:bg-white print:overflow-visible" id="ple-doc-scroll">
             <div className="mx-auto py-8 print:py-0 flex flex-col items-center gap-6 print:gap-0" id="print-document">
               {pages.map((pg, idx) => (
                 <div key={pg.id} className="ple-page-wrap">
-                  {/* Side controls (hidden on print) */}
-                  <div className="ple-side-controls print:hidden">
-                    <span className="ple-page-number">Pág. {idx + 1}</span>
-                    <button
-                      onClick={() => movePage(pg.id, -1)}
-                      disabled={idx === 0}
-                      className="ple-side-btn"
-                      title="Mover para cima"
-                    >
-                      <ArrowUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => movePage(pg.id, 1)}
-                      disabled={idx === pages.length - 1}
-                      className="ple-side-btn"
-                      title="Mover para baixo"
-                    >
-                      <ArrowDown className="w-3.5 h-3.5" />
-                    </button>
-                    {pages.length > 1 && (
+                  {/* Top controls (hidden on print) */}
+                  <div className="ple-top-controls print:hidden">
+                    <span className="ple-top-page-number">Pág. {idx + 1}</span>
+                    <div className="ple-top-controls-actions">
                       <button
-                        onClick={() => removePage(pg.id)}
-                        className="ple-side-btn ple-side-btn-danger"
-                        title="Remover página"
+                        onClick={() => movePage(pg.id, -1)}
+                        disabled={idx === 0}
+                        className="ple-top-btn"
+                        title="Mover para cima (sobe na ordem)"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <ArrowUp className="w-3.5 h-3.5" />
+                        <span>Subir</span>
                       </button>
-                    )}
+                      <button
+                        onClick={() => movePage(pg.id, 1)}
+                        disabled={idx === pages.length - 1}
+                        className="ple-top-btn"
+                        title="Mover para baixo (desce na ordem)"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                        <span>Descer</span>
+                      </button>
+                      {pages.length > 1 && (
+                        <button
+                          onClick={() => removePage(pg.id)}
+                          className="ple-top-btn ple-top-btn-danger"
+                          title="Remover página"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {pg.type === 'photos' ? (
@@ -577,7 +632,8 @@ export default function PrintLayoutEditor({
       </div>
 
       <PrintStyles />
-    </div>
+    </div>,
+    document.body
   )
 }
 
@@ -665,16 +721,13 @@ function PhotosPageView({
                       {pos !== undefined && (
                         <span className="ple-photo-badge print:!hidden">{pos}</span>
                       )}
-                      {isSelected && (
-                        <span className="ple-photo-clear print:!hidden" onClick={(e) => { e.stopPropagation(); onSlotClear(slotIdx) }}>
-                          <X className="w-3.5 h-3.5" />
-                        </span>
-                      )}
-                      {isSelected && (
-                        <span className="ple-photo-selected-badge print:!hidden">
-                          <Check className="w-3.5 h-3.5" />
-                        </span>
-                      )}
+                      <span
+                        className="ple-photo-clear print:!hidden"
+                        onClick={(e) => { e.stopPropagation(); onSlotClear(slotIdx) }}
+                        title="Remover foto"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </span>
                     </>
                   ) : (
                     <span className="ple-photo-empty-label print:!opacity-0">
@@ -683,14 +736,17 @@ function PhotosPageView({
                   )}
                 </button>
                 {photo ? (
-                  <input
-                    type="text"
-                    value={captionValue}
-                    onChange={(e) => onCaptionChange(photo.id, e.target.value)}
-                    placeholder="Digite aqui..."
-                    className={`ple-photo-caption ${captionValue ? 'ple-photo-caption-filled' : ''}`}
-                    onClick={(e) => e.stopPropagation()}
-                  />
+                  <>
+                    <input
+                      type="text"
+                      value={captionValue}
+                      onChange={(e) => onCaptionChange(photo.id, e.target.value)}
+                      placeholder="Digite aqui..."
+                      className={`ple-photo-caption ${captionValue ? 'ple-photo-caption-filled' : ''}`}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    <span className="ple-photo-caption-print" aria-hidden="true">{captionValue}</span>
+                  </>
                 ) : (
                   <div className="ple-photo-caption ple-photo-caption-spacer print:!opacity-0" />
                 )}
@@ -768,10 +824,14 @@ interface LeftAlbumPanelProps {
   selectedSlot: { pageId: string; slotIndex: number } | null
   onPhotoClick: (photo: Photo) => void
   width: number
+  isOpen: boolean
+  isDesktop: boolean
+  onClose: () => void
 }
 
 function LeftAlbumPanel({
-  patientId, allPhotos, initialFolderId, photoPositionById, selectedSlot, onPhotoClick, width,
+  patientId, allPhotos, initialFolderId, photoPositionById, selectedSlot, onPhotoClick,
+  width, isOpen, isDesktop, onClose,
 }: LeftAlbumPanelProps) {
   const [currentFolder, setCurrentFolder] = useState<string | null>(initialFolderId)
   const { data: folders = [], isLoading: foldersLoading } = useFolders(patientId)
@@ -797,9 +857,22 @@ function LeftAlbumPanel({
 
   return (
     <aside
-      className="shrink-0 bg-white border-r border-gray-200 flex flex-col print:hidden ple-aside"
-      style={{ width: `${width}%` }}
+      className={`shrink-0 bg-white border-r border-gray-200 flex flex-col print:hidden ple-aside ${
+        isDesktop
+          ? (isOpen ? '' : 'hidden')
+          : `absolute top-0 left-0 bottom-0 z-40 w-[88vw] max-w-md shadow-xl transition-transform duration-300 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`
+      }`}
+      style={isDesktop ? { width: `${width}%` } : undefined}
     >
+      {!isDesktop && (
+        <button
+          onClick={onClose}
+          className="absolute -right-10 top-2 h-9 w-9 rounded bg-white border border-gray-200 shadow flex items-center justify-center text-gray-600 hover:text-teal-700"
+          title="Fechar galeria"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      )}
       <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-3">
         {currentFolder ? (
           <>
@@ -1064,46 +1137,51 @@ function PrintStyles() {
       .ple-page-wrap {
         position: relative;
         display: flex;
-        align-items: flex-start;
-        gap: 8px;
-      }
-      .ple-side-controls {
-        position: absolute;
-        right: calc(100% + 8px);
-        top: 12px;
-        display: flex;
         flex-direction: column;
-        gap: 4px;
-        align-items: center;
+        align-items: stretch;
+        gap: 8px;
+        width: 210mm;
       }
-      .ple-page-number {
-        font-size: 10px;
-        font-weight: 600;
+      .ple-top-controls {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 4px;
+      }
+      .ple-top-page-number {
+        font-size: 11px;
+        font-weight: 700;
         color: #6b7280;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 2px;
-        white-space: nowrap;
+        letter-spacing: 0.6px;
       }
-      .ple-side-btn {
-        width: 28px;
-        height: 28px;
+      .ple-top-controls-actions {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .ple-top-btn {
+        height: 30px;
+        padding: 0 10px;
         border-radius: 6px;
         background: #fff;
         border: 1px solid #e5e7eb;
-        color: #6b7280;
-        display: flex;
+        color: #4b5563;
+        display: inline-flex;
         align-items: center;
-        justify-content: center;
+        gap: 4px;
+        font-size: 12px;
+        font-weight: 500;
         transition: all 0.15s;
       }
-      .ple-side-btn:hover:not(:disabled) {
+      .ple-top-btn:hover:not(:disabled) {
         color: #0f766e;
         border-color: #2dd4bf;
         background: #f0fdfa;
       }
-      .ple-side-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-      .ple-side-btn-danger:hover:not(:disabled) {
+      .ple-top-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+      .ple-top-btn-danger { padding: 0 8px; }
+      .ple-top-btn-danger:hover:not(:disabled) {
         color: #dc2626;
         border-color: #fca5a5;
         background: #fef2f2;
@@ -1237,6 +1315,9 @@ function PrintStyles() {
         border-color: transparent;
         pointer-events: none;
       }
+      .ple-photo-caption-print {
+        display: none;
+      }
       .ple-photo-slot {
         position: relative;
         border: 2px solid #e7d5b8;
@@ -1345,14 +1426,56 @@ function PrintStyles() {
         line-height: 1.6;
         color: #1f2937;
       }
-      .ple-editor h2 { font-size: 14pt; font-weight: 700; margin: 0 0 4mm; color: #115e59; letter-spacing: 0.5px; }
+      .ple-editor h2 {
+        font-size: 14pt;
+        font-weight: 700;
+        margin: 0 0 6mm;
+        color: #115e59;
+        letter-spacing: 1px;
+        text-align: center;
+        text-transform: uppercase;
+      }
       .ple-editor ul, .ple-editor ol { margin: 3mm 0 3mm 8mm; }
       .ple-editor li { margin: 1mm 0; }
       .ple-editor p { margin: 0 0 3mm 0; }
 
       @media print {
-        @page { size: A4; margin: 8mm; }
+        @page { size: A4; margin: 0; }
         html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        /* Como #ple-root foi portado para document.body, fica fácil isolar: */
+        body > *:not(#ple-root) { display: none !important; }
+        #ple-root {
+          position: static !important;
+          inset: auto !important;
+          background: #fff !important;
+          display: block !important;
+          height: auto !important;
+          width: auto !important;
+        }
+        /* Esconde toda a chrome do editor, mantendo só o documento */
+        .ple-topbar, .ple-aside, .ple-divider, .ple-toolbar, .ple-top-controls { display: none !important; }
+        .ple-main { display: block !important; }
+        /* Legenda: esconde input e mostra span com texto */
+        .ple-photo-caption { display: none !important; }
+        .ple-photo-caption-print {
+          display: block !important;
+          width: 100%;
+          padding: 1mm 2mm !important;
+          text-align: center !important;
+          color: #1f2937;
+          font-size: 9.5pt;
+          font-family: inherit;
+          font-weight: 500;
+        }
+        #ple-doc-scroll {
+          overflow: visible !important;
+          height: auto !important;
+          padding: 0 !important;
+          background: #fff !important;
+        }
+        #print-document { padding: 0 !important; gap: 0 !important; display: block !important; }
+        .ple-page-wrap { display: block !important; gap: 0 !important; margin: 0 !important; }
         .ple-photo-caption {
           border: none !important;
           background: transparent !important;
@@ -1364,37 +1487,27 @@ function PrintStyles() {
         .ple-photo-caption::placeholder { color: transparent !important; }
         .ple-photo-caption-spacer { display: none !important; }
         .ple-editor-placeholder { display: none !important; }
-        body * { visibility: hidden !important; }
-        #ple-root, #ple-root * { visibility: visible !important; }
-        #ple-root {
-          position: absolute !important;
-          inset: 0 !important;
-          background: #fff !important;
-        }
-        #ple-doc-scroll { overflow: visible !important; height: auto !important; padding: 0 !important; }
-        #print-document { padding: 0 !important; gap: 0 !important; }
-        .ple-page-wrap { display: block !important; gap: 0 !important; }
-        .ple-side-controls { display: none !important; }
         .ple-page {
           box-shadow: none !important;
           border-radius: 0 !important;
           page-break-after: always;
+          break-after: page;
           margin: 0 !important;
-          width: 100% !important;
-          height: calc(297mm - 16mm) !important;
-          min-height: calc(297mm - 16mm) !important;
-          max-height: calc(297mm - 16mm) !important;
+          width: 210mm !important;
+          height: 297mm !important;
+          min-height: 297mm !important;
+          max-height: 297mm !important;
           padding: 0 !important;
           overflow: hidden !important;
-          break-inside: avoid;
+          background: #fff !important;
         }
-        .ple-page:last-child { page-break-after: auto; }
+        .ple-page:last-child { page-break-after: auto; break-after: auto; }
         .ple-frame {
           min-height: 100% !important;
           height: 100% !important;
-          padding: 4mm 6mm !important;
+          padding: 6mm 8mm !important;
         }
-        .ple-frame-text { padding: 8mm 10mm !important; }
+        .ple-frame-text { padding: 10mm 12mm !important; }
         .ple-text-wrap { display: block !important; }
         .ple-editor { display: block !important; min-height: 0 !important; }
       }

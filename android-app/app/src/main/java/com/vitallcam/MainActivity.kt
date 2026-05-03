@@ -356,6 +356,10 @@ class MainActivity : AppCompatActivity() {
             runCatching { helper.removeSurface(previewSurface.holder.surface) }
             runCatching { helper.stopPreview() }
             runCatching { helper.closeCamera() }
+            // releaseAll é mais profundo que release — limpa o serviço da lib
+            // (CameraConnectionService) que pode segurar o USB claim além do
+            // ciclo do helper.
+            runCatching { helper.releaseAll() }
             runCatching { helper.release() }
         }
         cameraHelper = null

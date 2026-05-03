@@ -1469,15 +1469,29 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
             )}
 
             {isNative && (
-              <button
-                onClick={() => {
-                  window.VitallCam?.getIntraoralCapabilities?.('window.__onIntraoralCapabilities')
-                  setShowDebug(true)
-                }}
-                className="mt-3 w-full text-center px-3 py-2 text-xs rounded bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium"
-              >
-                🔍 Diagnóstico da câmera
-              </button>
+              <>
+                <button
+                  onClick={() => {
+                    setNativePreviewState('connecting')
+                    window.VitallCam?.stopIntraoralPreview?.()
+                    setTimeout(() => {
+                      window.VitallCam?.startIntraoralPreview?.('window.__onIntraoralState')
+                    }, 600)
+                  }}
+                  className="mt-3 w-full text-center px-3 py-2 text-xs rounded bg-teal-600 hover:bg-teal-700 text-white font-medium"
+                >
+                  🔄 Reconectar câmera
+                </button>
+                <button
+                  onClick={() => {
+                    window.VitallCam?.getIntraoralCapabilities?.('window.__onIntraoralCapabilities')
+                    setShowDebug(true)
+                  }}
+                  className="mt-2 w-full text-center px-3 py-2 text-xs rounded bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium"
+                >
+                  🔍 Diagnóstico da câmera
+                </button>
+              </>
             )}
           </div>
         )}

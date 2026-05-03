@@ -279,7 +279,10 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       window.removeEventListener('scroll', schedule, true)
       if (raf) cancelAnimationFrame(raf)
     }
-  }, [isNative])
+    // portalReady é dep crítica: o JSX (e portanto o previewSlotRef) só
+    // monta depois que o portal abre. Sem isso o effect rodava com ref
+    // null e o tamanho da SurfaceView ficava 1×1.
+  }, [isNative, portalReady])
 
   // Sincroniza espelhar (vertical) com a SurfaceView nativa
   useEffect(() => {

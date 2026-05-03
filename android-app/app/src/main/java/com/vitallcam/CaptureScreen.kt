@@ -97,7 +97,7 @@ fun CaptureScreen(
             Modifier
                 .fillMaxSize()
                 .padding(vertical = 24.dp),
-            verticalAlignment = Alignment.Stretch,
+            verticalAlignment = Alignment.Top,
         ) {
             // Coluna esquerda — Fechar / Salvar / Thumbnail
             LeftSidebar(

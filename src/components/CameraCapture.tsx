@@ -217,152 +217,70 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   const [showDebug, setShowDebug] = useState(false)
   const [portalReady, setPortalReady] = useState(false)
 
-  // Native overlay flow: WebView mostra o design web e o nativo desenha o vídeo
-  // ao vivo da câmera USB intraoral (libuvccamera) sobre o stage central.
+  // No app, toda a tela de captura é nativa (Compose) — não renderiza UI web.
+  // Apenas dispara openIntraoralCamera, recebe dataURLs e salva no Supabase.
   useEffect(() => {
     const native = typeof window !== 'undefined' && !!window.VitallCam?.isNative?.()
     isNativeRef.current = native
     setIsNative(native)
-    if (!native || !window.VitallCam?.startIntraoralPreview) return
+    if (!native || !window.VitallCam?.openIntraoralCamera) return
 
-    window.__onIntraoralState = (state: string) => {
-      setNativePreviewState(state as NativePreviewState)
-      if (state === 'lost') {
-        toast({ variant: 'destructive', title: 'Câmera desconectada', description: 'Reconecte o cabo USB.' })
-      } else if (state === 'error') {
-        toast({ variant: 'destructive', title: 'Falha na câmera', description: 'Tentando reconectar…' })
+    window.__onIntraoralCapture = (dataUrls, error) => {
+      if (error === 'cancelled' || !dataUrls || dataUrls.length === 0) {
+        if (error && error !== 'cancelled') {
+          toast({
+            variant: 'destructive',
+            title: 'Câmera intraoral',
+            description: error,
+          })
+        }
+        // Sem fotos → fecha a tela web também
+        onClose?.()
+        return
       }
+      const items: CapturedItem[] = dataUrls.map(d => {
+        if (d.startsWith('data:video/')) {
+          // Reconstroi blob a partir do dataURL pra fluxo de upload de vídeo.
+          const [meta, b64] = d.split(',')
+          const mime = meta.match(/data:(.*?);/)?.[1] || 'video/mp4'
+          const bin = atob(b64)
+          const arr = new Uint8Array(bin.length)
+          for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+          const blob = new Blob([arr], { type: mime })
+          return { kind: 'video' as const, dataUrl: d, blob, duration: 0, mimeType: mime }
+        }
+        return { kind: 'photo' as const, dataUrl: d }
+      })
+      setCapturedItems(prev => [...items, ...prev])
+      setShowSaveButton(true)
+      toast({
+        title: 'Capturas recebidas',
+        description: `${items.length} item(ns) salvando no paciente...`,
+      })
+      setTimeout(() => savePhotosRef.current(), 200)
     }
 
-    setNativePreviewState('connecting')
-    window.VitallCam.startIntraoralPreview('window.__onIntraoralState')
+    // Auto-abre a tela nativa de captura ao entrar
+    setTimeout(() => {
+      window.VitallCam?.openIntraoralCamera?.('window.__onIntraoralCapture')
+    }, 200)
 
     return () => {
-      window.VitallCam?.stopIntraoralPreview?.()
-      window.__onIntraoralState = undefined
-      window.__onIntraoralFrame = undefined
+      window.__onIntraoralCapture = undefined
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reporta os bounds do stage central pro nativo posicionar a SurfaceView
-  useEffect(() => {
-    if (!isNative) return
-    const el = previewSlotRef.current
-    if (!el) return
-
-    let raf = 0
-    const push = () => {
-      const r = el.getBoundingClientRect()
-      // Estado em CSS px pra "moldura" opaca volta
-      setStageRect({ top: r.top, left: r.left, width: r.width, height: r.height })
-      // Enviar em device px — o WebView Android espera dimensões físicas.
-      const dpr = window.devicePixelRatio || 1
-      window.VitallCam?.setIntraoralPreviewBounds?.(
-        r.left * dpr,
-        r.top * dpr,
-        r.width * dpr,
-        r.height * dpr,
-      )
-    }
-    const schedule = () => {
-      if (raf) cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(push)
-    }
-
-    push()
-    const ro = new ResizeObserver(schedule)
-    ro.observe(el)
-    window.addEventListener('resize', schedule)
-    window.addEventListener('scroll', schedule, true)
-
-    return () => {
-      ro.disconnect()
-      window.removeEventListener('resize', schedule)
-      window.removeEventListener('scroll', schedule, true)
-      if (raf) cancelAnimationFrame(raf)
-    }
-    // portalReady é dep crítica: o JSX (e portanto o previewSlotRef) só
-    // monta depois que o portal abre. Sem isso o effect rodava com ref
-    // null e o tamanho da SurfaceView ficava 1×1.
-  }, [isNative, portalReady])
-
-  // Sincroniza espelhar (vertical) com a SurfaceView nativa
-  useEffect(() => {
-    if (!isNative) return
-    window.VitallCam?.setIntraoralMirror?.(isMirrored)
-  }, [isNative, isMirrored])
-
-  // Esconde a SurfaceView quando modais fullscreen estão abertos
-  // (Galeria, Diagnóstico). Só dispara em transições reais — NÃO no
-  // mount, senão pode setar GONE antes do previewActive ficar true.
-  const wasModalOpenRef = useRef(false)
-  useEffect(() => {
-    if (!isNative) return
-    const isModalOpen = showDebug || showGallery
-    if (isModalOpen === wasModalOpenRef.current) return
-    wasModalOpenRef.current = isModalOpen
-    window.VitallCam?.setIntraoralPreviewVisible?.(!isModalOpen)
-  }, [isNative, showDebug, showGallery])
+  // (Removido) Bounds, mirror sync, hide-on-modal, portal e capabilities-fetch
+  // — toda a UI da câmera agora é Compose nativo na IntraoralCaptureActivity.
+  // No app, este componente apenas dispara o bridge e recebe os dataURLs.
 
   // Rect do stage central pra renderizar o "moldura" opaca em volta
   // (4 barras top/bottom/left/right que escondem a página atrás e deixam
   // só a área do stage transparente — SurfaceView aparece por essa janela).
   const [stageRect, setStageRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null)
 
-  const portalContainerRef = useRef<HTMLDivElement | null>(null)
-
-  // No app, monta o componente em portal direto no document.body e esconde
-  // o resto do DOM enquanto a câmera estiver aberta. Sem isso, os elementos
-  // da página do paciente (álbuns, header, upload) renderizam no MESMO
-  // espaço do stage e pintam por cima da SurfaceView nativa.
-  useEffect(() => {
-    if (!isNative) return
-    const container = document.createElement('div')
-    container.setAttribute('data-vitallcam-camera-overlay', 'true')
-    container.style.position = 'fixed'
-    container.style.inset = '0'
-    container.style.zIndex = '60'
-    document.body.appendChild(container)
-    portalContainerRef.current = container
-
-    // Esconde irmãos do portal (Next.js root etc.) pra não pintarem por cima
-    const siblings = Array.from(document.body.children).filter(c => c !== container) as HTMLElement[]
-    const prev = siblings.map(s => s.style.display)
-    siblings.forEach(s => { s.style.display = 'none' })
-    const prevBody = document.body.style.background
-    const prevHtml = document.documentElement.style.background
-    document.body.style.background = 'transparent'
-    document.documentElement.style.background = 'transparent'
-
-    setPortalReady(true)
-
-    return () => {
-      siblings.forEach((s, i) => { s.style.display = prev[i] })
-      document.body.style.background = prevBody
-      document.documentElement.style.background = prevHtml
-      if (container.parentNode) container.parentNode.removeChild(container)
-      portalContainerRef.current = null
-      setPortalReady(false)
-      // Garante que a SurfaceView volte a ficar visível ao sair
-      window.VitallCam?.setIntraoralPreviewVisible?.(true)
-    }
-  }, [isNative])
-
-  // Capabilities são buscadas SOB DEMANDA (botão Diagnóstico ou ao abrir
-  // o seletor de resolução). Auto-fetch causava conflito USB em algumas
-  // câmeras intraorais — UVC control transfer enquanto o stream isócrono
-  // ainda estava negociando travava o dispositivo.
-  useEffect(() => {
-    if (!isNative) return
-    window.__onIntraoralCapabilities = (caps) => setCapabilities(caps)
-  }, [isNative])
-
-  // Quando o usuário abre o painel Ajustes (no app), busca capabilities
-  // pra mostrar a lista de resoluções. Espera a câmera estar pronta.
-  useEffect(() => {
-    if (!isNative || !showSettings || nativePreviewState !== 'ready') return
-    window.VitallCam?.getIntraoralCapabilities?.('window.__onIntraoralCapabilities')
-  }, [isNative, showSettings, nativePreviewState])
+  // (Removido) Portal/hide-DOM/capabilities — não precisa mais; toda a UI da
+  // câmera no app é Compose nativo, não usa o WebView.
 
   const flipDataUrlVertically = (dataUrl: string): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -1240,6 +1158,19 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   }
 
 
+  // No app, a UI da câmera é uma Activity nativa Compose — não renderiza
+  // nada do React. Mostra um overlay neutro enquanto a Activity abre/processa.
+  if (isNative) {
+    return (
+      <div className="fixed inset-0 z-[60] bg-neutral-950 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-white/70">
+          <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
+          <p className="text-sm">{isSaving ? 'Salvando capturas…' : 'Abrindo câmera intraoral…'}</p>
+        </div>
+      </div>
+    )
+  }
+
   if (isInitializing) {
     return (
       <Card className="p-6 bg-white">
@@ -1687,14 +1618,6 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     </>
   )
 
-  if (isNative) {
-    if (portalReady && portalContainerRef.current) {
-      return createPortal(content, portalContainerRef.current)
-    }
-    // Enquanto o container do portal está sendo criado, não renderiza nada
-    // (caso contrário pintaria dentro do #__next que vai ser escondido).
-    return null
-  }
   return content
 }
 

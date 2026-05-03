@@ -75,6 +75,10 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
             )
+            // Punch-through: WebView transparente deixa a SurfaceView aparecer
+            // por trás onde o HTML não tem pixels opacos. Popups/modais HTML
+            // continuam visíveis e clicáveis acima da câmera.
+            setBackgroundColor(Color.TRANSPARENT)
         }
 
         previewSurface = AspectRatioSurfaceView(this).apply {
@@ -84,13 +88,17 @@ class MainActivity : AppCompatActivity() {
             }
             visibility = View.GONE
             holder.setFormat(PixelFormat.OPAQUE)
-            // Precisa ficar acima do WebView (HW-accelerated) — MEDIA_OVERLAY não basta.
-            setZOrderOnTop(true)
+            // MEDIA_OVERLAY: SurfaceView fica entre o background e o WebView.
+            // Combinado com WebView transparente, a câmera aparece "através"
+            // do HTML transparente do stage central.
+            setZOrderMediaOverlay(true)
             holder.addCallback(surfaceCallback)
         }
 
-        rootLayout.addView(webView)
+        // Importante: SurfaceView ANTES do WebView na ordem de adição,
+        // pra ficar abaixo dele na hierarquia de views.
         rootLayout.addView(previewSurface)
+        rootLayout.addView(webView)
         setContentView(rootLayout)
 
         webView.settings.apply {
@@ -256,7 +264,14 @@ class MainActivity : AppCompatActivity() {
                 val chosen = supported.firstOrNull { it.width == 1280 && it.height == 720 }
                     ?: supported.firstOrNull { it.width == 640 && it.height == 480 }
                     ?: supported.maxByOrNull { it.width * it.height }
-                if (chosen != null) helper.previewSize = chosen
+                if (chosen != null) {
+                    helper.previewSize = chosen
+                    // CRÍTICO: sem setAspectRatio a SurfaceView calcula tamanho 0
+                    // em algumas situações e a tela fica preta aleatoriamente.
+                    runOnUiThread {
+                        runCatching { previewSurface.setAspectRatio(chosen.width, chosen.height) }
+                    }
+                }
             }
             cameraHelper?.startPreview()
             if (surfaceReady) cameraHelper?.addSurface(previewSurface.holder.surface, false)

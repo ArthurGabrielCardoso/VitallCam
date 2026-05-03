@@ -284,6 +284,20 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     window.VitallCam?.setIntraoralMirror?.(isMirrored)
   }, [isNative, isMirrored])
 
+  // Punch-through: body transparente no app pra SurfaceView aparecer
+  // através do HTML onde for transparente.
+  useEffect(() => {
+    if (!isNative) return
+    const prevBody = document.body.style.background
+    const prevHtml = document.documentElement.style.background
+    document.body.style.background = 'transparent'
+    document.documentElement.style.background = 'transparent'
+    return () => {
+      document.body.style.background = prevBody
+      document.documentElement.style.background = prevHtml
+    }
+  }, [isNative])
+
   // Capabilities são buscadas SOB DEMANDA (botão Diagnóstico ou ao abrir
   // o seletor de resolução). Auto-fetch causava conflito USB em algumas
   // câmeras intraorais — UVC control transfer enquanto o stream isócrono
@@ -1221,9 +1235,9 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   const lastItem = capturedItems[0]
 
   return (
-    <div className="fixed inset-0 z-[60] bg-neutral-950 grid grid-cols-[clamp(140px,15vw,220px)_1fr_clamp(140px,15vw,220px)] items-stretch py-6 sm:py-8">
+    <div className={`fixed inset-0 z-[60] grid grid-cols-[clamp(140px,15vw,220px)_1fr_clamp(140px,15vw,220px)] items-stretch py-6 sm:py-8 ${isNative ? 'bg-transparent' : 'bg-neutral-950'}`}>
       {/* COLUNA ESQUERDA — fechar + salvar (topo) e thumbnail (rodapé) */}
-      <aside className="flex flex-col items-center justify-between py-2 px-3">
+      <aside className={`flex flex-col items-center justify-between py-2 px-3 ${isNative ? 'bg-neutral-950' : ''}`}>
         {/* Topo: Fechar + Salvar */}
         <div className="flex flex-col items-center gap-7">
           <button
@@ -1284,7 +1298,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       <div className="flex items-center justify-center px-2">
         <div
           ref={stageRef}
-          className="relative w-full h-full max-w-[1400px] rounded bg-black overflow-hidden shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)] ring-1 ring-white/5"
+          className={`relative w-full h-full max-w-[1400px] rounded overflow-hidden shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)] ring-1 ring-white/5 ${isNative ? 'bg-transparent' : 'bg-black'}`}
         >
           {!isNative && (
             <video
@@ -1331,7 +1345,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       </div>
 
       {/* COLUNA DIREITA — ações */}
-      <aside className="flex flex-col items-center justify-center gap-7 py-2 px-3 relative">
+      <aside className={`flex flex-col items-center justify-center gap-7 py-2 px-3 relative ${isNative ? 'bg-neutral-950' : ''}`}>
         {/* Odontograma */}
         <button
           onClick={() => toast({ title: 'Odontograma', description: 'Em breve nesta tela.' })}

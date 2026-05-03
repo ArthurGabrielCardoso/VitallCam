@@ -81,7 +81,8 @@ class MainActivity : AppCompatActivity() {
             }
             visibility = View.GONE
             holder.setFormat(PixelFormat.OPAQUE)
-            setZOrderMediaOverlay(true)
+            // Precisa ficar acima do WebView (HW-accelerated) — MEDIA_OVERLAY não basta.
+            setZOrderOnTop(true)
             holder.addCallback(surfaceCallback)
         }
 
@@ -350,19 +351,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun applyPreviewBounds(xCss: Float, yCss: Float, wCss: Float, hCss: Float) {
+    /**
+     * O JS envia bounds em DEVICE px (já multiplicou por window.devicePixelRatio),
+     * então só aplicamos direto. Usar webView.scale aqui é furada — em WebView
+     * moderno com viewport meta ele retorna 1.0 e a conta dá errada.
+     */
+    private fun applyPreviewBounds(xPx: Float, yPx: Float, wPx: Float, hPx: Float) {
         runOnUiThread {
-            val scale = webView.scale // CSS px → device px
-            val left = (xCss * scale).toInt().coerceAtLeast(0)
-            val top = (yCss * scale).toInt().coerceAtLeast(0)
-            val width = (wCss * scale).toInt().coerceAtLeast(1)
-            val height = (hCss * scale).toInt().coerceAtLeast(1)
+            val left = xPx.toInt().coerceAtLeast(0)
+            val top = yPx.toInt().coerceAtLeast(0)
+            val width = wPx.toInt().coerceAtLeast(1)
+            val height = hPx.toInt().coerceAtLeast(1)
             val lp = previewSurface.layoutParams as FrameLayout.LayoutParams
             lp.width = width
             lp.height = height
             lp.leftMargin = left
             lp.topMargin = top
             previewSurface.layoutParams = lp
+            previewSurface.requestLayout()
             if (previewSurface.visibility != View.VISIBLE && previewActive) {
                 previewSurface.visibility = View.VISIBLE
             }

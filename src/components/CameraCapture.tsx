@@ -231,7 +231,14 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     let raf = 0
     const push = () => {
       const r = el.getBoundingClientRect()
-      window.VitallCam?.setIntraoralPreviewBounds?.(r.left, r.top, r.width, r.height)
+      // Enviar em device px — o WebView Android espera dimensões físicas.
+      const dpr = window.devicePixelRatio || 1
+      window.VitallCam?.setIntraoralPreviewBounds?.(
+        r.left * dpr,
+        r.top * dpr,
+        r.width * dpr,
+        r.height * dpr,
+      )
     }
     const schedule = () => {
       if (raf) cancelAnimationFrame(raf)

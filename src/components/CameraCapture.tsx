@@ -293,12 +293,15 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   }, [isNative, isMirrored])
 
   // Esconde a SurfaceView quando modais fullscreen estão abertos
-  // (Galeria, Diagnóstico). Sem isso ela fica por cima do modal por
-  // causa do setZOrderOnTop. Ajustes NÃO esconde — popover fica no aside.
+  // (Galeria, Diagnóstico). Só dispara em transições reais — NÃO no
+  // mount, senão pode setar GONE antes do previewActive ficar true.
+  const wasModalOpenRef = useRef(false)
   useEffect(() => {
     if (!isNative) return
-    const shouldHide = showDebug || showGallery
-    window.VitallCam?.setIntraoralPreviewVisible?.(!shouldHide)
+    const isModalOpen = showDebug || showGallery
+    if (isModalOpen === wasModalOpenRef.current) return
+    wasModalOpenRef.current = isModalOpen
+    window.VitallCam?.setIntraoralPreviewVisible?.(!isModalOpen)
   }, [isNative, showDebug, showGallery])
 
   // Rect do stage central pra renderizar o "moldura" opaca em volta

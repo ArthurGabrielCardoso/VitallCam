@@ -29,10 +29,18 @@ declare global {
     VitallCam?: {
       isNative: () => boolean
       openIntraoralCamera: (callbackName?: string) => void
+      startIntraoralPreview?: (stateCallbackName?: string) => void
+      stopIntraoralPreview?: () => void
+      setIntraoralPreviewBounds?: (x: number, y: number, w: number, h: number) => void
+      captureIntraoralFrame?: (callbackName?: string) => void
     }
     __onIntraoralCapture?: (dataUrls: string[], error: string | null) => void
+    __onIntraoralFrame?: (dataUrl: string | null, error: string | null) => void
+    __onIntraoralState?: (state: string) => void
   }
 }
+
+type NativePreviewState = 'idle' | 'connecting' | 'ready' | 'lost' | 'error'
 
 // Função para classificar câmeras (fora do componente para poder reutilizar)
 const classifyCamera = (label: string) => {
@@ -183,40 +191,98 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   const router = useRouter()
   const createFolderMutation = useCreateFolder()
   const isNativeRef = useRef(false)
+  const previewSlotRef = useRef<HTMLDivElement>(null)
+  const [isNative, setIsNative] = useState(false)
+  const [nativePreviewState, setNativePreviewState] = useState<NativePreviewState>('idle')
 
+  // Native overlay flow: WebView mostra o design web e o nativo desenha o vídeo
+  // ao vivo da câmera USB intraoral (libuvccamera) sobre o stage central.
   useEffect(() => {
     const native = typeof window !== 'undefined' && !!window.VitallCam?.isNative?.()
     isNativeRef.current = native
-    if (native) {
-      // Auto-abre a câmera intraoral USB ao entrar na tela (sem precisar de botão)
-      setTimeout(() => captureFromIntraoralUsb(), 300)
+    setIsNative(native)
+    if (!native || !window.VitallCam?.startIntraoralPreview) return
+
+    window.__onIntraoralState = (state: string) => {
+      setNativePreviewState(state as NativePreviewState)
+      if (state === 'lost') {
+        toast({ variant: 'destructive', title: 'Câmera desconectada', description: 'Reconecte o cabo USB.' })
+      } else if (state === 'error') {
+        toast({ variant: 'destructive', title: 'Falha na câmera', description: 'Tentando reconectar…' })
+      }
+    }
+
+    setNativePreviewState('connecting')
+    window.VitallCam.startIntraoralPreview('window.__onIntraoralState')
+
+    return () => {
+      window.VitallCam?.stopIntraoralPreview?.()
+      window.__onIntraoralState = undefined
+      window.__onIntraoralFrame = undefined
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const captureFromIntraoralUsb = () => {
-    if (!window.VitallCam?.openIntraoralCamera) return
-    window.__onIntraoralCapture = (dataUrls, error) => {
-      if (error === 'cancelled' || !dataUrls || dataUrls.length === 0) {
-        if (error && error !== 'cancelled') {
-          toast({
-            variant: 'destructive',
-            title: 'Câmera intraoral',
-            description: error,
-          })
-        }
+  // Reporta os bounds do stage central pro nativo posicionar a SurfaceView
+  useEffect(() => {
+    if (!isNative) return
+    const el = previewSlotRef.current
+    if (!el) return
+
+    let raf = 0
+    const push = () => {
+      const r = el.getBoundingClientRect()
+      window.VitallCam?.setIntraoralPreviewBounds?.(r.left, r.top, r.width, r.height)
+    }
+    const schedule = () => {
+      if (raf) cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(push)
+    }
+
+    push()
+    const ro = new ResizeObserver(schedule)
+    ro.observe(el)
+    window.addEventListener('resize', schedule)
+    window.addEventListener('scroll', schedule, true)
+
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', schedule)
+      window.removeEventListener('scroll', schedule, true)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [isNative])
+
+  const captureNativeFrame = () => {
+    if (!window.VitallCam?.captureIntraoralFrame) return
+    setIsCapturing(true)
+    window.__onIntraoralFrame = (dataUrl, error) => {
+      setIsCapturing(false)
+      if (error || !dataUrl) {
+        toast({
+          variant: 'destructive',
+          title: 'Falha ao capturar',
+          description: error === 'not-ready' ? 'Câmera ainda não está pronta.' : (error || 'Tente novamente.'),
+        })
         return
       }
-      setCapturedItems(prev => [...dataUrls.map(d => ({ kind: 'photo' as const, dataUrl: d })), ...prev])
+      // Flash sutil
+      if (stageRef.current) {
+        const flash = document.createElement('div')
+        flash.className = 'absolute inset-0 bg-white pointer-events-none z-30'
+        flash.style.animation = 'cameraFlash 0.35s ease-out forwards'
+        stageRef.current.appendChild(flash)
+        setTimeout(() => flash.remove(), 360)
+      }
+      const stageRect = stageRef.current?.getBoundingClientRect()
+      const thumbRect = thumbRef.current?.getBoundingClientRect()
+      if (stageRect && thumbRect) {
+        setFlyAnim({ src: dataUrl, from: stageRect, to: thumbRect })
+        setTimeout(() => setFlyAnim(null), 650)
+      }
+      setCapturedItems(prev => [{ kind: 'photo', dataUrl }, ...prev])
       setShowSaveButton(true)
-      toast({
-        title: '🦷 Fotos intraorais capturadas',
-        description: `${dataUrls.length} foto(s) salvando no paciente...`,
-      })
-      // Auto-salva no Supabase já que o usuário clicou Salvar na tela nativa
-      // setTimeout dá tempo do React re-renderizar com capturedPhotos atualizado
-      setTimeout(() => savePhotosRef.current(), 200)
     }
-    window.VitallCam.openIntraoralCamera('window.__onIntraoralCapture')
+    window.VitallCam.captureIntraoralFrame('window.__onIntraoralFrame')
   }
 
   useEffect(() => {
@@ -253,7 +319,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
   // Manter refs sempre atualizadas com a versão mais recente
   useEffect(() => {
-    capturePhotoRef.current = capturePhoto
+    capturePhotoRef.current = isNativeRef.current ? captureNativeFrame : capturePhoto
     savePhotosRef.current = savePhotos
   })
 
@@ -315,6 +381,10 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
   // INICIALIZAR SISTEMA DE CÂMERA SIMPLES
   const initializeCameraSystem = async () => {
+    if (isNativeRef.current) {
+      // No app, o preview vem do nativo via overlay; getUserMedia não é usado.
+      return
+    }
     console.log('🚀 Inicializando câmera simples...')
     await initializeCamera()
   }
@@ -1087,18 +1157,35 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
           ref={stageRef}
           className="relative w-full h-full max-w-[1400px] rounded bg-black overflow-hidden shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)] ring-1 ring-white/5"
         >
-          <video
-            ref={videoRef}
-            className="absolute inset-0 w-full h-full object-cover transition-transform duration-150"
-            style={{ transform: `scale(${zoomLevel}) ${isMirrored ? 'scaleX(-1)' : ''}`, transformOrigin: 'center center' }}
-            playsInline
-            muted
-          />
+          {!isNative && (
+            <video
+              ref={videoRef}
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-150"
+              style={{ transform: `scale(${zoomLevel}) ${isMirrored ? 'scaleX(-1)' : ''}`, transformOrigin: 'center center' }}
+              playsInline
+              muted
+            />
+          )}
 
-          {!stream && (
+          {isNative && (
+            <div ref={previewSlotRef} className="absolute inset-0 w-full h-full" />
+          )}
+
+          {!isNative && !stream && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 text-white">
               <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
               <p className="text-sm text-white/70">Iniciando câmera…</p>
+            </div>
+          )}
+
+          {isNative && nativePreviewState !== 'ready' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 text-white pointer-events-none z-10">
+              <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
+              <p className="text-sm text-white/70">
+                {nativePreviewState === 'lost' ? 'Câmera desconectada — reconecte o cabo' :
+                 nativePreviewState === 'error' ? 'Falha — tentando reconectar…' :
+                 'Conectando câmera intraoral…'}
+              </p>
             </div>
           )}
 
@@ -1129,9 +1216,14 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         <div className="flex flex-col items-center gap-2">
           <div className="bg-teal-700/85 backdrop-blur-md ring-1 ring-teal-300/30 rounded-full p-2 flex flex-col gap-2 shadow-[0_6px_18px_-6px_rgba(13,148,136,0.6)]">
             <button
-              onClick={() => { setMode('photo'); if (isRecording) stopRecording(); capturePhoto() }}
+              onClick={() => {
+                setMode('photo')
+                if (isRecording) stopRecording()
+                if (isNative) captureNativeFrame()
+                else capturePhoto()
+              }}
               aria-label="Capturar foto"
-              disabled={!stream || isCapturing}
+              disabled={isCapturing || (isNative ? nativePreviewState !== 'ready' : !stream)}
               className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95 disabled:opacity-50 ${
                 mode === 'photo'
                   ? 'bg-gradient-to-br from-dourado-400 to-dourado-600 text-white shadow-[0_4px_14px_-4px_rgba(168,127,92,0.9)] ring-2 ring-white/40'

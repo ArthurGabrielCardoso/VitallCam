@@ -219,11 +219,15 @@ class IntraoralCaptureActivity : ComponentActivity() {
         override fun onCameraOpen(device: UsbDevice) {
             cancelOpenWatchdog()
             openRetries = 0
-            // Forçar resolução conhecida (evita negociação inválida → preto)
+            // Forçar resolução nativa do sensor (4:3) pra ter FOV total —
+            // resoluções 16:9 são center-crop do sensor, perdem FOV.
+            // SkyCam é 5MP nativo (2592×1944); usar essa por padrão.
             runCatching {
                 val helper = cameraHelper ?: return@runCatching
                 val supported = helper.supportedSizeList
-                val chosen = supported.firstOrNull { it.width == 1280 && it.height == 720 }
+                val chosen = supported.firstOrNull { it.width == 2592 && it.height == 1944 }
+                    ?: supported.firstOrNull { it.width == 2048 && it.height == 1536 }
+                    ?: supported.firstOrNull { it.width == 1024 && it.height == 768 }
                     ?: supported.firstOrNull { it.width == 640 && it.height == 480 }
                     ?: supported.maxByOrNull { it.width * it.height }
                 if (chosen != null) {

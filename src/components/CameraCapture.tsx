@@ -741,12 +741,17 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   const tryStartSpecificCamera = async (device: any): Promise<boolean> => {
     console.log(`🔧 Testando câmera: "${device.label}" (ID: ${device.deviceId.slice(0, 8)}...)`)
 
-    // Lista de resoluções para tentar (da maior para a menor)
+    // Resoluções 4:3 priorizadas — sensor da SkyCam é 5MP nativo 4:3
+    // (2592×1944). Pedir 16:9 faz a câmera fazer center-crop e perder FOV.
     const resolutionsToTry = [
+      { width: 2592, height: 1944, name: '5MP nativo (4:3)' },
+      { width: 2048, height: 1536, name: '3MP (4:3)' },
+      { width: 1024, height: 768, name: 'XGA (4:3)' },
+      { width: 640, height: 480, name: 'VGA (4:3)' },
+      { width: 320, height: 240, name: 'QVGA (4:3)' },
+      // Fallbacks 16:9 caso a câmera não tenha modo 4:3
       { width: 1920, height: 1080, name: '1080p' },
       { width: 1280, height: 720, name: '720p' },
-      { width: 640, height: 480, name: '480p' },
-      { width: 320, height: 240, name: '240p' }
     ]
 
     // Tentar cada resolução
@@ -823,8 +828,10 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       const constraints: MediaStreamConstraints = {
         video: {
           deviceId: { exact: deviceId },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          // Preferir 4:3 nativo da SkyCam (5MP) — full FOV.
+          // Se a câmera não suportar, getUserMedia escolhe a mais próxima.
+          width: { ideal: 2592 },
+          height: { ideal: 1944 },
           frameRate: { ideal: 30 }
         }
       }

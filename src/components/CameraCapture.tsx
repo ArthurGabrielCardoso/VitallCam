@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Photo, CameraDevice } from '@/lib/types'
@@ -290,6 +291,44 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   // (4 barras top/bottom/left/right que escondem a página atrás e deixam
   // só a área do stage transparente — SurfaceView aparece por essa janela).
   const [stageRect, setStageRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null)
+  const [portalReady, setPortalReady] = useState(false)
+
+  const portalContainerRef = useRef<HTMLDivElement | null>(null)
+
+  // No app, monta o componente em portal direto no document.body e esconde
+  // o resto do DOM enquanto a câmera estiver aberta. Sem isso, os elementos
+  // da página do paciente (álbuns, header, upload) renderizam no MESMO
+  // espaço do stage e pintam por cima da SurfaceView nativa.
+  useEffect(() => {
+    if (!isNative) return
+    const container = document.createElement('div')
+    container.setAttribute('data-vitallcam-camera-overlay', 'true')
+    container.style.position = 'fixed'
+    container.style.inset = '0'
+    container.style.zIndex = '60'
+    document.body.appendChild(container)
+    portalContainerRef.current = container
+
+    // Esconde irmãos do portal (Next.js root etc.) pra não pintarem por cima
+    const siblings = Array.from(document.body.children).filter(c => c !== container) as HTMLElement[]
+    const prev = siblings.map(s => s.style.display)
+    siblings.forEach(s => { s.style.display = 'none' })
+    const prevBody = document.body.style.background
+    const prevHtml = document.documentElement.style.background
+    document.body.style.background = 'transparent'
+    document.documentElement.style.background = 'transparent'
+
+    setPortalReady(true)
+
+    return () => {
+      siblings.forEach((s, i) => { s.style.display = prev[i] })
+      document.body.style.background = prevBody
+      document.documentElement.style.background = prevHtml
+      if (container.parentNode) container.parentNode.removeChild(container)
+      portalContainerRef.current = null
+      setPortalReady(false)
+    }
+  }, [isNative])
 
   // Capabilities são buscadas SOB DEMANDA (botão Diagnóstico ou ao abrir
   // o seletor de resolução). Auto-fetch causava conflito USB em algumas
@@ -1227,11 +1266,11 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
   const lastItem = capturedItems[0]
 
-  return (
+  const content = (
     <>
     {/* Moldura opaca em volta do stage: 4 barras (top/bottom/left/right)
-        que cobrem a página por trás SEM tampar o stage. Só no modo nativo,
-        pra deixar a SurfaceView aparecer pelo "buraco" do stage. */}
+        que cobrem ao redor SEM tampar o stage. SurfaceView aparece pelo
+        "buraco" do stage. */}
     {isNative && stageRect && (
       <div className="fixed inset-0 z-[59] pointer-events-none">
         <div className="absolute bg-neutral-950" style={{ left: 0, right: 0, top: 0, height: stageRect.top }} />
@@ -1240,7 +1279,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         <div className="absolute bg-neutral-950" style={{ left: stageRect.left + stageRect.width, right: 0, top: stageRect.top, height: stageRect.height }} />
       </div>
     )}
-    <div className={`fixed inset-0 z-[60] grid grid-cols-[clamp(140px,15vw,220px)_1fr_clamp(140px,15vw,220px)] items-stretch py-6 sm:py-8 ${isNative ? 'bg-transparent' : 'bg-neutral-950'}`}>
+    <div className={`fixed inset-0 z-[60] grid grid-cols-[clamp(140px,15vw,220px)_1fr_clamp(140px,15vw,220px)] items-stretch py-6 sm:py-8 ${isNative ? 'bg-transparent' : 'bg-neutral-950'}`} data-vitallcam-camera-content="true">
       {/* COLUNA ESQUERDA — fechar + salvar (topo) e thumbnail (rodapé) */}
       <aside className="flex flex-col items-center justify-between py-2 px-3">
         {/* Topo: Fechar + Salvar */}
@@ -1639,6 +1678,16 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     </div>
     </>
   )
+
+  if (isNative) {
+    if (portalReady && portalContainerRef.current) {
+      return createPortal(content, portalContainerRef.current)
+    }
+    // Enquanto o container do portal está sendo criado, não renderiza nada
+    // (caso contrário pintaria dentro do #__next que vai ser escondido).
+    return null
+  }
+  return content
 }
 
 // Ícone de dente (lucide não tem nativo) — outline simples

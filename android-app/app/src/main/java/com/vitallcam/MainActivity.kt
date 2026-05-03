@@ -300,7 +300,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initHelperAndOpen() {
-        if (cameraHelper != null) return
+        // Defensivo: se sobrou um helper de uma sessão anterior, libera tudo
+        // antes de criar um novo, senão o USB fica reclamado.
+        if (cameraHelper != null) {
+            tearDownHelper()
+        }
         cameraHelper = CameraHelper().apply { setStateCallback(stateListener) }
         scheduleOpenWatchdog()
     }
@@ -328,9 +332,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun tearDownHelper() {
         cancelOpenWatchdog()
-        runCatching { cameraHelper?.removeSurface(previewSurface.holder.surface) }
-        runCatching { cameraHelper?.release() }
+        val helper = cameraHelper
+        // Ordem importa: parar gravação → parar preview → fechar câmera → release.
+        // Pular qualquer passo deixa um claim USB órfão e o próximo open falha
+        // com "device is occupied".
+        if (helper != null) {
+            runCatching { if (helper.isRecording) helper.stopRecording() }
+            runCatching { helper.removeSurface(previewSurface.holder.surface) }
+            runCatching { helper.stopPreview() }
+            runCatching { helper.closeCamera() }
+            runCatching { helper.release() }
+        }
         cameraHelper = null
+        recordingFile = null
     }
 
     private fun stopIntraoralPreviewInternal() {

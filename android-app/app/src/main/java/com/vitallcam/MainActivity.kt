@@ -33,7 +33,7 @@ import android.content.pm.PackageManager
 import com.herohan.uvcapp.CameraHelper
 import com.herohan.uvcapp.ICameraHelper
 import com.herohan.uvcapp.IImageCapture
-import com.herohan.uvcapp.IVideoCapture
+import com.herohan.uvcapp.VideoCapture
 import com.serenegiant.widget.AspectRatioSurfaceView
 import java.io.File
 
@@ -536,11 +536,11 @@ class MainActivity : AppCompatActivity() {
             if (recordingFile != null) return // já gravando
             val file = File(cacheDir, "intraoral_${System.currentTimeMillis()}.mp4")
             recordingFile = file
-            val opts = IVideoCapture.OutputFileOptions.Builder(file).build()
+            val opts = VideoCapture.OutputFileOptions.Builder(file).build()
             try {
-                helper.startRecording(opts, object : IVideoCapture.OnVideoCaptureCallback {
+                helper.startRecording(opts, object : VideoCapture.OnVideoCaptureCallback {
                     override fun onStart() { /* started */ }
-                    override fun onVideoSaved(result: IVideoCapture.OutputFileResults) {
+                    override fun onVideoSaved(result: VideoCapture.OutputFileResults) {
                         val saved = recordingFile
                         recordingFile = null
                         val dataUrl = runCatching {

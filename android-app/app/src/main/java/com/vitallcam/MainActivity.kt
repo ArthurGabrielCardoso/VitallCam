@@ -4,16 +4,17 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
-import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.webkit.WebViewAssetLoader
 import android.Manifest
 import android.content.pm.PackageManager
 import java.io.File
@@ -29,6 +30,7 @@ import java.io.File
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
+    private lateinit var assetLoader: WebViewAssetLoader
     private var pendingPermissionRequest: PermissionRequest? = null
     private var pendingJsCallback: String? = null
 
@@ -51,6 +53,15 @@ class MainActivity : AppCompatActivity() {
 
         webView.addJavascriptInterface(VitallCamBridge(), "VitallCam")
 
+        // Asset loader: serve cacheDir/captures/* via
+        // https://appassets.androidplatform.net/captures/<arquivo>
+        // Permite o JS fazer fetch() das fotos/vídeos sem passar pelo
+        // bridge (evita o limite de 1MB da Binder IPC).
+        val capturesDir = File(cacheDir, "captures").apply { mkdirs() }
+        assetLoader = WebViewAssetLoader.Builder()
+            .addPathHandler("/captures/", WebViewAssetLoader.InternalStoragePathHandler(this, capturesDir))
+            .build()
+
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url.toString()
@@ -60,6 +71,11 @@ class MainActivity : AppCompatActivity() {
                 }
                 return false
             }
+
+            override fun shouldInterceptRequest(
+                view: WebView,
+                request: WebResourceRequest,
+            ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
 
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
@@ -124,18 +140,24 @@ class MainActivity : AppCompatActivity() {
 
             if (resultCode == Activity.RESULT_OK && data != null) {
                 val paths = data.getStringArrayExtra(extraKey) ?: emptyArray()
-                val dataUrls = paths.mapNotNull { path ->
-                    runCatching {
-                        val file = File(path)
-                        val bytes = file.readBytes()
-                        val mime = if (path.endsWith(".mp4", ignoreCase = true)) "video/mp4"
-                        else "image/jpeg"
-                        "data:$mime;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
-                    }.getOrNull()
+                // Cada arquivo já está em cacheDir/captures/ — converte path
+                // absoluto pra URL servida via WebViewAssetLoader.
+                // Bridge passa só URLs curtas (não estoura Binder de 1MB).
+                val capturesDirPath = File(cacheDir, "captures").absolutePath
+                val urls = paths.mapNotNull { path ->
+                    val f = File(path)
+                    if (!f.exists()) return@mapNotNull null
+                    if (path.startsWith(capturesDirPath)) {
+                        val name = f.name
+                        "https://appassets.androidplatform.net/captures/$name"
+                    } else {
+                        // Fallback (não deveria ocorrer): copia pro captures
+                        val dest = File(File(cacheDir, "captures").apply { mkdirs() }, f.name)
+                        runCatching { f.copyTo(dest, overwrite = true); f.delete() }
+                        "https://appassets.androidplatform.net/captures/${dest.name}"
+                    }
                 }
-                paths.forEach { runCatching { File(it).delete() } }
-
-                val arrayJs = dataUrls.joinToString(",") { jsString(it) }
+                val arrayJs = urls.joinToString(",") { jsString(it) }
                 val js = "if(typeof $callback==='function'){$callback([$arrayJs],null);}"
                 webView.evaluateJavascript(js, null)
             } else {
@@ -243,6 +265,14 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface fun getIntraoralCapabilities() {}
         @JavascriptInterface fun setIntraoralResolution(width: Int, height: Int) {}
         @JavascriptInterface fun setIntraoralZoomPercent(percent: Int) {}
+
+        /** Deleta um arquivo capturado do cache depois de upload completo. */
+        @JavascriptInterface
+        fun deleteCaptureFile(filename: String) {
+            if (filename.contains("..") || filename.contains("/") || filename.contains("\\")) return
+            val f = File(File(cacheDir, "captures"), filename)
+            if (f.exists()) runCatching { f.delete() }
+        }
     }
 
     companion object {

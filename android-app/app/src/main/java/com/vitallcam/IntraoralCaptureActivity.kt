@@ -362,7 +362,7 @@ class IntraoralCaptureActivity : ComponentActivity() {
     private fun captureImage() {
         val helper = cameraHelper
         if (helper == null || !helper.isCameraOpened) return
-        val file = File(cacheDir, "intraoral_${System.currentTimeMillis()}_${captured.size}.jpg")
+        val file = File(File(cacheDir, "captures").apply { mkdirs() }, "intraoral_${System.currentTimeMillis()}_${captured.size}.jpg")
         val opts = IImageCapture.OutputFileOptions.Builder(file).build()
         helper.takePicture(opts, object : IImageCapture.OnImageCaptureCallback {
             override fun onImageSaved(result: IImageCapture.OutputFileResults) {
@@ -379,7 +379,7 @@ class IntraoralCaptureActivity : ComponentActivity() {
     private fun startRecording() {
         val helper = cameraHelper
         if (helper == null || !helper.isCameraOpened || recordingFile != null) return
-        val file = File(cacheDir, "intraoral_${System.currentTimeMillis()}_${captured.size}.mp4")
+        val file = File(File(cacheDir, "captures").apply { mkdirs() }, "intraoral_${System.currentTimeMillis()}_${captured.size}.mp4")
         recordingFile = file
         val opts = VideoCapture.OutputFileOptions.Builder(file).build()
         runCatching {
@@ -398,7 +398,16 @@ class IntraoralCaptureActivity : ComponentActivity() {
                     runOnUiThread {
                         isRecording = false
                         stopRecordingTimer()
-                        if (saved != null) captured.add(0, CapturedItem.Video(saved, dur))
+                        if (saved != null) {
+                            // Renomeia o arquivo embutindo a duração no nome
+                            // (web extrai pra alimentar uploadVideoItem.duration).
+                            // Formato: <basename>_d<segundos>.mp4
+                            val parent = saved.parentFile
+                            val base = saved.nameWithoutExtension
+                            val renamed = File(parent, "${base}_d${dur}.mp4")
+                            val finalFile = if (saved.renameTo(renamed)) renamed else saved
+                            captured.add(0, CapturedItem.Video(finalFile, dur))
+                        }
                     }
                 }
                 override fun onError(code: Int, message: String, cause: Throwable?) {

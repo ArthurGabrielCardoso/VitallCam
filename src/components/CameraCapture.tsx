@@ -41,6 +41,7 @@ declare global {
       setIntraoralResolution?: (width: number, height: number) => void
       setIntraoralZoomPercent?: (percent: number) => void
       setIntraoralPreviewVisible?: (visible: boolean) => void
+      deleteCaptureFile?: (filename: string) => void
     }
     __onIntraoralCapture?: (dataUrls: string[], error: string | null) => void
     __onIntraoralFrame?: (dataUrl: string | null, error: string | null) => void
@@ -225,8 +226,11 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     setIsNative(native)
     if (!native || !window.VitallCam?.openIntraoralCamera) return
 
-    window.__onIntraoralCapture = (dataUrls, error) => {
-      if (error === 'cancelled' || !dataUrls || dataUrls.length === 0) {
+    // Agora o native manda URLs (https://appassets.androidplatform.net/captures/...)
+    // ao invés de dataURLs gigantes em base64 (que estouravam o limite de
+    // 1MB da Binder IPC com fotos 5MP / vídeos longos).
+    window.__onIntraoralCapture = async (urls, error) => {
+      if (error === 'cancelled' || !urls || urls.length === 0) {
         if (error && error !== 'cancelled') {
           toast({
             variant: 'destructive',
@@ -234,23 +238,47 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
             description: error,
           })
         }
-        // Sem fotos → fecha a tela web também
         onClose?.()
         return
       }
-      const items: CapturedItem[] = dataUrls.map(d => {
-        if (d.startsWith('data:video/')) {
-          // Reconstroi blob a partir do dataURL pra fluxo de upload de vídeo.
-          const [meta, b64] = d.split(',')
-          const mime = meta.match(/data:(.*?);/)?.[1] || 'video/mp4'
-          const bin = atob(b64)
-          const arr = new Uint8Array(bin.length)
-          for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
-          const blob = new Blob([arr], { type: mime })
-          return { kind: 'video' as const, dataUrl: d, blob, duration: 0, mimeType: mime }
+
+      const items: CapturedItem[] = []
+      for (const url of urls) {
+        try {
+          const res = await fetch(url)
+          const blob = await res.blob()
+          const filename = url.split('/').pop() || ''
+          const isVideo = filename.endsWith('.mp4') || blob.type.startsWith('video/')
+          if (isVideo) {
+            // Duração embutida no nome: ..._d<segundos>.mp4
+            const m = filename.match(/_d(\d+)\.mp4$/)
+            const duration = m ? parseInt(m[1], 10) : 0
+            const mime = blob.type || 'video/mp4'
+            const poster = await generateVideoPoster(blob).catch(() => '')
+            items.push({ kind: 'video', dataUrl: poster, blob, duration, mimeType: mime })
+          } else {
+            // Pra foto, transforma em dataURL pra fluxo legado de upload (column image_data)
+            const dataUrl: string = await new Promise((resolve, reject) => {
+              const r = new FileReader()
+              r.onload = () => resolve(r.result as string)
+              r.onerror = () => reject(r.error)
+              r.readAsDataURL(blob)
+            })
+            items.push({ kind: 'photo', dataUrl })
+          }
+          // Limpa o arquivo do cache nativo após processar
+          ;(window.VitallCam as any)?.deleteCaptureFile?.(filename)
+        } catch (e) {
+          console.error('Erro ao buscar captura:', url, e)
         }
-        return { kind: 'photo' as const, dataUrl: d }
-      })
+      }
+
+      if (items.length === 0) {
+        toast({ variant: 'destructive', title: 'Erro', description: 'Falha ao ler capturas.' })
+        onClose?.()
+        return
+      }
+
       setCapturedItems(prev => [...items, ...prev])
       setShowSaveButton(true)
       toast({

@@ -102,6 +102,23 @@ export default function PrintLayoutEditor({
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
   }, [])
+
+  // Escala responsiva da página: quando o container do documento é mais estreito
+  // que A4 (210mm ≈ 793.7px), reduz proporcionalmente para evitar scroll horizontal.
+  useEffect(() => {
+    const el = document.getElementById('ple-doc-scroll')
+    if (!el) return
+    const PAGE_PX = 210 * 96 / 25.4 // 210mm em CSS px
+    const apply = () => {
+      const cw = el.clientWidth - 32 // pequeno respiro lateral
+      const scale = Math.min(1, Math.max(0.35, cw / PAGE_PX))
+      el.style.setProperty('--ple-page-scale', String(scale))
+    }
+    apply()
+    const ro = new ResizeObserver(apply)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [portalReady, asideOpen])
   const [reportTitle, setReportTitle] = useState(`Compor relatório — ${patient.name}`)
   const [editingTitle, setEditingTitle] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
@@ -407,20 +424,13 @@ export default function PrintLayoutEditor({
   return createPortal(
     <div className="fixed inset-0 z-50 bg-gray-100 flex flex-col print:bg-white print:static" id="ple-root" data-anim={animState}>
       {/* Topbar */}
-      <div className="h-14 bg-teal-800 border-b border-teal-900/40 shadow-[0_4px_12px_rgba(0,0,0,0.25)] flex items-center px-4 gap-2 shrink-0 print:hidden ple-topbar">
+      <div className="h-14 bg-teal-800 border-b border-teal-900/40 shadow-[0_4px_12px_rgba(0,0,0,0.25)] flex items-center px-4 gap-2 shrink-0 print:hidden ple-topbar relative z-30">
         <button
           onClick={requestClose}
           className="h-9 w-9 rounded hover:bg-teal-700 transition-colors flex items-center justify-center text-white"
           title="Fechar"
         >
           <X className="w-4 h-4" />
-        </button>
-        <button
-          onClick={() => setAsideOpen(o => !o)}
-          className="h-9 w-9 rounded hover:bg-teal-700 transition-colors flex items-center justify-center text-white"
-          title={asideOpen ? 'Fechar galeria' : 'Abrir galeria'}
-        >
-          {asideOpen ? <PanelLeftClose className="w-5 h-5" /> : <PanelLeftOpen className="w-5 h-5" />}
         </button>
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <FileText className="w-4 h-4 text-teal-200 shrink-0" />
@@ -469,34 +479,6 @@ export default function PrintLayoutEditor({
         </div>
       </div>
 
-      {/* Toolbar (largura total) */}
-      <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-1 shrink-0 overflow-x-auto print:hidden ple-toolbar">
-        <ToolbarBtn onClick={() => exec('bold')} title="Negrito"><Bold className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => exec('italic')} title="Itálico"><Italic className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => exec('underline')} title="Sublinhado"><UnderlineIcon className="w-4 h-4" /></ToolbarBtn>
-        <Divider />
-        <ToolbarBtn onClick={() => exec('formatBlock', 'H2')} title="Título"><Heading2 className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => exec('insertUnorderedList')} title="Tópicos"><List className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => exec('insertOrderedList')} title="Numerada"><ListOrdered className="w-4 h-4" /></ToolbarBtn>
-        <Divider />
-        <ToolbarBtn onClick={() => exec('justifyLeft')} title="Alinhar à esquerda"><AlignLeft className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => exec('justifyCenter')} title="Centralizar"><AlignCenter className="w-4 h-4" /></ToolbarBtn>
-        <Divider />
-        <button
-          onMouseDown={(e) => { e.preventDefault(); captureSelection() }}
-          onClick={aiImproveSelection}
-          disabled={aiLoading}
-          className="h-8 px-2.5 rounded border border-teal-200 bg-teal-50 text-xs font-medium text-teal-700 hover:bg-teal-100 disabled:opacity-50 transition-colors flex items-center gap-1"
-          title="Melhorar texto selecionado com IA"
-        >
-          <Sparkles className={`w-3.5 h-3.5 ${aiLoading ? 'animate-pulse' : ''}`} />
-          {aiLoading ? 'Melhorando...' : 'Melhorar com IA'}
-        </button>
-        <div className="ml-auto text-[11px] text-gray-500 px-2">
-          {pages.length} {pages.length === 1 ? 'página' : 'páginas'}
-        </div>
-      </div>
-
       {/* Body */}
       <div className="flex-1 flex min-h-0 print:block relative">
         {/* Backdrop mobile quando aside aberto */}
@@ -505,6 +487,16 @@ export default function PrintLayoutEditor({
             className="absolute inset-0 bg-black/40 z-30 print:hidden"
             onClick={() => setAsideOpen(false)}
           />
+        )}
+        {/* Botão flutuante para reabrir a galeria quando fechada */}
+        {!asideOpen && (
+          <button
+            onClick={() => setAsideOpen(true)}
+            className="absolute top-3 left-3 z-30 h-10 w-10 rounded bg-white border border-gray-200 shadow-md text-gray-700 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors flex items-center justify-center print:hidden"
+            title="Abrir galeria"
+          >
+            <PanelLeftOpen className="w-5 h-5" />
+          </button>
         )}
         {/* Left: album/photo navigation */}
         <LeftAlbumPanel
@@ -532,6 +524,39 @@ export default function PrintLayoutEditor({
 
         {/* Right: document */}
         <main className="flex-1 min-w-0 flex flex-col print:block ple-main">
+          {/* Toolbar (100% da largura do documento, itens centralizados) */}
+          <div className="bg-white border-b border-gray-200 px-2 py-2 flex items-center shrink-0 print:hidden ple-toolbar w-full flex-wrap">
+            <div className="flex-1" />
+            <div className="flex items-center gap-1 shrink-0">
+              <ToolbarBtn onClick={() => exec('bold')} title="Negrito"><Bold className="w-4 h-4" /></ToolbarBtn>
+              <ToolbarBtn onClick={() => exec('italic')} title="Itálico"><Italic className="w-4 h-4" /></ToolbarBtn>
+              <ToolbarBtn onClick={() => exec('underline')} title="Sublinhado"><UnderlineIcon className="w-4 h-4" /></ToolbarBtn>
+              <Divider />
+              <ToolbarBtn onClick={() => exec('formatBlock', 'H2')} title="Título"><Heading2 className="w-4 h-4" /></ToolbarBtn>
+              <ToolbarBtn onClick={() => exec('insertUnorderedList')} title="Tópicos"><List className="w-4 h-4" /></ToolbarBtn>
+              <ToolbarBtn onClick={() => exec('insertOrderedList')} title="Numerada"><ListOrdered className="w-4 h-4" /></ToolbarBtn>
+              <Divider />
+              <ToolbarBtn onClick={() => exec('justifyLeft')} title="Alinhar à esquerda"><AlignLeft className="w-4 h-4" /></ToolbarBtn>
+              <ToolbarBtn onClick={() => exec('justifyCenter')} title="Centralizar"><AlignCenter className="w-4 h-4" /></ToolbarBtn>
+              <Divider />
+              <button
+                onMouseDown={(e) => { e.preventDefault(); captureSelection() }}
+                onClick={aiImproveSelection}
+                disabled={aiLoading}
+                className="h-8 w-8 md:w-auto md:px-2.5 rounded border border-teal-200 bg-teal-50 text-xs font-medium text-teal-700 hover:bg-teal-100 disabled:opacity-50 transition-colors flex items-center justify-center md:gap-1"
+                title="Melhorar texto selecionado com IA"
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${aiLoading ? 'animate-pulse' : ''}`} />
+                <span className="hidden md:inline">{aiLoading ? 'Melhorando...' : 'Melhorar com IA'}</span>
+              </button>
+            </div>
+            <div className="flex-1 flex justify-end text-[11px] text-gray-500 px-2">
+              <span className="hidden sm:inline whitespace-nowrap">
+                {pages.length} {pages.length === 1 ? 'página' : 'páginas'}
+              </span>
+            </div>
+          </div>
+
           {/* Document */}
           <div className="flex-1 overflow-y-auto bg-gray-100 print:bg-white print:overflow-visible" id="ple-doc-scroll">
             <div className="mx-auto py-8 print:py-0 flex flex-col items-center gap-6 print:gap-0" id="print-document">
@@ -571,41 +596,43 @@ export default function PrintLayoutEditor({
                     </div>
                   </div>
 
-                  {pg.type === 'photos' ? (
-                    <PhotosPageView
-                      page={pg}
-                      isFirst={idx === 0}
-                      patientName={patient.name}
-                      today={today}
-                      clinicName={clinicName}
-                      clinicPhone={clinicPhone}
-                      onClinicNameChange={setClinicName}
-                      onClinicPhoneChange={setClinicPhone}
-                      photosById={photosById}
-                      photoPositionById={photoPositionById}
-                      selectedSlot={selectedSlot}
-                      onSlotClick={(slotIdx) => handleClickSlot(pg.id, slotIdx)}
-                      onSlotClear={(slotIdx) => clearSlot(pg.id, slotIdx)}
-                      captions={captions}
-                      onCaptionChange={(photoId, value) =>
-                        setCaptions(prev => ({ ...prev, [photoId]: value }))
-                      }
-                    />
-                  ) : (
-                    <TextPageView
-                      page={pg}
-                      editorRef={(el) => { editorRefs.current[pg.id] = el }}
-                      onFocus={() => setActiveEditorId(pg.id)}
-                      onMouseUp={captureSelection}
-                      onKeyUp={captureSelection}
-                      onBlur={(html) => {
-                        captureSelection()
-                        setPages(prev => prev.map(p =>
-                          p.type === 'text' && p.id === pg.id ? { ...p, html } : p
-                        ))
-                      }}
-                    />
-                  )}
+                  <div className="ple-page-shell">
+                    {pg.type === 'photos' ? (
+                      <PhotosPageView
+                        page={pg}
+                        isFirst={idx === 0}
+                        patientName={patient.name}
+                        today={today}
+                        clinicName={clinicName}
+                        clinicPhone={clinicPhone}
+                        onClinicNameChange={setClinicName}
+                        onClinicPhoneChange={setClinicPhone}
+                        photosById={photosById}
+                        photoPositionById={photoPositionById}
+                        selectedSlot={selectedSlot}
+                        onSlotClick={(slotIdx) => handleClickSlot(pg.id, slotIdx)}
+                        onSlotClear={(slotIdx) => clearSlot(pg.id, slotIdx)}
+                        captions={captions}
+                        onCaptionChange={(photoId, value) =>
+                          setCaptions(prev => ({ ...prev, [photoId]: value }))
+                        }
+                      />
+                    ) : (
+                      <TextPageView
+                        page={pg}
+                        editorRef={(el) => { editorRefs.current[pg.id] = el }}
+                        onFocus={() => setActiveEditorId(pg.id)}
+                        onMouseUp={captureSelection}
+                        onKeyUp={captureSelection}
+                        onBlur={(html) => {
+                          captureSelection()
+                          setPages(prev => prev.map(p =>
+                            p.type === 'text' && p.id === pg.id ? { ...p, html } : p
+                          ))
+                        }}
+                      />
+                    )}
+                  </div>
                 </div>
               ))}
 
@@ -860,20 +887,11 @@ function LeftAlbumPanel({
       className={`shrink-0 bg-white border-r border-gray-200 flex flex-col print:hidden ple-aside ${
         isDesktop
           ? (isOpen ? '' : 'hidden')
-          : `absolute top-0 left-0 bottom-0 z-40 w-[88vw] max-w-md shadow-xl transition-transform duration-300 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`
+          : `absolute top-0 left-0 bottom-0 z-40 w-[95vw] max-w-[600px] shadow-2xl transition-transform duration-300 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`
       }`}
       style={isDesktop ? { width: `${width}%` } : undefined}
     >
-      {!isDesktop && (
-        <button
-          onClick={onClose}
-          className="absolute -right-10 top-2 h-9 w-9 rounded bg-white border border-gray-200 shadow flex items-center justify-center text-gray-600 hover:text-teal-700"
-          title="Fechar galeria"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      )}
-      <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-3">
+      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
         {currentFolder ? (
           <>
             <button
@@ -897,6 +915,13 @@ function LeftAlbumPanel({
         <div className="ml-auto text-[11px] px-2 py-1 rounded bg-teal-50 text-teal-700 border border-teal-200 whitespace-nowrap">
           {photoPositionById.size} no documento
         </div>
+        <button
+          onClick={onClose}
+          className="h-9 w-9 rounded border border-gray-200 bg-white text-gray-600 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors flex items-center justify-center shrink-0"
+          title="Fechar galeria"
+        >
+          <PanelLeftClose className="w-4 h-4" />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
@@ -1140,7 +1165,21 @@ function PrintStyles() {
         flex-direction: column;
         align-items: stretch;
         gap: 8px;
-        width: 210mm;
+        width: calc(210mm * var(--ple-page-scale, 1));
+        max-width: 100%;
+      }
+      .ple-page-shell {
+        width: calc(210mm * var(--ple-page-scale, 1));
+        height: calc(297mm * var(--ple-page-scale, 1));
+        position: relative;
+        overflow: visible;
+      }
+      .ple-page-shell .ple-page {
+        position: absolute;
+        top: 0;
+        left: 0;
+        transform-origin: top left;
+        transform: scale(var(--ple-page-scale, 1));
       }
       .ple-top-controls {
         display: flex;
@@ -1443,6 +1482,11 @@ function PrintStyles() {
         @page { size: A4; margin: 0; }
         html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
         body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        /* Garante escala 100% na impressão */
+        #ple-doc-scroll { --ple-page-scale: 1 !important; }
+        .ple-page-wrap { width: 210mm !important; max-width: none !important; }
+        .ple-page-shell { width: 210mm !important; height: 297mm !important; }
+        .ple-page-shell .ple-page { position: static !important; transform: none !important; }
         /* Como #ple-root foi portado para document.body, fica fácil isolar: */
         body > *:not(#ple-root) { display: none !important; }
         #ple-root {

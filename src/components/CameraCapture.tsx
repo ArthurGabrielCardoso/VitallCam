@@ -1127,31 +1127,31 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
         {/* Toggle Foto / Vídeo — pílula teal/dourado, é o botão de captura */}
         <div className="flex flex-col items-center gap-2">
-          <div className="bg-black/40 backdrop-blur-md ring-1 ring-white/10 rounded-full p-1.5 flex flex-col gap-1.5">
+          <div className="bg-teal-700/85 backdrop-blur-md ring-1 ring-teal-300/30 rounded-full p-2 flex flex-col gap-2 shadow-[0_6px_18px_-6px_rgba(13,148,136,0.6)]">
             <button
               onClick={() => { setMode('photo'); if (isRecording) stopRecording(); capturePhoto() }}
               aria-label="Capturar foto"
               disabled={!stream || isCapturing}
-              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all active:scale-95 disabled:opacity-50 ${
+              className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95 disabled:opacity-50 ${
                 mode === 'photo'
-                  ? 'bg-gradient-to-br from-teal-500 to-teal-700 text-white shadow-[0_4px_14px_-4px_rgba(13,148,136,0.7)]'
-                  : 'text-white/70 hover:text-white hover:bg-white/5'
+                  ? 'bg-gradient-to-br from-dourado-400 to-dourado-600 text-white shadow-[0_4px_14px_-4px_rgba(168,127,92,0.9)] ring-2 ring-white/40'
+                  : 'text-white/85 hover:text-white hover:bg-white/10'
               }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/assets/images/camera-intraoral.svg" alt="" className="w-6 h-6 object-contain brightness-0 invert" />
+              <img src="/assets/images/camera-intraoral.svg" alt="" className="w-8 h-8 object-contain brightness-0 invert" />
             </button>
             <button
               onClick={() => { setMode('video'); isRecording ? stopRecording() : startRecording() }}
               aria-label={isRecording ? 'Parar gravação' : 'Iniciar gravação'}
               disabled={!stream}
-              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all active:scale-95 disabled:opacity-50 ${
+              className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95 disabled:opacity-50 ${
                 mode === 'video'
-                  ? 'bg-gradient-to-br from-dourado-400 to-dourado-600 text-white shadow-[0_4px_14px_-4px_rgba(168,127,92,0.7)]'
-                  : 'text-white/70 hover:text-white hover:bg-white/5'
+                  ? 'bg-gradient-to-br from-dourado-400 to-dourado-600 text-white shadow-[0_4px_14px_-4px_rgba(168,127,92,0.9)] ring-2 ring-white/40'
+                  : 'text-white/85 hover:text-white hover:bg-white/10'
               }`}
             >
-              {isRecording ? <Square className="w-4 h-4 fill-current" /> : <Video className="w-5 h-5" strokeWidth={2} />}
+              {isRecording ? <Square className="w-5 h-5 fill-current" /> : <Video className="w-6 h-6" strokeWidth={2} />}
             </button>
           </div>
           <span className="text-[11px] font-medium tracking-wide text-white/85">

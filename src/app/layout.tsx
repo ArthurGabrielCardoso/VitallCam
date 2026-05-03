@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import QueryProvider from "@/components/QueryProvider";
 import SplashScreen from "@/components/SplashScreen";
+import PageRevealTransition from "@/components/PageRevealTransition";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -31,7 +32,9 @@ export default function RootLayout({
       <body className={`${inter.className} antialiased`} suppressHydrationWarning>
         <QueryProvider>
           <SplashScreen />
-          {children}
+          <PageRevealTransition>
+            {children}
+          </PageRevealTransition>
           <Toaster />
         </QueryProvider>
       </body>

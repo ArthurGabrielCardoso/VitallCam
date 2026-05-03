@@ -162,8 +162,17 @@ function PatientsLayoutContent({
                     onClick={() => { setBusca(""); setOpen(false) }}
                     className={`flex items-center gap-3 px-4 py-3 hover:bg-teal-50 transition-colors group ${idx !== resultados.length - 1 ? "border-b border-gray-100" : ""}`}
                   >
-                    <div className="h-8 w-8 rounded-full bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
-                      <span className="text-white font-semibold text-xs tracking-wide">{getIniciais(p.name)}</span>
+                    <div className="h-9 w-9 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
+                      {p.profile_photo ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={p.profile_photo}
+                          alt={p.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-white font-semibold text-xs tracking-wide">{getIniciais(p.name)}</span>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-800 truncate">{p.name}</p>

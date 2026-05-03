@@ -23,7 +23,28 @@
       "Bash(git -c user.email=\"arthurgabriel.birer@gmail.com\" -c user.name=\"Arthur Gabriel Cardoso\" commit --amend --no-edit)",
       "Bash(GIT_EDITOR=true git -c user.email=\"arthurgabriel.birer@gmail.com\" -c user.name=\"Arthur Gabriel Cardoso\" commit --no-edit -C 567b196)",
       "Bash(git -c user.email=arthurgabriel.birer@gmail.com -c 'user.name=Arthur Gabriel Cardoso' commit -m 'feat: design web na câmera USB nativa + auto-abre + ícone via icon.png *)",
-      "Bash(git -c user.email=arthurgabriel.birer@gmail.com -c 'user.name=Arthur Gabriel Cardoso' commit -m 'fix: ícone correto + fundo opaco + redirect pro paciente + sem texto status *)"
+      "Bash(git -c user.email=arthurgabriel.birer@gmail.com -c 'user.name=Arthur Gabriel Cardoso' commit -m 'fix: ícone correto + fundo opaco + redirect pro paciente + sem texto status *)",
+      "PowerShell(npx -y -p typescript@5 tsc --noEmit 2>&1)",
+      "Read(//c/Users/Arthur/Desktop/SoftwareVitall/app/\\(sistema\\)/components/**)",
+      "Read(//c/Users/Arthur/Desktop/SoftwareVitall/app/\\(sistema\\)/**)",
+      "Bash(cp \"C:/Users/Arthur/Desktop/SoftwareVitall/public/vitall-logo.png\" \"C:/Users/Arthur/Desktop/VitallCam/public/\")",
+      "Bash(cp \"C:/Users/Arthur/Desktop/SoftwareVitall/public/IconVitall.png\" \"C:/Users/Arthur/Desktop/VitallCam/public/\")",
+      "Bash(cp \"C:/Users/Arthur/Desktop/SoftwareVitall/public/lottie/SearchAnimation.mp4\" \"C:/Users/Arthur/Desktop/VitallCam/public/lottie/\")",
+      "Bash(cp \"C:/Users/Arthur/Desktop/SoftwareVitall/public/lottie/Search.lottie\" \"C:/Users/Arthur/Desktop/VitallCam/public/lottie/\")",
+      "Bash(git config *)",
+      "Bash(git commit -m 'fix\\(web\\): corrige type error no anamnese page para build Vercel *)",
+      "Bash(git commit -m 'fix\\(web\\): cast supabase anamneses para any — tabela sem tipos gerados *)",
+      "Bash(git commit -m 'fix\\(web\\): cast supabase como any no patient page — tabelas sem tipos gerados *)",
+      "Bash(git commit -m 'fix\\(build\\): ignorar erros TypeScript no build — erros pré-existentes no Supabase *)",
+      "Bash(git commit -m 'fix\\(web\\): favicon simplificado para icon.png + remove fundo branco do vídeo lottie *)",
+      "Bash(git commit -m 'fix\\(web\\): fundo branco na página patients + input cinza + preload icon.png *)",
+      "PowerShell(Copy-Item \"C:\\\\Users\\\\Arthur\\\\Desktop\\\\VitallCam\\\\public\\\\assets\\\\images\\\\icon.png\" \"C:\\\\Users\\\\Arthur\\\\Desktop\\\\VitallCam\\\\public\\\\icon.png\" -Force)",
+      "PowerShell(Add-Type -AssemblyName System.Drawing; $img = [System.Drawing.Image]::FromFile\\(\"C:\\\\Users\\\\Arthur\\\\Desktop\\\\VitallCam\\\\public\\\\assets\\\\images\\\\iconapp.png\"\\); Write-Output \"$\\($img.Width\\)x$\\($img.Height\\)\"; $img.Dispose\\(\\))",
+      "PowerShell(\\(Get-Item \"C:\\\\Users\\\\Arthur\\\\Desktop\\\\VitallCam\\\\public\\\\assets\\\\AAGRb0uqu8k_1777736593215.svg\"\\).Length / 1KB)",
+      "Bash(git commit -m 'fix: wrap useSearchParams in Suspense boundary no layout de pacientes *)",
+      "Bash(git commit -m 'fix: upload via label nativo \\(funciona em tablet/iOS\\) + ordem botões PDF/Editar *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Arthur\\\\Desktop\\\\VitallCam\" -Recurse -Name)",
+      "Bash(Select-Object -First 20)"
     ]
   }
 }

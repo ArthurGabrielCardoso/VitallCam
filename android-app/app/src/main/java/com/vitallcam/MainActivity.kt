@@ -87,6 +87,8 @@ class MainActivity : AppCompatActivity() {
                 topMargin = 0
             }
             visibility = View.GONE
+            // Opaco: frames da câmera são RGB sem alpha
+            isOpaque = true
             surfaceTextureListener = textureListener
         }
 
@@ -229,15 +231,25 @@ class MainActivity : AppCompatActivity() {
 
     private val textureListener = object : TextureView.SurfaceTextureListener {
         override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+            // Se a câmera já está aberta, pega o tamanho atual pra alinhar
+            // o buffer da SurfaceTexture com o frame que vem da UVC.
+            val helper = cameraHelper
+            val size = runCatching { helper?.previewSize }.getOrNull()
+            if (size != null) {
+                runCatching { st.setDefaultBufferSize(size.width, size.height) }
+            }
             previewSurface = Surface(st)
             surfaceReady = true
-            cameraHelper?.let { helper ->
-                previewSurface?.let { s ->
-                    if (helper.isCameraOpened) helper.addSurface(s, false)
-                }
+            if (helper != null && helper.isCameraOpened) {
+                previewSurface?.let { runCatching { helper.addSurface(it, false) } }
             }
         }
-        override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
+        override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
+            val size = runCatching { cameraHelper?.previewSize }.getOrNull()
+            if (size != null) {
+                runCatching { st.setDefaultBufferSize(size.width, size.height) }
+            }
+        }
         override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
             surfaceReady = false
             previewSurface?.let { runCatching { cameraHelper?.removeSurface(it) } }
@@ -270,9 +282,14 @@ class MainActivity : AppCompatActivity() {
                     ?: supported.maxByOrNull { it.width * it.height }
                 if (chosen != null) {
                     helper.previewSize = chosen
-                    // TextureView estica até as bordas — não precisa de setAspectRatio.
-                    // Aspecto é controlado via CSS no stage div (object-fit equivalent
-                    // não existe pra TextureView, então estica; aceitar por enquanto).
+                    // CRÍTICO pra TextureView: o SurfaceTexture precisa saber o
+                    // tamanho do buffer que vai receber. Sem isso os frames chegam
+                    // mas a view não desenha nada (fica preto eterno).
+                    runOnUiThread {
+                        runCatching {
+                            previewTexture.surfaceTexture?.setDefaultBufferSize(chosen.width, chosen.height)
+                        }
+                    }
                 }
             }
             cameraHelper?.startPreview()

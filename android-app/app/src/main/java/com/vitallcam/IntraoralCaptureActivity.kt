@@ -451,10 +451,13 @@ class IntraoralCaptureActivity : ComponentActivity() {
                 ?: supported.firstOrNull { it.width == 640 && it.height == 480 }
                 ?: supported.maxByOrNull { it.width * it.height }
         } else {
-            supported.firstOrNull { it.width == 1280 && it.height == 720 }
-                ?: supported.firstOrNull { it.width == 1024 && it.height == 768 }
+            // Vídeo — prioriza 4:3 nativo do sensor pra manter o MESMO FOV
+            // da foto (16:9 corta vertical). Resolução baixa pra caber no
+            // bucket Supabase e ser decodificável pelo WebView.
+            supported.firstOrNull { it.width == 1024 && it.height == 768 }
                 ?: supported.firstOrNull { it.width == 800 && it.height == 600 }
                 ?: supported.firstOrNull { it.width == 640 && it.height == 480 }
+                ?: supported.firstOrNull { it.width == 1280 && it.height == 720 }
                 ?: supported.minByOrNull { it.width * it.height }
         } ?: return
         val current = runCatching { helper.previewSize }.getOrNull()

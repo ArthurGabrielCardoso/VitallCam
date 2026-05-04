@@ -1100,7 +1100,10 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       const { error: upErr } = await (supabase as any).storage
         .from('patient-videos')
         .upload(storagePath, item.blob, { contentType: item.mimeType, upsert: false })
-      if (upErr) throw upErr
+      if (upErr) {
+        const sizeMB = (item.blob.size / 1024 / 1024).toFixed(1)
+        throw new Error(`${upErr.message || upErr} (vídeo ${sizeMB}MB, ${item.duration}s)`)
+      }
       const { data: pub } = (supabase as any).storage.from('patient-videos').getPublicUrl(storagePath)
       row = { ...baseRow, storage_path: storagePath, video_url: pub?.publicUrl ?? null }
     } else {

@@ -159,7 +159,12 @@ class IntraoralCaptureActivity : ComponentActivity() {
                     onClose = ::onCancel,
                     onSave = ::onSave,
                     onMirrorToggle = { isMirrored = !isMirrored },
-                    onModeChange = { captureMode = it },
+                    onModeChange = { newMode ->
+                        if (newMode != captureMode) {
+                            captureMode = newMode
+                            applyResolutionForMode()
+                        }
+                    },
                     onCapture = ::captureImage,
                     onStartRecording = ::startRecording,
                     onStopRecording = ::stopRecording,
@@ -219,24 +224,7 @@ class IntraoralCaptureActivity : ComponentActivity() {
         override fun onCameraOpen(device: UsbDevice) {
             cancelOpenWatchdog()
             openRetries = 0
-            // Forçar resolução nativa do sensor (4:3) pra ter FOV total —
-            // resoluções 16:9 são center-crop do sensor, perdem FOV.
-            // SkyCam é 5MP nativo (2592×1944); usar essa por padrão.
-            runCatching {
-                val helper = cameraHelper ?: return@runCatching
-                val supported = helper.supportedSizeList
-                val chosen = supported.firstOrNull { it.width == 2592 && it.height == 1944 }
-                    ?: supported.firstOrNull { it.width == 2048 && it.height == 1536 }
-                    ?: supported.firstOrNull { it.width == 1024 && it.height == 768 }
-                    ?: supported.firstOrNull { it.width == 640 && it.height == 480 }
-                    ?: supported.maxByOrNull { it.width * it.height }
-                if (chosen != null) {
-                    helper.previewSize = chosen
-                    runOnUiThread {
-                        runCatching { surfaceViewRef.value?.setAspectRatio(chosen.width, chosen.height) }
-                    }
-                }
-            }
+            applyResolutionForMode()
             cameraHelper?.startPreview()
             attachSurface()
             // Re-attach 200ms depois (race contra surface destruction)
@@ -443,6 +431,48 @@ class IntraoralCaptureActivity : ComponentActivity() {
 
     private fun stopRecordingTimer() {
         mainHandler.removeCallbacks(recordingTimer)
+    }
+
+    /**
+     * Resolução escolhida varia por modo:
+     *  - PHOTO: 5MP nativo do sensor (FOV total)
+     *  - VIDEO: 1280×720 / 1024×768 — encoder H.264 da lib não tem
+     *    setBitRate exposto, e a 5MP gera arquivos enormes que estouram
+     *    o limite do bucket no Supabase + ficam impossíveis de decodificar
+     *    no WebView (preview preto).
+     */
+    private fun applyResolutionForMode() {
+        val helper = cameraHelper ?: return
+        val supported = runCatching { helper.supportedSizeList }.getOrNull() ?: return
+        val chosen = if (captureMode == CaptureMode.PHOTO) {
+            supported.firstOrNull { it.width == 2592 && it.height == 1944 }
+                ?: supported.firstOrNull { it.width == 2048 && it.height == 1536 }
+                ?: supported.firstOrNull { it.width == 1024 && it.height == 768 }
+                ?: supported.firstOrNull { it.width == 640 && it.height == 480 }
+                ?: supported.maxByOrNull { it.width * it.height }
+        } else {
+            supported.firstOrNull { it.width == 1280 && it.height == 720 }
+                ?: supported.firstOrNull { it.width == 1024 && it.height == 768 }
+                ?: supported.firstOrNull { it.width == 800 && it.height == 600 }
+                ?: supported.firstOrNull { it.width == 640 && it.height == 480 }
+                ?: supported.minByOrNull { it.width * it.height }
+        } ?: return
+        val current = runCatching { helper.previewSize }.getOrNull()
+        if (chosen == current) {
+            runOnUiThread {
+                runCatching { surfaceViewRef.value?.setAspectRatio(chosen.width, chosen.height) }
+            }
+            return
+        }
+        // Câmera já rodando — precisa reabrir pra trocar de resolução
+        if (helper.isCameraOpened) {
+            changeResolution(chosen.width, chosen.height)
+        } else {
+            runCatching { helper.previewSize = chosen }
+            runOnUiThread {
+                runCatching { surfaceViewRef.value?.setAspectRatio(chosen.width, chosen.height) }
+            }
+        }
     }
 
     private fun changeResolution(width: Int, height: Int) {

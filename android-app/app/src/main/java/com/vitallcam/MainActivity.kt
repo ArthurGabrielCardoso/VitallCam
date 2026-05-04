@@ -75,7 +75,19 @@ class MainActivity : AppCompatActivity() {
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest,
-            ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
+            ): WebResourceResponse? {
+                val response = assetLoader.shouldInterceptRequest(request.url) ?: return null
+                // A página vem de https://vitallcam.vercel.app e o fetch vai pra
+                // https://appassets.androidplatform.net/captures/* — origem
+                // diferente. Sem CORS, o fetch JS é bloqueado e as capturas
+                // nunca chegam no Supabase. Libera CORS pra qualquer origem.
+                val headers = (response.responseHeaders ?: emptyMap()).toMutableMap()
+                headers["Access-Control-Allow-Origin"] = "*"
+                headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+                headers["Access-Control-Allow-Headers"] = "*"
+                response.responseHeaders = headers
+                return response
+            }
 
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)

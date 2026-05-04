@@ -246,23 +246,28 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       for (const url of urls) {
         try {
           const res = await fetch(url)
-          const blob = await res.blob()
+          const rawBlob = await res.blob()
           const filename = url.split('/').pop() || ''
-          const isVideo = filename.endsWith('.mp4') || blob.type.startsWith('video/')
+          const isVideo = filename.endsWith('.mp4') || rawBlob.type.startsWith('video/')
           if (isVideo) {
+            // O WebViewAssetLoader pode devolver Content-Type
+            // application/octet-stream pro .mp4, e aí o <video> não decodifica
+            // o blob URL. Re-embrulha forçando video/mp4.
+            const blob = rawBlob.type === 'video/mp4'
+              ? rawBlob
+              : new Blob([await rawBlob.arrayBuffer()], { type: 'video/mp4' })
             // Duração embutida no nome: ..._d<segundos>.mp4
             const m = filename.match(/_d(\d+)\.mp4$/)
             const duration = m ? parseInt(m[1], 10) : 0
-            const mime = blob.type || 'video/mp4'
             const poster = await generateVideoPoster(blob).catch(() => '')
-            items.push({ kind: 'video', dataUrl: poster, blob, duration, mimeType: mime })
+            items.push({ kind: 'video', dataUrl: poster, blob, duration, mimeType: 'video/mp4' })
           } else {
             // Pra foto, transforma em dataURL pra fluxo legado de upload (column image_data)
             const dataUrl: string = await new Promise((resolve, reject) => {
               const r = new FileReader()
               r.onload = () => resolve(r.result as string)
               r.onerror = () => reject(r.error)
-              r.readAsDataURL(blob)
+              r.readAsDataURL(rawBlob)
             })
             items.push({ kind: 'photo', dataUrl })
           }
@@ -1172,12 +1177,13 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       setCapturedItems([])
       setShowSaveButton(false)
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro completo ao salvar fotos:', error)
+      const msg = error?.message || error?.error_description || JSON.stringify(error)
       toast({
         variant: "destructive",
         title: "Erro ao Salvar",
-        description: "Falha ao salvar fotos. Verifique sua conexão."
+        description: msg?.slice(0, 300) || "Falha ao salvar."
       })
     } finally {
       setIsSaving(false)

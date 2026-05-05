@@ -3,11 +3,12 @@
 export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Photo } from '@/lib/types'
 import { supabase } from '@/lib/supabase'
 import { usePatient, useUpdatePatient, useDeletePatient } from '@/hooks/usePatients'
-import { usePhotos, usePhotosBroadcast, useDeletePhoto, useUnfolderedPhotos, useMovePhotosToFolder } from '@/hooks/usePhotos'
+import { usePhotos, usePhotosBroadcast, useDeletePhoto, useUnfolderedPhotos, useMovePhotosToFolder, useBatchPhotoLoader } from '@/hooks/usePhotos'
 import { useFolders, useCreateFolder, useFolderPhotos, useDeleteFolder, useUpdateFolder } from '@/hooks/useFolders'
 import { useFolderVideos, useUnfolderedVideos, getVideoSrc, VideoRow } from '@/hooks/useVideos'
 import CameraCapture from '@/components/CameraCapture'
@@ -19,11 +20,11 @@ import PhotoComparison from '@/components/PhotoComparison'
 import PhotoEditor from '@/components/PhotoEditor'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download, ChevronRight, ChevronLeft, Mic } from 'lucide-react'
+import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download, ChevronRight, ChevronLeft, Mic, Film } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import PhotoGridSkeleton from '@/components/PhotoGridSkeleton'
 import FolderCardSkeleton from '@/components/FolderCardSkeleton'
-import LazyImage from '@/components/LazyImage'
+import LazyPhotoImage from '@/components/LazyPhotoImage'
 import BeforeAfterSlider from '@/components/BeforeAfterSlider'
 import AIProcessingLoader from '@/components/AIProcessingLoader'
 import { transformSmileWithGemini } from '@/lib/gemini-smile'
@@ -31,6 +32,7 @@ import TranscriptionViewer from '@/components/TranscriptionViewer'
 import TranscriptionDocument from '@/components/TranscriptionDocument'
 import AnamneseDocument from '@/components/AnamneseDocument'
 import PrintLayoutEditor from '@/components/PrintLayoutEditor'
+import VideoFrameExtractor from '@/components/VideoFrameExtractor'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Transcription, Anamnese } from '@/lib/types'
 
@@ -39,6 +41,7 @@ export default function PatientPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const patientId = params.id as string
+  const queryClient = useQueryClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any
   
@@ -60,6 +63,7 @@ export default function PatientPage() {
   
   // States locais
   const [showCamera, setShowCamera] = useState(false)
+  const [showFrameExtractor, setShowFrameExtractor] = useState(false)
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [currentFolder, setCurrentFolder] = useState<string | null>(null)
@@ -155,6 +159,9 @@ export default function PatientPage() {
   const { data: folderPhotos = [] } = useFolderPhotos(currentFolder)
   const { data: folderVideos = [], refetch: refetchFolderVideos } = useFolderVideos(currentFolder)
   const { data: unfolderedVideos = [], refetch: refetchUnfolderedVideos } = useUnfolderedVideos(patientId)
+
+  // Batch-loader: pré-carrega image_data das fotos da pasta em lotes de 8 (resolve N+1 para fotos antigas base64)
+  useBatchPhotoLoader(currentFolder ? folderPhotos.map(p => p.id) : [])
   const [selectedVideo, setSelectedVideo] = useState<VideoRow | null>(null)
 
   // Função para ordenar fotos por tempo de criação (mais preciso e confiável)
@@ -379,12 +386,11 @@ export default function PatientPage() {
   }
 
   const handlePhotoCapture = () => {
-    refetchPhotos()
-    refetchUnfolderedPhotos()
+    // Fotos já estão no cache via React Query (atualizadas em tempo real)
+    // Chamado após salvar vídeos; a câmera se fecha por conta própria
     refetchFolders()
     refetchFolderVideos()
     refetchUnfolderedVideos()
-    setShowCamera(false)
   }
 
   const handleImageUpload = () => {
@@ -1046,9 +1052,9 @@ export default function PatientPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           {/* Tab Content: Overview */}
           <TabsContent value="overview" className="mt-0">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-[clamp(220px,22vw,360px)_1fr] gap-6 max-w-[96rem] mx-auto">
               {/* Coluna esquerda: foto/avatar do paciente */}
-              <div className="lg:col-span-1">
+              <div>
                 {/* input oculto para upload — label nativo funciona em iOS/Android */}
                 <input id="profile-photo-upload" type="file" accept="image/*" className="hidden"
                   onChange={e => { const f = e.target.files?.[0]; if (f) handleProfilePhotoFile(f); e.target.value = '' }} />
@@ -1088,7 +1094,7 @@ export default function PatientPage() {
               </div>
 
               {/* Coluna direita: identidade + seções */}
-              <div className="lg:col-span-2 space-y-4">
+              <div className="space-y-4">
                 {/* Card de identidade */}
                 <div className="bg-white border border-gray-200 rounded shadow-sm p-6">
                   <div className="flex items-start justify-between gap-4">
@@ -1280,6 +1286,15 @@ export default function PatientPage() {
                   folderId={currentFolder}
                 />
 
+                {/* Extrair frames de vídeo */}
+                <Button
+                  onClick={() => setShowFrameExtractor(true)}
+                  className="!w-28 !h-28 !p-0 !rounded !text-white !flex !flex-col !items-center !justify-center !gap-2 bg-gradient-to-br from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 border-0 shadow-md shadow-violet-600/20 transition-all"
+                >
+                  <Film className="w-9 h-9" />
+                  <span className="text-sm font-semibold">Vídeo→Fotos</span>
+                </Button>
+
                 {/* Spacer */}
                 <div className="ml-auto flex items-center gap-2">
                   {!currentFolder && (
@@ -1379,10 +1394,9 @@ export default function PatientPage() {
                         >
                           {/* Capa: primeira foto ou fallback com ícone */}
                           {coverPhoto ? (
-                            <LazyImage
-                              src={coverPhoto.image_data}
-                              alt={folder.name}
-                              className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            <LazyPhotoImage
+                              photo={coverPhoto}
+                              className="absolute inset-0 object-cover transition-transform duration-300 group-hover:scale-105"
                             />
                           ) : (
                             <div className="absolute inset-0 flex items-center justify-center">
@@ -1511,14 +1525,16 @@ export default function PatientPage() {
                           if (isSelectionMode) {
                             togglePhotoSelection(photo.id)
                           } else {
-                            setSelectedPhoto(photo)
+                            // image_data pode não estar no objeto (carregamento lazy);
+                            // LazyPhotoImage já buscou via cache — usamos ele
+                            const cached = queryClient.getQueryData<string>(['photo-data', photo.id])
+                            setSelectedPhoto({ ...photo, image_data: photo.image_data ?? cached ?? undefined })
                           }
                         }}
                       >
-                        <LazyImage
-                          src={photo.image_data}
-                          alt={`Foto ${index + 1}`}
-                          className="w-full h-full object-cover"
+                        <LazyPhotoImage
+                          photo={photo}
+                          className="object-cover"
                         />
 
                         {/* Overlay gradient com data */}
@@ -1837,7 +1853,20 @@ export default function PatientPage() {
         <CameraCapture
           patientId={patientId}
           onPhotoCapture={handlePhotoCapture}
-          onClose={() => setShowCamera(false)}
+          onClose={() => {
+            setShowCamera(false)
+            refetchPhotos()
+            refetchUnfolderedPhotos()
+            refetchFolders()
+          }}
+        />
+      )}
+
+      {showFrameExtractor && (
+        <VideoFrameExtractor
+          patientId={patientId}
+          onClose={() => setShowFrameExtractor(false)}
+          onSaved={() => { refetchPhotos(); refetchFolders() }}
         />
       )}
 

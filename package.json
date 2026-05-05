@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "cross-env NODE_OPTIONS=--max-old-space-size=3072 next dev",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=3072 next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "export-training": "node --max-old-space-size=512 scripts/export-training-batch.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.27.0",
@@ -27,6 +28,7 @@
     "jspdf": "^3.0.1",
     "lucide-react": "^0.539.0",
     "next": "14.2.31",
+    "openai": "^6.36.0",
     "react": "^18",
     "react-dom": "^18",
     "react-signature-canvas": "^1.1.0-alpha.2",
@@ -39,6 +41,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/react-signature-canvas": "^1.0.7",
+    "cross-env": "^10.1.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.31",
     "postcss": "^8",

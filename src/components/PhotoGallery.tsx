@@ -19,7 +19,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import Image from 'next/image'
+import LazyPhotoImage from '@/components/LazyPhotoImage'
 
 interface PhotoGalleryProps {
   photos: Photo[]
@@ -152,13 +152,13 @@ export default function PhotoGallery({ photos, onPhotoDelete }: PhotoGalleryProp
                 className="relative aspect-[4/3] bg-muted"
                 onClick={() => openPhotoModal(photo)}
               >
-                <Image
-                  src={photo.image_data}
-                  alt={`Foto de ${new Date(photo.created_at).toLocaleDateString('pt-BR')}`}
-                  fill
+                <LazyPhotoImage
+                  photo={photo}
                   className="object-cover"
-                  loading="lazy"
-                  sizes="(max-width: 640px) 100vw, 50vw"
+                  onImageReady={(src) => {
+                    // Garante que o modal terá image_data quando aberto
+                    if (!photo.image_data) photo.image_data = src
+                  }}
                 />
 
                 {hoveredPhoto === photo.id && (

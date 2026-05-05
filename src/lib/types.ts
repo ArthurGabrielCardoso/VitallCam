@@ -25,7 +25,7 @@ export interface Database {
         Row: {
           id: string
           patient_id: string
-          image_data: string
+          image_data?: string
           created_at: string
           folder_id?: string
           image_number?: number

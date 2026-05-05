@@ -70,13 +70,14 @@ export const useFolderPhotos = (folderId: string | null) => {
       if (!folderId) return []
       
       // Buscar sem ordem definida - a ordenação será feita no frontend
+      // Sem image_data: resposta leve, imagens carregam individualmente
       const { data, error } = await supabase
         .from('photos')
-        .select('*')
+        .select('id, patient_id, folder_id, created_at')
         .eq('folder_id', folderId)
 
       if (error) throw error
-      return data || []
+      return (data || []) as import('@/lib/types').Photo[]
     },
     enabled: !!folderId,
   })

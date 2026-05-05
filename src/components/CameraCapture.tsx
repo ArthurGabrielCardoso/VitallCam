@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { Photo, CameraDevice } from '@/lib/types'
 import { useCreateFolder } from '@/hooks/useFolders'
@@ -184,6 +185,13 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recordedChunksRef = useRef<Blob[]>([])
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const queryClient = useQueryClient()
+  // Pasta da sessão criada uma vez na primeira captura e reutilizada
+  const sessionFolderIdRef = useRef<string | null>(null)
+  const sessionFolderCreatingRef = useRef<Promise<string> | null>(null)
+  // Semáforo para limitar enhancements simultâneos
+  const activeEnhanceRef = useRef(0)
+  const enhanceWaitingRef = useRef<Array<() => void>>([])
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [selectedDevice, setSelectedDevice] = useState<string>('')
   const [availableCameras, setAvailableCameras] = useState<CameraDevice[]>([])
@@ -285,12 +293,17 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       }
 
       setCapturedItems(prev => [...items, ...prev])
-      setShowSaveButton(true)
-      toast({
-        title: 'Capturas recebidas',
-        description: `${items.length} item(ns) salvando no paciente...`,
-      })
-      setTimeout(() => savePhotosRef.current(), 200)
+      const photos = items.filter(i => i.kind === 'photo')
+      const videos = items.filter(i => i.kind === 'video')
+      // Fotos: salvas imediatamente em paralelo
+      photos.forEach(item => uploadPhotoNow(item.dataUrl))
+      // Vídeos: ficam no strip aguardando o botão Salvar
+      if (videos.length > 0) setShowSaveButton(true)
+      const desc = [
+        photos.length ? `${photos.length} foto(s) salva(s) automaticamente` : null,
+        videos.length ? `${videos.length} vídeo(s) aguardando salvar` : null,
+      ].filter(Boolean).join(' + ')
+      toast({ title: 'Capturas recebidas', description: desc })
     }
 
     // Auto-abre a tela nativa de captura ao entrar
@@ -371,7 +384,8 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         setTimeout(() => setFlyAnim(null), 650)
       }
       setCapturedItems(prev => [{ kind: 'photo', dataUrl: finalDataUrl }, ...prev])
-      setShowSaveButton(true)
+      // Salva imediatamente no Supabase — galeria atualiza em tempo real
+      uploadPhotoNow(finalDataUrl)
     }
     window.VitallCam.captureIntraoralFrame('window.__onIntraoralFrame')
   }
@@ -460,9 +474,9 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     }
   }, [selectedDevice]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Atualizar showSaveButton quando capturedItems mudar
+  // Botão Salvar aparece apenas quando há vídeos (fotos já foram salvas automaticamente)
   useEffect(() => {
-    setShowSaveButton(capturedItems.length > 0)
+    setShowSaveButton(capturedItems.some(i => i.kind === 'video'))
   }, [capturedItems])
 
   // Sistema inteligente removido - câmera básica e rápida
@@ -884,6 +898,134 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     }
   }
 
+  // Converte dataURL para Blob (browser-safe, sem Buffer)
+  const dataUrlToBlob = (dataUrl: string): Blob => {
+    const [header, b64] = dataUrl.split(',')
+    const mime = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg'
+    const binary = atob(b64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return new Blob([bytes], { type: mime })
+  }
+
+  // Faz upload de um dataURL para o Storage e retorna a URL assinada (1h)
+  // Retorna null se falhar — o chamador usa base64 como fallback
+  const uploadToStorage = async (dataUrl: string): Promise<string | null> => {
+    try {
+      const blob = dataUrlToBlob(dataUrl)
+      const ext = blob.type.includes('png') ? 'png' : 'jpg'
+      const path = `${patientId}/${crypto.randomUUID()}.${ext}`
+      const { error } = await (supabase as any).storage
+        .from('patient-photos')
+        .upload(path, blob, { contentType: blob.type, upsert: false })
+      if (error) throw error
+      const { data: signed } = await (supabase as any).storage
+        .from('patient-photos')
+        .createSignedUrl(path, 60 * 60) // 1 hora
+      return signed?.signedUrl ?? null
+    } catch (err) {
+      console.warn('Storage upload falhou, usando base64:', err)
+      return null
+    }
+  }
+
+  // Cria a pasta da sessão apenas uma vez; chamadas simultâneas esperem a mesma promise
+  const ensureSessionFolder = (): Promise<string> => {
+    if (sessionFolderIdRef.current) return Promise.resolve(sessionFolderIdRef.current)
+    if (sessionFolderCreatingRef.current) return sessionFolderCreatingRef.current
+    const promise = createFolderMutation.mutateAsync({
+      name: `Pasta ${new Date().toLocaleDateString('pt-BR')}`,
+      patient_id: patientId,
+    }).then(folder => {
+      sessionFolderIdRef.current = folder.id
+      sessionFolderCreatingRef.current = null
+      return folder.id
+    }).catch(err => {
+      sessionFolderCreatingRef.current = null
+      throw err
+    })
+    sessionFolderCreatingRef.current = promise
+    return promise
+  }
+
+  // Salva foto no Supabase (via Storage se possível) e atualiza o cache imediatamente
+  const uploadPhotoNow = async (dataUrl: string) => {
+    try {
+      const folderId = await ensureSessionFolder()
+
+      // Tenta Storage primeiro (URL pequena no banco); fallback base64
+      const storageUrl = await uploadToStorage(dataUrl)
+      const imageToStore = storageUrl ?? dataUrl
+
+      const { data, error } = await (supabase as any)
+        .from('photos')
+        .insert({ patient_id: patientId, image_data: imageToStore, folder_id: folderId })
+        .select()
+        .single()
+      if (error) throw error
+
+      // Foto aparece na galeria na hora, sem precisar fechar a câmera
+      queryClient.setQueryData(['photos', patientId], (old: Photo[] = []) => [data, ...old])
+      queryClient.setQueryData(['folder-photos', folderId], (old: Photo[] = []) => [data, ...old])
+
+      // Enhancement envia sempre o base64 original (qualidade máxima para a IA)
+      queueEnhancement(data.id, dataUrl)
+    } catch (err: any) {
+      console.error('Erro ao salvar foto automaticamente:', err)
+      toast({ variant: 'destructive', title: 'Erro ao salvar foto', description: err?.message?.slice(0, 200) })
+    }
+  }
+
+  // Semáforo: máximo 5 enhancements simultâneos
+  const acquireEnhanceSlot = (): Promise<void> => new Promise(resolve => {
+    if (activeEnhanceRef.current < 5) {
+      activeEnhanceRef.current++
+      resolve()
+    } else {
+      enhanceWaitingRef.current.push(() => { activeEnhanceRef.current++; resolve() })
+    }
+  })
+
+  const releaseEnhanceSlot = () => {
+    const next = enhanceWaitingRef.current.shift()
+    if (next) next()
+    else activeEnhanceRef.current--
+  }
+
+  // Enfileira enhancement para uma foto já salva no Supabase
+  const queueEnhancement = (photoId: string, dataUrl: string) => {
+    const run = async () => {
+      await acquireEnhanceSlot()
+      try {
+        const res = await fetch('/api/enhance-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageData: dataUrl }),
+        })
+        if (res.status === 503) return // API não configurada, ignora silenciosamente
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const { imageData: enhancedBase64 } = await res.json()
+        if (!enhancedBase64) return
+
+        // Tenta salvar versão melhorada no Storage; fallback base64
+        const enhancedUrl = await uploadToStorage(enhancedBase64)
+        const enhancedToStore = enhancedUrl ?? enhancedBase64
+
+        // Atualiza no Supabase e no cache — galeria mostra versão melhorada
+        await (supabase as any).from('photos').update({ image_data: enhancedToStore }).eq('id', photoId)
+        const update = (old: Photo[] = []) => old.map(p => p.id === photoId ? { ...p, image_data: enhancedToStore } : p)
+        queryClient.setQueryData(['photos', patientId], update)
+        queryClient.setQueryData(['photo-data', photoId], enhancedToStore)
+        if (sessionFolderIdRef.current) queryClient.setQueryData(['folder-photos', sessionFolderIdRef.current], update)
+      } catch (err) {
+        console.error('Enhancement error photo', photoId, err)
+      } finally {
+        releaseEnhanceSlot()
+      }
+    }
+    run()
+  }
+
   const capturePhoto = async () => {
     if (!videoRef.current || !canvasRef.current || !stream) {
       toast({
@@ -937,7 +1079,8 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       }
 
       setCapturedItems(prev => [{ kind: 'photo', dataUrl: finalImageData }, ...prev])
-      setShowSaveButton(true)
+      // Salva imediatamente no Supabase — galeria atualiza em tempo real
+      uploadPhotoNow(finalImageData)
 
     } catch {
       toast({
@@ -1135,59 +1278,26 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   }
 
   const savePhotos = async () => {
-    if (capturedItems.length === 0) return
+    const videoItems = capturedItems.filter(item => item.kind === 'video')
+    if (videoItems.length === 0) return
 
     setIsSaving(true)
-
     try {
-      const folderName = `Pasta ${new Date().toLocaleDateString('pt-BR')}`
-      const folder = await createFolderMutation.mutateAsync({ name: folderName, patient_id: patientId })
-      const folderId = folder.id
-
-      const itemsToSave = [...capturedItems].reverse()
+      // Reutiliza pasta da sessão (já criada pelas fotos auto-salvas) ou cria nova
+      const folderId = sessionFolderIdRef.current ?? await ensureSessionFolder()
       const saved: any[] = []
-      let photoCount = 0
-      let videoCount = 0
-
-      for (let index = 0; index < itemsToSave.length; index++) {
-        const item = itemsToSave[index]
-        if (index > 0) await new Promise(r => setTimeout(r, 50))
-
-        if (item.kind === 'photo') {
-          const { data, error } = await (supabase as any)
-            .from('photos')
-            .insert({ patient_id: patientId, image_data: item.dataUrl, folder_id: folderId })
-            .select()
-            .single()
-          if (error) throw error
-          saved.push(data)
-          photoCount++
-        } else {
-          const data = await uploadVideoItem(item, folderId)
-          saved.push(data)
-          videoCount++
-        }
+      for (const item of videoItems) {
+        const data = await uploadVideoItem(item, folderId)
+        saved.push(data)
+        onPhotoCapture(data)
       }
-
-      saved.forEach(row => onPhotoCapture(row))
-
-      const parts = [
-        photoCount > 0 ? `${photoCount} foto(s)` : null,
-        videoCount > 0 ? `${videoCount} vídeo(s)` : null,
-      ].filter(Boolean).join(' + ')
-      toast({ title: 'Sucesso!', description: `${parts} salvos em "${folderName}"` })
-
+      toast({ title: 'Sucesso!', description: `${saved.length} vídeo(s) salvos` })
       setCapturedItems([])
-      setShowSaveButton(false)
-
+      handleClose()
     } catch (error: any) {
-      console.error('Erro completo ao salvar fotos:', error)
+      console.error('Erro ao salvar vídeos:', error)
       const msg = error?.message || error?.error_description || JSON.stringify(error)
-      toast({
-        variant: "destructive",
-        title: "Erro ao Salvar",
-        description: msg?.slice(0, 300) || "Falha ao salvar."
-      })
+      toast({ variant: 'destructive', title: 'Erro ao Salvar', description: msg?.slice(0, 300) || 'Falha ao salvar.' })
     } finally {
       setIsSaving(false)
     }
@@ -1261,9 +1371,9 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
   const content = (
     <>
-    <div className="fixed inset-0 z-[60] grid grid-cols-[clamp(140px,15vw,220px)_1fr_clamp(140px,15vw,220px)] items-stretch py-6 sm:py-8 bg-neutral-950" data-vitallcam-camera-content="true">
-      {/* COLUNA ESQUERDA — fechar + salvar (topo) e thumbnail (rodapé) */}
-      <aside className="flex flex-col items-center justify-between py-2 px-3">
+    <div className="fixed inset-0 z-[60] bg-black" data-vitallcam-camera-content="true">
+      {/* COLUNA ESQUERDA — painel translúcido sobreposto */}
+      <aside className="absolute left-0 top-0 bottom-0 z-10 w-[clamp(140px,15vw,220px)] bg-neutral-950/80 backdrop-blur-[3px] flex flex-col items-center justify-between py-6 sm:py-8 px-3">
         {/* Topo: Fechar + Salvar */}
         <div className="flex flex-col items-center gap-7">
           <button
@@ -1286,7 +1396,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
               ) : (
                 <Check className="w-7 h-7 group-hover:scale-110 transition-transform" strokeWidth={2.2} />
               )}
-              <span className="text-[11px] font-medium tracking-wide">Salvar ({capturedItems.length})</span>
+              <span className="text-[11px] font-medium tracking-wide">Salvar ({capturedItems.filter(i => i.kind === 'video').length} vídeo{capturedItems.filter(i => i.kind === 'video').length !== 1 ? 's' : ''})</span>
             </button>
           )}
         </div>
@@ -1320,12 +1430,11 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         </button>
       </aside>
 
-      {/* CENTRO — Stage da câmera */}
-      <div className="flex items-center justify-center px-2">
-        <div
-          ref={stageRef}
-          className="relative w-full h-full max-w-[1400px] rounded bg-black overflow-hidden shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)] ring-1 ring-white/5"
-        >
+      {/* STAGE — vídeo ocupa a tela inteira, fica atrás dos painéis */}
+      <div
+        ref={stageRef}
+        className="absolute inset-0 overflow-hidden bg-black"
+      >
           {!isNative && (
             <video
               ref={videoRef}
@@ -1368,10 +1477,9 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
             </div>
           )}
         </div>
-      </div>
 
-      {/* COLUNA DIREITA — ações */}
-      <aside className="flex flex-col items-center justify-center gap-7 py-2 px-3 relative">
+      {/* COLUNA DIREITA — painel translúcido sobreposto */}
+      <aside className="absolute right-0 top-0 bottom-0 z-10 w-[clamp(140px,15vw,220px)] bg-neutral-950/80 backdrop-blur-[3px] flex flex-col items-center justify-center gap-7 py-6 sm:py-8 px-3">
         {/* Odontograma */}
         <button
           onClick={() => toast({ title: 'Odontograma', description: 'Em breve nesta tela.' })}

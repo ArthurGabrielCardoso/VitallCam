@@ -10,9 +10,11 @@ import {
   ArrowLeft, Folder, ChevronLeft, ChevronRight, Pencil, PanelLeftOpen, PanelLeftClose,
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
-import { usePhotos, useUnfolderedPhotos } from '@/hooks/usePhotos'
+import { useQueryClient } from '@tanstack/react-query'
+import { usePhotos, useUnfolderedPhotos, useBatchPhotoLoader } from '@/hooks/usePhotos'
 import { useFolders, useFolderPhotos } from '@/hooks/useFolders'
 import LazyImage from '@/components/LazyImage'
+import LazyPhotoImage from '@/components/LazyPhotoImage'
 
 interface PrintLayoutEditorProps {
   patient: Patient
@@ -78,6 +80,9 @@ export default function PrintLayoutEditor({
   onClose,
 }: PrintLayoutEditorProps) {
   const { data: allPhotos = [] } = usePhotos(patientId)
+  const queryClient = useQueryClient()
+  // Pré-carrega image_data de todas as fotos no cache (resolve N+1 e permite enriquecer photosById)
+  useBatchPhotoLoader(allPhotos.map(p => p.id))
   const { toast } = useToast()
   const [pages, setPages] = useState<Page[]>(() => buildInitialPages(initialPhotos))
   const [selectedSlot, setSelectedSlot] = useState<{ pageId: string; slotIndex: number } | null>(null)
@@ -171,13 +176,31 @@ export default function PrintLayoutEditor({
 
   const today = useMemo(() => new Date().toLocaleDateString('pt-BR'), [])
 
-  // Lookup of all known photos
+  // Trigger re-render quando o cache ['photo-data', id] for populado pelo batch-loader
+  const [photoCacheVersion, setPhotoCacheVersion] = useState(0)
+  useEffect(() => {
+    const unsub = queryClient.getQueryCache().subscribe(event => {
+      const key = event.query.queryKey
+      if (Array.isArray(key) && key[0] === 'photo-data') {
+        setPhotoCacheVersion(v => v + 1)
+      }
+    })
+    return () => unsub()
+  }, [queryClient])
+
+  // Lookup of all known photos — enriquece com image_data do cache se faltar
   const photosById = useMemo(() => {
     const map = new Map<string, Photo>()
-    allPhotos.forEach(p => map.set(p.id, p))
-    initialPhotos.forEach(p => map.set(p.id, p))
+    const enrich = (p: Photo): Photo => {
+      if (p.image_data) return p
+      const cached = queryClient.getQueryData<string>(['photo-data', p.id])
+      return cached ? { ...p, image_data: cached } : p
+    }
+    allPhotos.forEach(p => map.set(p.id, enrich(p)))
+    initialPhotos.forEach(p => map.set(p.id, enrich(p)))
     return map
-  }, [allPhotos, initialPhotos])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allPhotos, initialPhotos, photoCacheVersion])
 
   // Sequential numbering: photo position across all photo pages
   const photoPositionById = useMemo(() => {
@@ -964,11 +987,12 @@ function LeftAlbumPanel({
                     className="w-40 h-48 shrink-0 rounded overflow-hidden cursor-pointer transition-all relative group bg-gradient-to-br from-teal-700 to-teal-900 border border-gray-200 shadow-sm hover:shadow-lg hover:border-teal-500"
                   >
                     {cover ? (
-                      <LazyImage
-                        src={cover.image_data}
-                        alt={folder.name}
-                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                      />
+                      <div className="absolute inset-0 transition-transform duration-300 group-hover:scale-105">
+                        <LazyPhotoImage
+                          photo={cover}
+                          className="object-cover"
+                        />
+                      </div>
                     ) : (
                       <div className="absolute inset-0 flex items-center justify-center">
                         <Folder className="w-14 h-14 text-white/40" strokeWidth={1.5} />
@@ -1043,10 +1067,9 @@ function LeftAlbumPanel({
                           : 'border-gray-200 hover:border-teal-500 hover:shadow-md'
                     }`}
                   >
-                    <LazyImage
-                      src={photo.image_data}
-                      alt={`Foto ${index + 1}`}
-                      className="w-full h-full object-cover"
+                    <LazyPhotoImage
+                      photo={photo}
+                      className="object-cover"
                     />
                     {isPlaced && (
                       <span className="absolute top-2 left-2 h-7 min-w-7 px-1.5 rounded bg-teal-600 text-white text-xs font-bold flex items-center justify-center shadow-md">

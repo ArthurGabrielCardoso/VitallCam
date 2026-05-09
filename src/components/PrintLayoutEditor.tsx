@@ -10,11 +10,9 @@ import {
   ArrowLeft, Folder, ChevronLeft, ChevronRight, Pencil, PanelLeftOpen, PanelLeftClose,
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
-import { useQueryClient } from '@tanstack/react-query'
-import { usePhotos, useUnfolderedPhotos, useBatchPhotoLoader } from '@/hooks/usePhotos'
+import { usePhotos, useUnfolderedPhotos } from '@/hooks/usePhotos'
 import { useFolders, useFolderPhotos } from '@/hooks/useFolders'
 import LazyImage from '@/components/LazyImage'
-import LazyPhotoImage from '@/components/LazyPhotoImage'
 
 interface PrintLayoutEditorProps {
   patient: Patient
@@ -80,9 +78,6 @@ export default function PrintLayoutEditor({
   onClose,
 }: PrintLayoutEditorProps) {
   const { data: allPhotos = [] } = usePhotos(patientId)
-  const queryClient = useQueryClient()
-  // Pré-carrega image_data de todas as fotos no cache (resolve N+1 e permite enriquecer photosById)
-  useBatchPhotoLoader(allPhotos.map(p => p.id))
   const { toast } = useToast()
   const [pages, setPages] = useState<Page[]>(() => buildInitialPages(initialPhotos))
   const [selectedSlot, setSelectedSlot] = useState<{ pageId: string; slotIndex: number } | null>(null)
@@ -176,31 +171,13 @@ export default function PrintLayoutEditor({
 
   const today = useMemo(() => new Date().toLocaleDateString('pt-BR'), [])
 
-  // Trigger re-render quando o cache ['photo-data', id] for populado
-  const [photoCacheVersion, setPhotoCacheVersion] = useState(0)
-  useEffect(() => {
-    const unsub = queryClient.getQueryCache().subscribe(event => {
-      const key = event.query.queryKey
-      if (Array.isArray(key) && key[0] === 'photo-data') {
-        setPhotoCacheVersion(v => v + 1)
-      }
-    })
-    return () => unsub()
-  }, [queryClient])
-
-  // Lookup of all known photos — enriquece com image_data do cache se faltar
+  // Lookup of all known photos
   const photosById = useMemo(() => {
     const map = new Map<string, Photo>()
-    const enrich = (p: Photo): Photo => {
-      if (p.image_data) return p
-      const cached = queryClient.getQueryData<string>(['photo-data', p.id])
-      return cached ? { ...p, image_data: cached } : p
-    }
-    allPhotos.forEach(p => map.set(p.id, enrich(p)))
-    initialPhotos.forEach(p => map.set(p.id, enrich(p)))
+    allPhotos.forEach(p => map.set(p.id, p))
+    initialPhotos.forEach(p => map.set(p.id, p))
     return map
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allPhotos, initialPhotos, photoCacheVersion])
+  }, [allPhotos, initialPhotos])
 
   // Sequential numbering: photo position across all photo pages
   const photoPositionById = useMemo(() => {
@@ -624,9 +601,6 @@ export default function PrintLayoutEditor({
                       <PhotosPageView
                         page={pg}
                         isFirst={idx === 0}
-                        pageNumber={idx + 1}
-                        totalPages={pages.length}
-                        clinicNameForFooter={clinicName}
                         patientName={patient.name}
                         today={today}
                         clinicName={clinicName}
@@ -645,9 +619,6 @@ export default function PrintLayoutEditor({
                       />
                     ) : (
                       <TextPageView
-                        pageNumber={idx + 1}
-                        totalPages={pages.length}
-                        clinicNameForFooter={clinicName}
                         page={pg}
                         editorRef={(el) => { editorRefs.current[pg.id] = el }}
                         onFocus={() => setActiveEditorId(pg.id)}
@@ -705,9 +676,6 @@ interface PhotosPageViewProps {
   photosById: Map<string, Photo>
   photoPositionById: Map<string, number>
   selectedSlot: { pageId: string; slotIndex: number } | null
-  pageNumber: number
-  totalPages: number
-  clinicNameForFooter: string
   onSlotClick: (slotIndex: number) => void
   onSlotClear: (slotIndex: number) => void
   captions: Record<string, string>
@@ -719,14 +687,9 @@ function PhotosPageView({
   onClinicNameChange, onClinicPhoneChange,
   photosById, photoPositionById, selectedSlot, onSlotClick, onSlotClear,
   captions, onCaptionChange,
-  pageNumber, totalPages, clinicNameForFooter,
 }: PhotosPageViewProps) {
   return (
     <div className="ple-page">
-      <div className="ple-watermark" aria-hidden="true">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/assets/images/logo.png" alt="" />
-      </div>
       <div className="ple-frame">
         {isFirst && (
           <div className="ple-header">
@@ -818,11 +781,6 @@ function PhotosPageView({
             )
           })}
         </div>
-        <div className="ple-footer">
-          <span className="ple-footer-clinic">{clinicNameForFooter}</span>
-          <span className="ple-footer-dot">•</span>
-          <span className="ple-footer-page">Página {pageNumber} de {totalPages}</span>
-        </div>
       </div>
     </div>
   )
@@ -830,9 +788,6 @@ function PhotosPageView({
 
 interface TextPageViewProps {
   page: TextPage
-  pageNumber: number
-  totalPages: number
-  clinicNameForFooter: string
   editorRef: (el: HTMLDivElement | null) => void
   onFocus: () => void
   onMouseUp: () => void
@@ -840,7 +795,7 @@ interface TextPageViewProps {
   onBlur: (html: string) => void
 }
 
-function TextPageView({ page, editorRef, onFocus, onMouseUp, onKeyUp, onBlur, pageNumber, totalPages, clinicNameForFooter }: TextPageViewProps) {
+function TextPageView({ page, editorRef, onFocus, onMouseUp, onKeyUp, onBlur }: TextPageViewProps) {
   const initialHtmlRef = useRef(page.html)
   const localRef = useRef<HTMLDivElement | null>(null)
   const initializedRef = useRef(false)
@@ -861,10 +816,6 @@ function TextPageView({ page, editorRef, onFocus, onMouseUp, onKeyUp, onBlur, pa
 
   return (
     <div className="ple-page">
-      <div className="ple-watermark" aria-hidden="true">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/assets/images/logo.png" alt="" />
-      </div>
       <div className="ple-frame ple-frame-text">
         <div className="ple-text-wrap">
           <div
@@ -886,11 +837,6 @@ function TextPageView({ page, editorRef, onFocus, onMouseUp, onKeyUp, onBlur, pa
               {LAUDO_PLACEHOLDER}
             </div>
           )}
-        </div>
-        <div className="ple-footer">
-          <span className="ple-footer-clinic">{clinicNameForFooter}</span>
-          <span className="ple-footer-dot">•</span>
-          <span className="ple-footer-page">Página {pageNumber} de {totalPages}</span>
         </div>
       </div>
     </div>
@@ -1018,12 +964,11 @@ function LeftAlbumPanel({
                     className="w-40 h-48 shrink-0 rounded overflow-hidden cursor-pointer transition-all relative group bg-gradient-to-br from-teal-700 to-teal-900 border border-gray-200 shadow-sm hover:shadow-lg hover:border-teal-500"
                   >
                     {cover ? (
-                      <div className="absolute inset-0 transition-transform duration-300 group-hover:scale-105">
-                        <LazyPhotoImage
-                          photo={cover}
-                          className="object-cover"
-                        />
-                      </div>
+                      <LazyImage
+                        src={cover.image_data}
+                        alt={folder.name}
+                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      />
                     ) : (
                       <div className="absolute inset-0 flex items-center justify-center">
                         <Folder className="w-14 h-14 text-white/40" strokeWidth={1.5} />
@@ -1098,9 +1043,10 @@ function LeftAlbumPanel({
                           : 'border-gray-200 hover:border-teal-500 hover:shadow-md'
                     }`}
                   >
-                    <LazyPhotoImage
-                      photo={photo}
-                      className="object-cover"
+                    <LazyImage
+                      src={photo.image_data}
+                      alt={`Foto ${index + 1}`}
+                      className="w-full h-full object-cover"
                     />
                     {isPlaced && (
                       <span className="absolute top-2 left-2 h-7 min-w-7 px-1.5 rounded bg-teal-600 text-white text-xs font-bold flex items-center justify-center shadow-md">
@@ -1283,88 +1229,32 @@ function PrintStyles() {
       .ple-page {
         width: 210mm;
         min-height: 297mm;
-        background:
-          /* padrão geométrico de cubos isométricos em cinza neutro (sem cor) */
-          url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='48' viewBox='0 0 56 48'><g fill='none' stroke='%23475569' stroke-width='0.6' stroke-opacity='0.18'><path d='M28 6 L42 14 L42 30 L28 38 L14 30 L14 14 Z'/><path d='M28 22 L28 6'/><path d='M28 22 L42 14'/><path d='M28 22 L14 14'/></g><g fill='none' stroke='%23475569' stroke-width='0.6' stroke-opacity='0.18'><path d='M0 30 L7 34 L7 42 L0 46'/><path d='M56 30 L49 34 L49 42 L56 46'/><path d='M0 38 L7 34'/><path d='M56 38 L49 34'/></g></svg>"),
-          #fafaf7;
-        background-size: 56px 48px, auto;
-        background-repeat: repeat, no-repeat;
-        box-shadow: 0 2px 16px rgba(40,30,15,0.12);
+        background: #fff;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
         border-radius: 4px;
         padding: 10mm;
         box-sizing: border-box;
         color: #1f2937;
         font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-        position: relative;
-      }
-      /* Faixa decorativa superior — gradiente teal→dourado */
-      .ple-page::before {
-        content: "";
-        position: absolute;
-        top: 0; left: 0; right: 0;
-        height: 4mm;
-        background: linear-gradient(90deg, #0f766e 0%, #115e59 35%, #cca97e 100%);
-        border-radius: 4px 4px 0 0;
-      }
-      /* Faixa decorativa inferior — dourado fino */
-      .ple-page::after {
-        content: "";
-        position: absolute;
-        bottom: 0; left: 0; right: 0;
-        height: 2mm;
-        background: linear-gradient(90deg, #cca97e 0%, #BE9672 50%, #cca97e 100%);
-        border-radius: 0 0 4px 4px;
-      }
-      /* Watermark da logo (low opacity) atrás do conteúdo */
-      .ple-watermark {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        pointer-events: none;
-        opacity: 0.025;
-        z-index: 0;
-      }
-      .ple-watermark img {
-        width: 130mm;
-        height: 130mm;
-        object-fit: contain;
-        filter: grayscale(1);
       }
       .ple-frame {
-        border: 1px solid rgba(204,169,126,0.5);
-        border-radius: 4px;
+        border: 2px solid #cca97e;
+        border-radius: 8px;
         padding: 6mm 7mm;
-        min-height: calc(297mm - 22mm);
+        min-height: calc(297mm - 20mm);
         display: flex;
         flex-direction: column;
         box-sizing: border-box;
-        position: relative;
-        z-index: 1;
-        background: rgba(255,255,255,0.55);
-        backdrop-filter: blur(2px);
       }
       .ple-frame-text { padding: 12mm 14mm; }
 
       .ple-header {
         display: flex;
         align-items: center;
-        gap: 5mm;
-        padding: 4mm 5mm;
-        margin-bottom: 4mm;
-        position: relative;
-        background: linear-gradient(135deg, #115e59 0%, #0f766e 60%, #14918a 100%);
-        border-radius: 4px;
-        box-shadow: 0 2px 6px rgba(15,118,110,0.25), inset 0 0 0 1px rgba(255,255,255,0.05);
-      }
-      .ple-header::after {
-        content: "";
-        position: absolute;
-        left: 0; right: 0; bottom: -2mm;
-        height: 1mm;
-        background: linear-gradient(90deg, #cca97e 0%, #BE9672 50%, #cca97e 100%);
-        border-radius: 1px;
+        gap: 6mm;
+        padding: 3mm 4mm;
+        border-bottom: 1px solid #e7d5b8;
+        margin-bottom: 3mm;
       }
       .ple-header-logo {
         width: 18mm;
@@ -1373,17 +1263,13 @@ function PrintStyles() {
         display: flex;
         align-items: center;
         justify-content: center;
-        background: rgba(255,255,255,0.95);
-        border-radius: 50%;
-        padding: 2mm;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.15);
       }
       .ple-header-logo img {
         max-width: 100%;
         max-height: 100%;
         object-fit: contain;
       }
-      .ple-header-info { flex: 1; min-width: 0; font-size: 10pt; line-height: 1.4; color: #fff; }
+      .ple-header-info { flex: 1; min-width: 0; font-size: 10pt; line-height: 1.4; }
       .ple-header-row { display: flex; gap: 6px; align-items: baseline; padding: 0.5mm 0; }
       .ple-header-row-clinic {
         align-items: center;
@@ -1393,67 +1279,44 @@ function PrintStyles() {
       .ple-header-row-split { justify-content: space-between; gap: 8mm; }
       .ple-header-row-split > div { display: flex; gap: 6px; align-items: baseline; }
       .ple-header-label {
-        font-size: 8.5pt;
+        font-size: 9pt;
         font-weight: 700;
-        letter-spacing: 1px;
-        color: rgba(255,255,255,0.6);
+        letter-spacing: 0.5px;
+        color: #6b7280;
         white-space: nowrap;
-        text-transform: uppercase;
       }
       .ple-header-value {
         font-size: 10.5pt;
         font-weight: 600;
-        color: #fff;
+        color: #1f2937;
         outline: none;
       }
       .ple-header-phone {
-        font-size: 10pt;
-        font-weight: 500;
-        color: rgba(255,255,255,0.85);
+        font-size: 10.5pt;
+        font-weight: 600;
+        color: #4b5563;
         outline: none;
         white-space: nowrap;
       }
       .ple-clinic-name {
-        color: #fff;
-        font-size: 14pt;
+        color: #0f766e;
+        font-size: 13pt;
         font-weight: 700;
-        letter-spacing: 1px;
+        letter-spacing: 0.5px;
         outline: none;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.15);
       }
-      .ple-header-divider {
-        height: 1px;
-        background: rgba(204,169,126,0.5);
-        margin: 1.5mm 0;
-      }
+      .ple-header-divider { height: 1px; background: #f3ebe0; margin: 1mm 0; }
 
       .ple-section-title {
         text-align: center;
         font-weight: 700;
-        font-size: 10.5pt;
-        letter-spacing: 2.5px;
-        padding: 2.5mm 8mm;
-        margin: 0 auto 4mm;
-        color: #fff;
-        position: relative;
-        display: inline-flex;
-        align-self: center;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #0f766e 0%, #115e59 100%);
-        border-radius: 3px;
-        box-shadow: 0 2px 5px rgba(15,118,110,0.25);
-        text-transform: uppercase;
-      }
-      .ple-section-title::before,
-      .ple-section-title::after {
-        content: "";
-        width: 1mm;
-        height: 1mm;
-        margin: 0 3mm;
-        border-radius: 50%;
-        background: #cca97e;
-        flex-shrink: 0;
+        font-size: 11pt;
+        letter-spacing: 1.5px;
+        padding: 2mm 0;
+        margin-bottom: 4mm;
+        color: #115e59;
+        border-top: 1px solid #f3ebe0;
+        border-bottom: 1px solid #f3ebe0;
       }
 
       .ple-photos-grid {
@@ -1496,7 +1359,7 @@ function PrintStyles() {
       }
       .ple-photo-slot {
         position: relative;
-        border: 1.5px solid #e7d5b8;
+        border: 2px solid #e7d5b8;
         border-radius: 6px;
         overflow: hidden;
         background: #fafaf7;
@@ -1507,34 +1370,10 @@ function PrintStyles() {
         justify-content: center;
         padding: 0;
         cursor: pointer;
-        transition: border-color 0.15s, transform 0.1s, box-shadow 0.15s;
-        box-shadow: 0 1px 3px rgba(40,30,15,0.06), inset 0 0 0 1px rgba(255,255,255,0.6);
+        transition: border-color 0.15s, transform 0.1s;
       }
-      .ple-photo-slot:hover { border-color: #cca97e; box-shadow: 0 2px 8px rgba(190,150,114,0.15); }
+      .ple-photo-slot:hover { border-color: #cca97e; }
       .ple-photo-filled { background: #fff; }
-      /* Cantos dourados decorativos — só na impressão (não conflita com badges no editor) */
-      @media print {
-        .ple-photo-slot.ple-photo-filled::before,
-        .ple-photo-slot.ple-photo-filled::after {
-          content: "";
-          position: absolute;
-          width: 4mm;
-          height: 4mm;
-          border: 1.5px solid #cca97e;
-          z-index: 2;
-          pointer-events: none;
-        }
-        .ple-photo-slot.ple-photo-filled::before {
-          top: 1.5mm; left: 1.5mm;
-          border-right: none; border-bottom: none;
-          border-radius: 2px 0 0 0;
-        }
-        .ple-photo-slot.ple-photo-filled::after {
-          bottom: 1.5mm; right: 1.5mm;
-          border-left: none; border-top: none;
-          border-radius: 0 0 2px 0;
-        }
-      }
       .ple-photo-empty {
         border-style: dashed;
         background: #fafaf7;
@@ -1600,25 +1439,6 @@ function PrintStyles() {
         align-items: center;
         justify-content: center;
       }
-
-      .ple-footer {
-        margin-top: auto;
-        padding-top: 4mm;
-        border-top: 1px solid #f3ebe0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 3mm;
-        font-size: 8.5pt;
-        color: #8a6849;
-        letter-spacing: 0.5px;
-      }
-      .ple-footer-clinic {
-        font-weight: 600;
-        color: #0f766e;
-      }
-      .ple-footer-dot { color: #cca97e; font-size: 10pt; }
-      .ple-footer-page { color: #8a6849; }
 
       .ple-text-wrap {
         position: relative;

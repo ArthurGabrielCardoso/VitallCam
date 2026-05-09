@@ -429,10 +429,15 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   })
 
   // Botão do meio do mouse tira foto (compatível com Android via pointerdown + auxclick)
+  // Throttle de 1s evita disparo duplo do pedal-mouse e dedupa pointerdown/mousedown/auxclick
+  const lastMiddleClickRef = useRef(0)
   useEffect(() => {
     const handleMiddleButton = (e: PointerEvent | MouseEvent) => {
       if (e.button === 1) {
         e.preventDefault()
+        const now = Date.now()
+        if (now - lastMiddleClickRef.current < 1000) return
+        lastMiddleClickRef.current = now
         capturePhotoRef.current()
       }
     }

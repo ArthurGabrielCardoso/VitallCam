@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Photo } from '@/lib/types'
@@ -20,7 +20,7 @@ import PhotoComparison from '@/components/PhotoComparison'
 import PhotoEditor from '@/components/PhotoEditor'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download, ChevronRight, ChevronLeft, Mic, Film } from 'lucide-react'
+import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, Minimize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download, ChevronRight, ChevronLeft, Mic, Film, RotateCw, Maximize2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import PhotoGridSkeleton from '@/components/PhotoGridSkeleton'
 import FolderCardSkeleton from '@/components/FolderCardSkeleton'
@@ -77,6 +77,7 @@ export default function PatientPage() {
   const [showPhotoEditor, setShowPhotoEditor] = useState(false)
   const [editingPhoto, setEditingPhoto] = useState<Photo | null>(null)
   const [photoZoom, setPhotoZoom] = useState(1)
+  const [photoRotation, setPhotoRotation] = useState(0)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest')
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 })
@@ -185,8 +186,35 @@ export default function PatientPage() {
     if (selectedPhoto) {
       setPhotoZoom(1)
       setPanPosition({ x: 0, y: 0 })
+      setPhotoRotation(0)
     }
-  }, [selectedPhoto])
+  }, [selectedPhoto?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Seleciona uma foto carregando image_data (do cache ou do DB se necessário)
+  const selectPhotoWithData = useCallback(async (photo: Photo) => {
+    const cached = queryClient.getQueryData<string>(['photo-data', photo.id])
+    const merged = { ...photo, image_data: photo.image_data ?? cached ?? undefined }
+    setSelectedPhoto(merged)
+
+    if (merged.image_data) return
+
+    // Não tem em cache → busca do DB e popula
+    try {
+      const { data, error } = await supabase
+        .from('photos')
+        .select('image_data')
+        .eq('id', photo.id)
+        .single()
+      if (error) throw error
+      const imageData = (data as any)?.image_data
+      if (imageData) {
+        queryClient.setQueryData(['photo-data', photo.id], imageData)
+        setSelectedPhoto(prev => prev && prev.id === photo.id ? { ...prev, image_data: imageData } : prev)
+      }
+    } catch (err) {
+      console.error('Erro ao buscar foto:', err)
+    }
+  }, [queryClient])
 
   // Navegação por teclado para fotos
   useEffect(() => {
@@ -206,23 +234,33 @@ export default function PatientPage() {
         // Foto anterior
         const currentIndex = currentPhotos.findIndex(p => p.id === selectedPhoto.id)
         if (currentIndex > 0) {
-          setSelectedPhoto(currentPhotos[currentIndex - 1])
+          selectPhotoWithData(currentPhotos[currentIndex - 1])
         }
       } else if (e.key === 'ArrowRight') {
         // Próxima foto
         const currentIndex = currentPhotos.findIndex(p => p.id === selectedPhoto.id)
         if (currentIndex < currentPhotos.length - 1) {
-          setSelectedPhoto(currentPhotos[currentIndex + 1])
+          selectPhotoWithData(currentPhotos[currentIndex + 1])
         }
       } else if (e.key === 'f' || e.key === 'F') {
         // Alternar fullscreen com tecla F
         setIsFullscreen(!isFullscreen)
+      } else if (e.key === 'r' || e.key === 'R') {
+        setPhotoRotation(prev => (prev + 90) % 360)
+      } else if (e.key === '+' || e.key === '=') {
+        setPhotoZoom(prev => Math.min(prev * 1.2, 5))
+      } else if (e.key === '-' || e.key === '_') {
+        setPhotoZoom(prev => Math.max(prev / 1.2, 0.3))
+      } else if (e.key === '0') {
+        setPhotoZoom(1)
+        setPanPosition({ x: 0, y: 0 })
+        setPhotoRotation(0)
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [selectedPhoto, currentFolder, sortedFolderPhotos, sortedUnfolderedPhotos, isFullscreen])
+  }, [selectedPhoto, currentFolder, sortedFolderPhotos, sortedUnfolderedPhotos, isFullscreen, selectPhotoWithData])
 
   // Carregar notas do localStorage
   useEffect(() => {
@@ -728,6 +766,26 @@ export default function PatientPage() {
   const resetZoom = () => {
     setPhotoZoom(1)
     setPanPosition({ x: 0, y: 0 })
+    setPhotoRotation(0)
+  }
+
+  const rotatePhoto = () => {
+    setPhotoRotation(prev => (prev + 90) % 360)
+  }
+
+  const handleDownloadPhoto = () => {
+    if (!selectedPhoto?.image_data) return
+    try {
+      const link = document.createElement('a')
+      link.href = selectedPhoto.image_data
+      link.download = `foto_${new Date(selectedPhoto.created_at).toISOString().split('T')[0]}_${selectedPhoto.id.slice(0, 8)}.jpg`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      toast({ title: 'Download iniciado' })
+    } catch {
+      toast({ variant: 'destructive', title: 'Erro', description: 'Falha ao baixar a foto' })
+    }
   }
 
   // Funções para arrastar a imagem
@@ -862,7 +920,7 @@ export default function PatientPage() {
     }
   }
 
-  const handlePrintSelected = () => {
+  const handlePrintSelected = async () => {
     if (selectedPhotos.length === 0) {
       toast({
         variant: "destructive",
@@ -887,7 +945,47 @@ export default function PatientPage() {
       return
     }
 
-    setPrintEditorPhotos(selectedPhotoObjects)
+    // Enriquecer com image_data: cache do React Query, ou fetch do DB para os que faltam
+    const enriched: Photo[] = selectedPhotoObjects.map(p => {
+      if (p.image_data) return p
+      const cached = queryClient.getQueryData<string>(['photo-data', p.id])
+      return cached ? { ...p, image_data: cached } : p
+    })
+
+    const missingIds = enriched.filter(p => !p.image_data).map(p => p.id)
+    if (missingIds.length > 0) {
+      try {
+        const { data, error } = await supabase
+          .from('photos')
+          .select('id, image_data')
+          .in('id', missingIds)
+        if (error) throw error
+        const dataMap = new Map<string, string>(
+          (data || [])
+            .filter((r: any) => r.image_data)
+            .map((r: any) => [r.id as string, r.image_data as string])
+        )
+        for (let i = 0; i < enriched.length; i++) {
+          if (!enriched[i].image_data) {
+            const fetched = dataMap.get(enriched[i].id)
+            if (fetched) {
+              enriched[i] = { ...enriched[i], image_data: fetched }
+              queryClient.setQueryData(['photo-data', enriched[i].id], fetched)
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao carregar imagens para impressão:', err)
+        toast({
+          variant: 'destructive',
+          title: 'Erro ao carregar fotos',
+          description: 'Não foi possível carregar as imagens selecionadas'
+        })
+        return
+      }
+    }
+
+    setPrintEditorPhotos(enriched)
   }
 
 
@@ -1929,128 +2027,190 @@ export default function PatientPage() {
         const hasNext = currentIndex < currentPhotos.length - 1
 
         return (
-          <div className="fixed inset-0 bg-black z-50 flex items-center justify-center overflow-hidden">
-            {/* Botões no canto superior direito */}
-            <div className={`absolute top-4 right-4 flex gap-2 z-10 transition-opacity duration-300 ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}>
-              <Button
-                onClick={() => handleAIEnhance(selectedPhoto)}
-                className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-full w-10 h-10 p-0 shadow-lg"
-                title="Aprimorar sorriso com IA"
-              >
-                <Sparkles className="w-5 h-5" />
-              </Button>
-              <Button
-                onClick={() => handleEditPhoto(selectedPhoto)}
-                className="bg-orange-600 hover:bg-orange-700 text-white rounded-full w-10 h-10 p-0"
-                title="Editar foto"
-              >
-                <Pencil className="w-5 h-5" />
-              </Button>
-              <Button
-                onClick={() => handleComparePhoto(selectedPhoto)}
-                className="bg-primary hover:bg-primary/90 text-white rounded-full w-10 h-10 p-0"
-                title="Comparar foto"
-              >
-                <GitCompare className="w-5 h-5" />
-              </Button>
-              <Button
-                onClick={() => setIsFullscreen(!isFullscreen)}
-                className="bg-purple-600 hover:bg-purple-700 text-white rounded-full w-10 h-10 p-0"
-                title={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}
-              >
-                <Maximize className="w-5 h-5" />
-              </Button>
-              <Button
-                onClick={() => setSelectedPhoto(null)}
-                className="bg-destructive hover:bg-destructive/90 text-white rounded-full w-10 h-10 p-0"
-                title="Fechar"
-              >
-                <X className="w-5 h-5" />
-              </Button>
+          <div className="fixed inset-0 bg-neutral-950 z-50 flex items-center justify-center overflow-hidden">
+            {/* Contador central topo */}
+            <div className={`absolute top-4 left-1/2 -translate-x-1/2 z-10 transition-opacity duration-300 ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}>
+              <div className="px-3 py-1.5 rounded bg-neutral-900/40 backdrop-blur-xl border border-white/10 text-white text-xs font-medium tabular-nums shadow-2xl">
+                {currentIndex + 1} <span className="text-white/40">/</span> {currentPhotos.length}
+              </div>
             </div>
 
-            {/* Controles de Zoom */}
-            <div className={`absolute top-4 left-4 flex flex-col gap-2 z-10 transition-opacity duration-300 ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}>
-              <Button
-                onClick={zoomIn}
-                className="bg-gray-600/80 hover:bg-gray-700/90 text-white rounded-full w-10 h-10 p-0"
-                title="Aumentar zoom"
-              >
-                <ZoomIn className="w-5 h-5" />
-              </Button>
-              <Button
-                onClick={zoomOut}
-                className="bg-gray-600/80 hover:bg-gray-700/90 text-white rounded-full w-10 h-10 p-0"
-                title="Diminuir zoom"
-              >
-                <ZoomOut className="w-5 h-5" />
-              </Button>
-              <Button
-                onClick={resetZoom}
-                className="bg-gray-600/80 hover:bg-gray-700/90 text-white px-3 py-1 text-xs"
-                title="Reset zoom"
-              >
-                {Math.round(photoZoom * 100)}%
-              </Button>
+            {/* Toolbar superior direita — agrupada, cores sólidas */}
+            <div className={`absolute top-4 right-4 z-10 transition-opacity duration-300 ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}>
+              <div className="flex items-center gap-1 p-1 rounded bg-neutral-900/40 backdrop-blur-xl border border-white/10 shadow-2xl">
+                <button
+                  onClick={() => handleAIEnhance(selectedPhoto)}
+                  className="h-9 w-9 rounded bg-gradient-to-br from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white flex items-center justify-center transition-all shadow-sm"
+                  title="Aprimorar sorriso com IA"
+                >
+                  <Sparkles className="w-4 h-4" />
+                </button>
+
+                <div className="w-px h-6 bg-white/15 mx-0.5" />
+
+                <button
+                  onClick={() => handleEditPhoto(selectedPhoto)}
+                  className="h-9 w-9 rounded bg-teal-600 hover:bg-teal-500 text-white flex items-center justify-center transition-colors"
+                  title="Editar foto"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleComparePhoto(selectedPhoto)}
+                  className="h-9 w-9 rounded bg-dourado-500 hover:bg-dourado-400 text-white flex items-center justify-center transition-colors"
+                  title="Comparar foto (lado a lado)"
+                >
+                  <GitCompare className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={rotatePhoto}
+                  className="h-9 w-9 rounded bg-neutral-700 hover:bg-neutral-600 text-white flex items-center justify-center transition-colors"
+                  title="Girar 90° (R)"
+                >
+                  <RotateCw className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleDownloadPhoto}
+                  className="h-9 w-9 rounded bg-neutral-700 hover:bg-neutral-600 text-white flex items-center justify-center transition-colors"
+                  title="Baixar foto"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+
+                <div className="w-px h-6 bg-white/15 mx-0.5" />
+
+                <button
+                  onClick={() => setIsFullscreen(!isFullscreen)}
+                  className="h-9 w-9 rounded bg-neutral-700 hover:bg-neutral-600 text-white flex items-center justify-center transition-colors"
+                  title={isFullscreen ? "Sair da tela cheia (F)" : "Tela cheia (F)"}
+                >
+                  {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                </button>
+                <button
+                  onClick={() => setSelectedPhoto(null)}
+                  className="h-9 w-9 rounded bg-red-500 hover:bg-red-600 text-white flex items-center justify-center transition-colors"
+                  title="Fechar (ESC)"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Toolbar de zoom — pill horizontal canto inferior */}
+            <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-10 transition-opacity duration-300 ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}>
+              <div className="flex items-center gap-1 p-1 rounded bg-neutral-900/40 backdrop-blur-xl border border-white/10 shadow-2xl">
+                <button
+                  onClick={zoomOut}
+                  disabled={photoZoom <= 0.3}
+                  className="h-9 w-9 rounded bg-neutral-700 hover:bg-neutral-600 text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Diminuir zoom (-)"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={resetZoom}
+                  className="h-9 px-3 rounded bg-neutral-700 hover:bg-neutral-600 text-white text-xs font-medium tabular-nums transition-colors"
+                  title="Resetar (0)"
+                >
+                  {Math.round(photoZoom * 100)}%
+                </button>
+                <button
+                  onClick={zoomIn}
+                  disabled={photoZoom >= 5}
+                  className="h-9 w-9 rounded bg-neutral-700 hover:bg-neutral-600 text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Aumentar zoom (+)"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+                <div className="w-px h-6 bg-white/15 mx-0.5" />
+                <button
+                  onClick={resetZoom}
+                  className="h-9 w-9 rounded bg-neutral-700 hover:bg-neutral-600 text-white flex items-center justify-center transition-colors"
+                  title="Ajustar à tela"
+                >
+                  <Maximize2 className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Botão Anterior */}
             {hasPrevious && (
-              <Button
-                onClick={() => setSelectedPhoto(currentPhotos[currentIndex - 1])}
-                className={`absolute left-4 top-1/2 transform -translate-y-1/2 bg-[#448787]/75 hover:bg-[#448787]/90 text-white rounded-full w-12 h-12 p-0 z-10 transition-opacity duration-300 ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}
+              <button
+                onClick={() => selectPhotoWithData(currentPhotos[currentIndex - 1])}
+                className={`absolute left-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded bg-neutral-900/40 backdrop-blur-xl hover:bg-dourado-500 border border-white/10 text-white flex items-center justify-center z-10 transition-colors duration-200 shadow-2xl ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}
+                title="Foto anterior (←)"
               >
-                <ArrowLeft className="w-6 h-6" />
-              </Button>
+                <ChevronLeft className="w-5 h-5" />
+              </button>
             )}
 
             {/* Botão Próximo */}
             {hasNext && (
-              <Button
-                onClick={() => setSelectedPhoto(currentPhotos[currentIndex + 1])}
-                className={`absolute right-4 top-1/2 transform -translate-y-1/2 bg-[#448787]/75 hover:bg-[#448787]/90 text-white rounded-full w-12 h-12 p-0 z-10 transition-opacity duration-300 ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}
+              <button
+                onClick={() => selectPhotoWithData(currentPhotos[currentIndex + 1])}
+                className={`absolute right-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded bg-neutral-900/40 backdrop-blur-xl hover:bg-dourado-500 border border-white/10 text-white flex items-center justify-center z-10 transition-colors duration-200 shadow-2xl ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}
+                title="Próxima foto (→)"
               >
-                <ArrowLeft className="w-6 h-6 rotate-180" />
-              </Button>
+                <ChevronRight className="w-5 h-5" />
+              </button>
             )}
 
-            {/* Imagem em Tela Cheia - Com zoom e pan */}
+            {/* Imagem em Tela Cheia - Com zoom, pan e rotação */}
             <div className="w-full h-full flex items-center justify-center overflow-hidden">
-              <img
-                src={selectedPhoto.image_data}
-                alt="Foto em tela cheia"
-                className={`h-full w-auto object-contain transition-transform duration-200 select-none ${
-                  photoZoom > 1 ? 'cursor-grab' : 'cursor-default'
-                } ${isDragging ? 'cursor-grabbing' : ''}`}
-                style={{
-                  transform: `scale(${photoZoom}) translate(${panPosition.x / photoZoom}px, ${panPosition.y / photoZoom}px)`,
-                  transformOrigin: 'center center',
-                  maxWidth: '100%'
-                }}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                draggable={false}
-              />
+              {selectedPhoto.image_data ? (
+                <img
+                  key={selectedPhoto.id}
+                  src={selectedPhoto.image_data}
+                  alt="Foto em tela cheia"
+                  className={`h-full w-auto object-contain transition-transform duration-200 select-none ${
+                    photoZoom > 1 ? 'cursor-grab' : 'cursor-zoom-in'
+                  } ${isDragging ? '!cursor-grabbing' : ''}`}
+                  style={{
+                    transform: `scale(${photoZoom}) translate(${panPosition.x / photoZoom}px, ${panPosition.y / photoZoom}px) rotate(${photoRotation}deg)`,
+                    transformOrigin: 'center center',
+                    maxWidth: '100%'
+                  }}
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseUp}
+                  onDoubleClick={resetZoom}
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                  draggable={false}
+                />
+              ) : (
+                <div className="flex flex-col items-center gap-3 text-white/60 text-sm">
+                  <div className="w-8 h-8 border-2 border-teal-500/40 border-t-teal-500 rounded-full animate-spin" />
+                  Carregando foto...
+                </div>
+              )}
             </div>
 
-            {/* Informações da Foto */}
-            <div className={`absolute bottom-4 left-4 text-white text-sm bg-black/50 px-3 py-2 rounded transition-opacity duration-300 ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}>
-              <div>{new Date(selectedPhoto.created_at).toLocaleDateString('pt-BR')}</div>
-            </div>
-
-            {/* Indicador de instruções em fullscreen */}
-            {isFullscreen && (
-              <div className="absolute bottom-4 right-4 text-white text-xs bg-black/50 px-3 py-2 rounded opacity-0 hover:opacity-100 transition-opacity duration-300">
-                <div>Tecla F: Alternar tela cheia</div>
-                <div>ESC: Sair da tela cheia</div>
-                <div>← →: Navegar fotos</div>
+            {/* Info da foto — canto inferior esquerdo */}
+            <div className={`absolute bottom-4 left-4 z-10 transition-opacity duration-300 ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}>
+              <div className="px-3 py-1.5 rounded bg-neutral-900/40 backdrop-blur-xl border border-white/10 text-white text-xs flex items-center gap-2 shadow-2xl">
+                <Calendar className="w-3.5 h-3.5 text-teal-300" />
+                <span className="tabular-nums">{new Date(selectedPhoto.created_at).toLocaleDateString('pt-BR')}</span>
+                <span className="text-white/30">·</span>
+                <span className="text-white/60">{new Date(selectedPhoto.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
-            )}
+            </div>
+
+            {/* Atalhos — canto inferior direito */}
+            <div className={`absolute bottom-4 right-4 z-10 transition-opacity duration-300 ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}>
+              <div className="px-3 py-1.5 rounded bg-neutral-900/40 backdrop-blur-xl border border-white/10 text-white/70 text-[11px] hidden md:flex items-center gap-2 shadow-2xl">
+                <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-[10px]">←→</kbd>
+                <span>navegar</span>
+                <span className="text-white/20">·</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-[10px]">F</kbd>
+                <span>tela cheia</span>
+                <span className="text-white/20">·</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-[10px]">duplo-clique</kbd>
+                <span>resetar</span>
+              </div>
+            </div>
           </div>
         )
       })()}

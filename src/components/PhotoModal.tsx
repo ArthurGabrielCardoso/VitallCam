@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Photo } from '@/lib/types'
+import { supabase } from '@/lib/supabase'
 import {
   Dialog,
   DialogContent,
@@ -12,7 +14,20 @@ import {
 import { Button } from '@/components/ui/button'
 import { Download, X, ZoomIn, ZoomOut, RotateCw, ChevronLeft, ChevronRight, Maximize, Minimize } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
-import Image from 'next/image'
+
+function isStorageUrl(value: string): boolean {
+  return value.startsWith('https://') && value.includes('/storage/v1/object/')
+}
+
+function extractStoragePath(signedUrl: string): string | null {
+  try {
+    const url = new URL(signedUrl)
+    const match = url.pathname.match(/\/storage\/v1\/object\/sign\/(patient-photos\/.+)/)
+    return match?.[1] ?? null
+  } catch {
+    return null
+  }
+}
 
 interface PhotoModalProps {
   photo: Photo
@@ -30,6 +45,72 @@ function PhotoModal({ photo, photos, isOpen, onClose }: PhotoModalProps) {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [currentPhoto, setCurrentPhoto] = useState<Photo>(photo)
   const { toast } = useToast()
+  const queryClient = useQueryClient()
+
+  // Sempre busca image_data fresco do DB (a prop pode trazer URL assinada expirada ou nada)
+  const { data: fetchedImageData, isLoading: isLoadingData } = useQuery({
+    queryKey: ['photo-data', currentPhoto.id],
+    queryFn: async (): Promise<string | null> => {
+      const { data, error } = await supabase
+        .from('photos')
+        .select('image_data')
+        .eq('id', currentPhoto.id)
+        .single()
+      if (error) throw error
+      return (data as any)?.image_data ?? null
+    },
+    staleTime: Infinity,
+    gcTime: 1000 * 60 * 10,
+  })
+
+  const rawSrc = fetchedImageData || currentPhoto.image_data || null
+
+  const { data: activeSrc, isLoading: isResolvingUrl } = useQuery({
+    queryKey: ['photo-signed-url', currentPhoto.id, rawSrc?.slice(0, 80)],
+    queryFn: async (): Promise<string> => {
+      if (!rawSrc) return ''
+      if (rawSrc.startsWith('data:')) return rawSrc
+      const path = extractStoragePath(rawSrc)
+      if (!path) return rawSrc
+      const { data, error } = await (supabase as any).storage
+        .from('patient-photos')
+        .createSignedUrl(path.replace('patient-photos/', ''), 60 * 60)
+      if (error) {
+        // Renovação falhou → usa o que tiver
+        return rawSrc
+      }
+      return data.signedUrl
+    },
+    enabled: !!rawSrc,
+    staleTime: 1000 * 55 * 60,
+    gcTime: 1000 * 60 * 60,
+    initialData: rawSrc && !isStorageUrl(rawSrc) ? rawSrc : undefined,
+  })
+
+  const imageSrc = activeSrc || rawSrc || ''
+  const isLoadingImage = isLoadingData || (!!rawSrc && isResolvingUrl && !activeSrc)
+
+  // Pré-carrega vizinhos para navegação fluida
+  useEffect(() => {
+    const idx = photos.findIndex(p => p.id === currentPhoto.id)
+    const neighbors = [photos[idx - 1], photos[idx + 1]].filter(Boolean) as Photo[]
+    neighbors.forEach(p => {
+      if (p.image_data || queryClient.getQueryData(['photo-data', p.id])) return
+      queryClient.prefetchQuery({
+        queryKey: ['photo-data', p.id],
+        queryFn: async () => {
+          const { data, error } = await supabase
+            .from('photos')
+            .select('image_data')
+            .eq('id', p.id)
+            .single()
+          if (error) throw error
+          return (data as any)?.image_data ?? null
+        },
+        staleTime: Infinity,
+      })
+    })
+  }, [currentPhoto.id, photos, queryClient])
 
   // Atualiza a foto atual quando a prop photo muda
   useEffect(() => {
@@ -47,7 +128,7 @@ function PhotoModal({ photo, photos, isOpen, onClose }: PhotoModalProps) {
   const handleDownload = async () => {
     try {
       const link = document.createElement('a')
-      link.href = currentPhoto.image_data
+      link.href = imageSrc
       link.download = `foto_${new Date(currentPhoto.created_at).toISOString().split('T')[0]}_${currentPhoto.id.slice(0, 8)}.jpg`
       document.body.appendChild(link)
       link.click()
@@ -290,15 +371,25 @@ function PhotoModal({ photo, photos, isOpen, onClose }: PhotoModalProps) {
               transformOrigin: 'center center'
             }}
           >
-            <Image
-              src={currentPhoto.image_data}
-              alt="Foto ampliada"
-              width={800}
-              height={600}
-              className="max-w-full max-h-full object-contain select-none"
-              draggable={false}
-              priority
-            />
+            {imageSrc && !isLoadingImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={currentPhoto.id}
+                src={imageSrc}
+                alt="Foto ampliada"
+                className="max-w-[80vw] max-h-[80vh] object-contain select-none"
+                draggable={false}
+                onError={() => {
+                  // Se URL renovada falhou, força refetch do image_data do DB
+                  queryClient.invalidateQueries({ queryKey: ['photo-data', currentPhoto.id] })
+                  queryClient.invalidateQueries({ queryKey: ['photo-signed-url', currentPhoto.id] })
+                }}
+              />
+            ) : (
+              <div className="w-[800px] h-[600px] max-w-full max-h-full flex items-center justify-center text-white/60 text-sm">
+                Carregando...
+              </div>
+            )}
           </div>
 
           {/* Navegação invisível em modo tela cheia */}

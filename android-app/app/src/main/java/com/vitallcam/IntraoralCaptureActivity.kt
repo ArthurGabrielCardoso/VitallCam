@@ -463,13 +463,15 @@ class IntraoralCaptureActivity : ComponentActivity() {
         val chars = cm.getCameraCharacteristics(id)
         val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
         val jpegSizes = map?.getOutputSizes(ImageFormat.JPEG)?.toList().orEmpty()
-        // 2592x1944 (5MP) trava o HAL externo desse box (onError 4, banda USB).
-        // Usa o MAIOR 4:3 até 2048 de largura → mesmo FOV (4:3), bem mais leve.
+        // Capturar em alta resolução (2048/2592) derruba o HAL externo desse box
+        // (onError 4 — ele só sustenta resolução baixa, igual o preview). Captura
+        // no MAIOR 4:3 até 1024 de largura (1024x768) = MESMO FOV, mesma banda do
+        // preview, sem trocar o modo da câmera → estável.
         photoSize = jpegSizes
-            .filter { it.width <= 2048 && kotlin.math.abs(it.width.toFloat() / it.height - 4f / 3f) < 0.05f }
+            .filter { it.width <= 1024 && kotlin.math.abs(it.width.toFloat() / it.height - 4f / 3f) < 0.05f }
             .maxByOrNull { it.width.toLong() * it.height }
-            ?: jpegSizes.filter { it.width <= 2048 }.maxByOrNull { it.width.toLong() * it.height }
-            ?: jpegSizes.maxByOrNull { it.width.toLong() * it.height }
+            ?: jpegSizes.filter { it.width <= 1024 }.maxByOrNull { it.width.toLong() * it.height }
+            ?: jpegSizes.minByOrNull { it.width.toLong() * it.height }
             ?: android.util.Size(1024, 768)
         // Preview: maior 4:3 disponível pro SurfaceView (mesmo FOV da foto 4:3)
         val surfSizes = map?.getOutputSizes(SurfaceHolder::class.java)?.toList().orEmpty()

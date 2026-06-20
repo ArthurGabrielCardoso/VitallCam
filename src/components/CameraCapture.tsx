@@ -224,6 +224,8 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   const [nativePreviewState, setNativePreviewState] = useState<NativePreviewState>('idle')
   const [capabilities, setCapabilities] = useState<IntraoralCapabilities | null>(null)
   const [showDebug, setShowDebug] = useState(false)
+  // Diagnóstico de FOV: resolução real que a câmera negociou no preview
+  const [realRes, setRealRes] = useState<{ w: number; h: number } | null>(null)
   const [portalReady, setPortalReady] = useState(false)
 
   // No app, toda a tela de captura é nativa (Compose) — não renderiza UI web.
@@ -878,32 +880,45 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         stream.getTracks().forEach(track => track.stop())
       }
 
-      // No Android (TV box via OTG), pedir só width/height "ideal" faz o driver
-      // cair pra um modo 16:9 center-cropped → perde FOV ("câmera muito perto").
-      // aspectRatio: { exact: 4/3 } OBRIGA o sensor a entregar o quadro 4:3
-      // completo (full FOV), igual ao desktop. Todos os modos 4:3 da SkyCam
-      // compartilham o mesmo FOV — só muda a resolução.
+      // FOV MÁXIMO = quadro 4:3 nativo da câmera (sensor inteiro). No Android
+      // (TV box via OTG) pedir só "ideal" faz o driver entregar 16:9
+      // center-cropped → FOV menor ("câmera muito perto"). Pedir width/height
+      // EXATOS de modos 4:3 conhecidos obriga o sensor a entregar o quadro
+      // completo. Tenta do maior pro menor; qualquer UVC suporta pelo menos um.
       const baseVideo = { deviceId: { exact: deviceId }, frameRate: { ideal: 30 } }
+      const fourThreeModes = [
+        { width: 2592, height: 1944 },
+        { width: 2048, height: 1536 },
+        { width: 1600, height: 1200 },
+        { width: 1280, height: 960 },
+        { width: 1024, height: 768 },
+        { width: 800, height: 600 },
+        { width: 640, height: 480 },
+      ]
 
-      let newStream: MediaStream
-      try {
+      let newStream: MediaStream | null = null
+      for (const m of fourThreeModes) {
+        try {
+          newStream = await navigator.mediaDevices.getUserMedia({
+            video: { ...baseVideo, width: { exact: m.width }, height: { exact: m.height } },
+          })
+          break
+        } catch {
+          // modo 4:3 não suportado, tenta o próximo
+        }
+      }
+
+      // Último recurso: deixa o driver escolher (pode vir 16:9 cropped)
+      if (!newStream) {
         newStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            ...baseVideo,
-            aspectRatio: { exact: 4 / 3 },
-            width: { ideal: 2592 },
-            height: { ideal: 1944 },
-          },
-        })
-        const s = newStream.getVideoTracks()[0]?.getSettings()
-        console.log(`📐 Stream 4:3 forçado: ${s?.width}x${s?.height} (ratio ${s?.aspectRatio?.toFixed(2)})`)
-      } catch (e) {
-        // Driver não tem modo 4:3 — fallback pro comportamento antigo
-        console.warn('⚠️ aspectRatio 4:3 recusado, usando ideal 4:3 sem exact:', e)
-        newStream = await navigator.mediaDevices.getUserMedia({
-          video: { ...baseVideo, width: { ideal: 2592 }, height: { ideal: 1944 } },
+          video: { ...baseVideo, width: { ideal: 1600 }, height: { ideal: 1200 } },
         })
       }
+
+      const st = newStream.getVideoTracks()[0]?.getSettings()
+      const ratio = st?.width && st?.height ? (st.width / st.height).toFixed(2) : '?'
+      console.log(`📐 Stream: ${st?.width}x${st?.height} (ratio ${ratio})`)
+      setRealRes(st?.width && st?.height ? { w: st.width, h: st.height } : null)
 
       if (videoRef.current) {
         videoRef.current.srcObject = newStream
@@ -1545,6 +1560,16 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
           )}
 
           <canvas ref={canvasRef} className="hidden" />
+
+          {/* Diagnóstico de FOV (web) — me envie estes números */}
+          {!isNative && (
+            <div className="absolute top-2 left-2 z-30 rounded bg-black/75 px-2 py-1 text-[11px] font-mono leading-tight text-lime-300 ring-1 ring-white/20 pointer-events-none">
+              <div>FOV-DEBUG v4</div>
+              {realRes
+                ? <div>stream: {realRes.w}×{realRes.h} ({(realRes.w / realRes.h).toFixed(2)})</div>
+                : <div>stream: aguardando…</div>}
+            </div>
+          )}
 
           {/* Indicador de gravação (dentro do stage) */}
           {isRecording && (

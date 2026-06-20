@@ -2,8 +2,17 @@ package com.vitallcam
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.hardware.usb.UsbConstants
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
+import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -188,6 +197,71 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        usbPermReceiver?.let { runCatching { unregisterReceiver(it) } }
+        usbPermReceiver = null
+    }
+
+    // ---- Permissão USB pedida AQUI (tela normal, não-fullscreen). Em algumas
+    // ROMs de TV box o diálogo de permissão some/é cancelado por cima da tela
+    // fullscreen da câmera; pedindo na MainActivity ele costuma aparecer. Se
+    // concedida, a permissão vale pro app todo e a IntraoralCaptureActivity
+    // abre direto. ----
+    private val actionUsbPerm = "com.vitallcam.USB_PERMISSION"
+    private var usbPermReceiver: BroadcastReceiver? = null
+
+    private fun isUvcDevice(d: UsbDevice): Boolean {
+        if (d.deviceClass == 239 || d.deviceClass == 14 || d.deviceClass == 255) return true
+        for (i in 0 until d.interfaceCount) {
+            if (d.getInterface(i).interfaceClass == UsbConstants.USB_CLASS_VIDEO) return true
+        }
+        return false
+    }
+
+    private fun launchIntraoral() {
+        val intent = Intent(this, IntraoralCaptureActivity::class.java)
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, IntraoralCaptureActivity.REQUEST_CODE)
+    }
+
+    private fun requestUsbThenLaunchIntraoral() {
+        val um = getSystemService(Context.USB_SERVICE) as? UsbManager
+        val cam = um?.deviceList?.values?.firstOrNull { isUvcDevice(it) }
+        if (um == null || cam == null) { launchIntraoral(); return }
+        if (um.hasPermission(cam)) {
+            Toast.makeText(this, "USB já autorizado — abrindo câmera", Toast.LENGTH_SHORT).show()
+            launchIntraoral()
+            return
+        }
+        if (usbPermReceiver == null) {
+            usbPermReceiver = object : BroadcastReceiver() {
+                override fun onReceive(c: Context?, i: Intent?) {
+                    if (i?.action != actionUsbPerm) return
+                    val granted = i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+                    Toast.makeText(this@MainActivity, if (granted) "USB autorizado!" else "USB negado pelo sistema", Toast.LENGTH_LONG).show()
+                    launchIntraoral()
+                }
+            }
+            val f = IntentFilter(actionUsbPerm)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(usbPermReceiver, f, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                registerReceiver(usbPermReceiver, f)
+            }
+        }
+        // API 30 (Android 11 do box): PendingIntent é mutável por padrão — NÃO
+        // usar FLAG_IMMUTABLE (senão o extra GRANTED some). MUTABLE só >= API 31.
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        else
+            PendingIntent.FLAG_UPDATE_CURRENT
+        val pi = PendingIntent.getBroadcast(this, 0, Intent(actionUsbPerm).setPackage(packageName), flags)
+        Toast.makeText(this, "Pedindo permissão USB…", Toast.LENGTH_SHORT).show()
+        um.requestPermission(cam, pi)
+    }
+
     private fun jsString(s: String): String {
         val sb = StringBuilder("\"")
         for (c in s) {
@@ -212,11 +286,7 @@ class MainActivity : AppCompatActivity() {
         fun openIntraoralCamera(jsCallbackName: String?) {
             pendingJsCallback = if (jsCallbackName.isNullOrBlank())
                 "window.__onIntraoralCapture" else jsCallbackName
-            runOnUiThread {
-                val intent = Intent(this@MainActivity, IntraoralCaptureActivity::class.java)
-                @Suppress("DEPRECATION")
-                startActivityForResult(intent, IntraoralCaptureActivity.REQUEST_CODE)
-            }
+            runOnUiThread { requestUsbThenLaunchIntraoral() }
         }
 
         @JavascriptInterface

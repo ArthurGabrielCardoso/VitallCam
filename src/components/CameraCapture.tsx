@@ -1515,10 +1515,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
           {!isNative && (
             <video
               ref={videoRef}
-              // Cabe no centro livre (entre os painéis laterais translúcidos) em
-              // vez de ficar atrás deles — assim as bordas do quadro não ficam
-              // escondidas sob a "película" e a imagem fica menor/mais afastada.
-              className="absolute inset-y-0 left-[clamp(140px,15vw,220px)] right-[clamp(140px,15vw,220px)] h-full object-contain transition-transform duration-150"
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-150"
               style={{ transform: `scale(${zoomLevel}) ${isMirrored ? 'scaleY(-1)' : ''}`, transformOrigin: 'center center' }}
               playsInline
               muted
@@ -1552,7 +1549,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
           {/* Diagnóstico de FOV (web) — me envie estes números */}
           {!isNative && (
             <div className="absolute top-2 left-2 z-30 rounded bg-black/75 px-2 py-1 text-[11px] font-mono leading-tight text-lime-300 ring-1 ring-white/20 pointer-events-none">
-              <div>FOV-DEBUG v6 (centro)</div>
+              <div>FOV-DEBUG v7</div>
               {realRes
                 ? <div>stream: {realRes.w}×{realRes.h} ({(realRes.w / realRes.h).toFixed(2)})</div>
                 : <div>stream: aguardando…</div>}

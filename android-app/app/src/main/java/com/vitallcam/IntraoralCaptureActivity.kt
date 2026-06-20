@@ -9,7 +9,16 @@ import android.graphics.BitmapFactory
 import android.graphics.PixelFormat
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.annotation.SuppressLint
+import android.graphics.ImageFormat
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
+import android.media.ImageReader
 import android.os.Build
+import android.os.HandlerThread
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -110,6 +119,15 @@ class IntraoralCaptureActivity : ComponentActivity() {
     private var openWatchdog: Runnable? = null
     private var openRetries = 0
 
+    // ===== Camera2 (HAL/V4L2) — caminho que NÃO precisa de permissão USB =====
+    private var cameraDevice: CameraDevice? = null
+    private var captureSession: CameraCaptureSession? = null
+    private var imageReader: ImageReader? = null
+    private var cameraBgThread: HandlerThread? = null
+    private var cameraBgHandler: Handler? = null
+    private var photoSize: android.util.Size? = null
+    private var previewSize: android.util.Size? = null
+
     sealed class PreviewState {
         object Connecting : PreviewState()
         object Ready : PreviewState()
@@ -181,16 +199,41 @@ class IntraoralCaptureActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (cameraHelper == null) {
-            initHelperAndOpen()
-            registerUsbReceiver()
+        dbg("onStart — abrindo via Camera2 (HAL, sem permissão USB)")
+        dumpCamera2Info()
+        dumpUsbInfo()
+        startCameraBg()
+        if (checkSelfPermission(android.Manifest.permission.CAMERA) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            dbg("permissão CAMERA não concedida — solicitando")
+            requestPermissions(arrayOf(android.Manifest.permission.CAMERA), 7777)
+        } else {
+            openCamera2()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 7777) {
+            if (grantResults.isNotEmpty() &&
+                grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                dbg("permissão CAMERA concedida — abrindo Camera2")
+                openCamera2()
+            } else {
+                dbg("permissão CAMERA NEGADA")
+                previewState = PreviewState.Error("Permissão de câmera negada — autorize nas configurações")
+            }
         }
     }
 
     override fun onStop() {
         super.onStop()
-        unregisterUsbReceiver()
-        tearDownHelper()
+        closeCamera2()
+        stopCameraBg()
     }
 
     override fun onDestroy() {
@@ -386,6 +429,143 @@ class IntraoralCaptureActivity : ComponentActivity() {
         }.onFailure { dbg("Camera2 erro: ${it.message}") }
     }
 
+    // ---------- Motor Camera2 (HAL) — preview + foto 5MP sem permissão USB ----------
+
+    private fun startCameraBg() {
+        if (cameraBgThread != null) return
+        cameraBgThread = HandlerThread("cam2").also { it.start() }
+        cameraBgHandler = Handler(cameraBgThread!!.looper)
+    }
+
+    private fun stopCameraBg() {
+        cameraBgThread?.quitSafely()
+        runCatching { cameraBgThread?.join() }
+        cameraBgThread = null
+        cameraBgHandler = null
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun openCamera2() {
+        if (cameraDevice != null) { dbg("openCamera2: já aberta"); return }
+        val cm = getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: run {
+            previewState = PreviewState.Error("Sem CameraManager"); return
+        }
+        val id = runCatching {
+            cm.cameraIdList.firstOrNull {
+                cm.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) ==
+                    CameraCharacteristics.LENS_FACING_EXTERNAL
+            } ?: cm.cameraIdList.firstOrNull()
+        }.getOrNull()
+        if (id == null) {
+            dbg("Camera2: nenhuma câmera no cameraIdList")
+            previewState = PreviewState.Error("Câmera não encontrada"); return
+        }
+        val chars = cm.getCameraCharacteristics(id)
+        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+        val jpegSizes = map?.getOutputSizes(ImageFormat.JPEG)?.toList().orEmpty()
+        photoSize = jpegSizes.firstOrNull { it.width == 2592 && it.height == 1944 }
+            ?: jpegSizes.maxByOrNull { it.width.toLong() * it.height }
+            ?: android.util.Size(1920, 1080)
+        // Preview: maior 4:3 disponível pro SurfaceView (mesmo FOV da foto 4:3)
+        val surfSizes = map?.getOutputSizes(SurfaceHolder::class.java)?.toList().orEmpty()
+        previewSize = surfSizes.filter { kotlin.math.abs(it.width.toFloat() / it.height - 4f / 3f) < 0.05f }
+            .maxByOrNull { it.width.toLong() * it.height }
+            ?: surfSizes.maxByOrNull { it.width.toLong() * it.height }
+            ?: android.util.Size(1024, 768)
+        dbg("Camera2 abrindo id=$id foto=$photoSize preview=$previewSize")
+        runCatching { imageReader?.close() }
+        imageReader = ImageReader.newInstance(photoSize!!.width, photoSize!!.height, ImageFormat.JPEG, 2).apply {
+            setOnImageAvailableListener({ r -> onJpegAvailable(r) }, cameraBgHandler)
+        }
+        runCatching {
+            cm.openCamera(id, object : CameraDevice.StateCallback() {
+                override fun onOpened(device: CameraDevice) {
+                    dbg("Camera2 onOpened ✓")
+                    cameraDevice = device
+                    createSessionIfReady()
+                }
+                override fun onDisconnected(device: CameraDevice) {
+                    dbg("Camera2 onDisconnected")
+                    device.close()
+                    if (cameraDevice == device) cameraDevice = null
+                    runOnUiThread { previewState = PreviewState.Lost }
+                }
+                override fun onError(device: CameraDevice, error: Int) {
+                    dbg("Camera2 onError code=$error")
+                    device.close()
+                    if (cameraDevice == device) cameraDevice = null
+                    runOnUiThread { previewState = PreviewState.Error("Camera2 erro $error") }
+                }
+            }, cameraBgHandler)
+        }.onFailure {
+            dbg("openCamera2 EXCEÇÃO: ${it.message}")
+            runOnUiThread { previewState = PreviewState.Error("Falha ao abrir: ${it.message}") }
+        }
+    }
+
+    private fun createSessionIfReady() {
+        val device = cameraDevice ?: return
+        val reader = imageReader ?: return
+        val sv = surfaceViewRef.value ?: return
+        if (!surfaceReady) return
+        if (captureSession != null) return
+        val ps = previewSize ?: return
+        runOnUiThread {
+            runCatching {
+                sv.holder.setFixedSize(ps.width, ps.height)
+                sv.setAspectRatio(ps.width, ps.height)
+            }
+            val previewSurface = sv.holder.surface
+            runCatching {
+                val req = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                    addTarget(previewSurface)
+                }
+                @Suppress("DEPRECATION")
+                device.createCaptureSession(
+                    listOf(previewSurface, reader.surface),
+                    object : CameraCaptureSession.StateCallback() {
+                        override fun onConfigured(session: CameraCaptureSession) {
+                            captureSession = session
+                            runCatching { session.setRepeatingRequest(req.build(), null, cameraBgHandler) }
+                            runOnUiThread { previewState = PreviewState.Ready }
+                            dbg("Camera2 preview ON (Ready) ✓")
+                        }
+                        override fun onConfigureFailed(session: CameraCaptureSession) {
+                            dbg("Camera2 createCaptureSession FALHOU")
+                            runOnUiThread { previewState = PreviewState.Error("Falha na sessão da câmera") }
+                        }
+                    },
+                    cameraBgHandler,
+                )
+            }.onFailure { dbg("createSession EXCEÇÃO: ${it.message}") }
+        }
+    }
+
+    private fun onJpegAvailable(reader: ImageReader) {
+        val image = runCatching { reader.acquireNextImage() }.getOrNull() ?: return
+        runCatching {
+            val buf = image.planes[0].buffer
+            val bytes = ByteArray(buf.remaining())
+            buf.get(bytes)
+            val file = File(File(cacheDir, "captures").apply { mkdirs() }, "intraoral_${System.currentTimeMillis()}_${captured.size}.jpg")
+            file.writeBytes(bytes)
+            dbg("foto salva ${file.name} (${bytes.size / 1024}KB)")
+            runOnUiThread { captured.add(0, CapturedItem.Photo(file)) }
+        }.onFailure { dbg("salvar JPEG ERRO: ${it.message}") }
+        runCatching { image.close() }
+    }
+
+    private fun closeCamera2() {
+        runCatching { captureSession?.close() }
+        captureSession = null
+        runCatching { cameraDevice?.close() }
+        cameraDevice = null
+        runCatching { imageReader?.close() }
+        imageReader = null
+    }
+
+    // ---------- (LEGADO UVC — inerte; mantido só pra compilar) ----------
+
     private fun initHelperAndOpen() {
         dbg("initHelperAndOpen")
         dumpCamera2Info()
@@ -475,34 +655,37 @@ class IntraoralCaptureActivity : ComponentActivity() {
 
     fun onSurfaceCreated() {
         surfaceReady = true
-        attachSurface()
+        createSessionIfReady()
     }
 
     fun onSurfaceDestroyed() {
         surfaceReady = false
-        surfaceViewRef.value?.let { sv ->
-            runCatching { cameraHelper?.removeSurface(sv.holder.surface) }
-        }
+        runCatching { captureSession?.close() }
+        captureSession = null
     }
 
     private fun captureImage() {
-        val helper = cameraHelper
-        if (helper == null || !helper.isCameraOpened) return
-        val file = File(File(cacheDir, "captures").apply { mkdirs() }, "intraoral_${System.currentTimeMillis()}_${captured.size}.jpg")
-        val opts = IImageCapture.OutputFileOptions.Builder(file).build()
-        helper.takePicture(opts, object : IImageCapture.OnImageCaptureCallback {
-            override fun onImageSaved(result: IImageCapture.OutputFileResults) {
-                runOnUiThread {
-                    captured.add(0, CapturedItem.Photo(file))
-                }
+        val device = cameraDevice ?: run { dbg("captureImage: câmera não aberta"); return }
+        val session = captureSession ?: run { dbg("captureImage: sem sessão"); return }
+        val reader = imageReader ?: return
+        runCatching {
+            val req = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                addTarget(reader.surface)
+                set(CaptureRequest.JPEG_ORIENTATION, 0)
             }
-            override fun onError(code: Int, message: String, cause: Throwable?) {
-                runCatching { file.delete() }
-            }
-        })
+            session.capture(req.build(), null, cameraBgHandler)
+        }.onFailure { dbg("captureImage ERRO: ${it.message}") }
     }
 
     private fun startRecording() {
+        // Vídeo via Camera2 será adicionado depois; foco agora é foto 5MP.
+        runOnUiThread {
+            android.widget.Toast.makeText(this, "Vídeo em breve — use o modo Foto", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @Suppress("unused")
+    private fun startRecordingLegacy() {
         val helper = cameraHelper
         if (helper == null || !helper.isCameraOpened || recordingFile != null) return
         val file = File(File(cacheDir, "captures").apply { mkdirs() }, "intraoral_${System.currentTimeMillis()}_${captured.size}.mp4")
@@ -639,9 +822,9 @@ class IntraoralCaptureActivity : ComponentActivity() {
 
     private fun reconnect() {
         previewState = PreviewState.Connecting
-        openRetries = 0
-        tearDownHelper()
-        mainHandler.postDelayed({ initHelperAndOpen() }, 600)
+        closeCamera2()
+        startCameraBg()
+        mainHandler.postDelayed({ openCamera2() }, 500)
     }
 
     private fun loadCapabilities() {

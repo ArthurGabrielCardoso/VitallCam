@@ -224,9 +224,6 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   const [nativePreviewState, setNativePreviewState] = useState<NativePreviewState>('idle')
   const [capabilities, setCapabilities] = useState<IntraoralCapabilities | null>(null)
   const [showDebug, setShowDebug] = useState(false)
-  // Diagnóstico de FOV: resolução negociada + teto real da câmera (getCapabilities)
-  const [realRes, setRealRes] = useState<{ w: number; h: number } | null>(null)
-  const [caps, setCaps] = useState<{ w: number; h: number } | null>(null)
   const [portalReady, setPortalReady] = useState(false)
 
   // No app, toda a tela de captura é nativa (Compose) — não renderiza UI web.
@@ -897,13 +894,8 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         },
       })
 
-      const track = newStream.getVideoTracks()[0]
-      const st = track?.getSettings()
-      const caps = track?.getCapabilities?.() as MediaTrackCapabilities | undefined
-      const ratio = st?.width && st?.height ? (st.width / st.height).toFixed(2) : '?'
-      console.log(`📐 Stream: ${st?.width}x${st?.height} (ratio ${ratio}) | caps max: ${caps?.width?.max}x${caps?.height?.max}`)
-      setRealRes(st?.width && st?.height ? { w: st.width, h: st.height } : null)
-      setCaps(caps?.width?.max && caps?.height?.max ? { w: caps.width.max, h: caps.height.max } : null)
+      const st = newStream.getVideoTracks()[0]?.getSettings()
+      console.log(`📐 Stream: ${st?.width}x${st?.height}`)
 
       if (videoRef.current) {
         videoRef.current.srcObject = newStream
@@ -1518,7 +1510,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
           {!isNative && (
             <video
               ref={videoRef}
-              className="absolute inset-0 w-full h-full object-contain transition-transform duration-150"
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-150"
               style={{ transform: `scale(${zoomLevel}) ${isMirrored ? 'scaleY(-1)' : ''}`, transformOrigin: 'center center' }}
               playsInline
               muted
@@ -1548,17 +1540,6 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
           )}
 
           <canvas ref={canvasRef} className="hidden" />
-
-          {/* Diagnóstico de FOV (web) — me envie estes números */}
-          {!isNative && (
-            <div className="absolute top-2 left-2 z-30 rounded bg-black/75 px-2 py-1 text-[11px] font-mono leading-tight text-lime-300 ring-1 ring-white/20 pointer-events-none">
-              <div>FOV-DEBUG v8 (centro)</div>
-              {realRes
-                ? <div>stream: {realRes.w}×{realRes.h} ({(realRes.w / realRes.h).toFixed(2)})</div>
-                : <div>stream: aguardando…</div>}
-              <div>caps max: {caps ? `${caps.w}×${caps.h}` : '—'}</div>
-            </div>
-          )}
 
           {/* Indicador de gravação (dentro do stage) */}
           {isRecording && (

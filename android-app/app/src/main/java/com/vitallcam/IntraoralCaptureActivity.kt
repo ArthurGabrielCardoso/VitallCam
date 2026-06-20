@@ -101,6 +101,8 @@ class IntraoralCaptureActivity : ComponentActivity() {
     private var recordingSeconds by mutableStateOf(0)
     private var capabilities by mutableStateOf<CameraCapabilities?>(null)
     private var recordingFile: File? = null
+    // Log de diagnóstico (enviado pro /api/debug-log; não renderizado)
+    @Volatile private var debugLog = ""
 
     // Surface attach state
     private val surfaceViewRef = mutableStateOf<AspectRatioSurfaceView?>(null)
@@ -210,18 +212,82 @@ class IntraoralCaptureActivity : ComponentActivity() {
 
     // ---------- Lógica da câmera ----------
 
+    // Diagnóstico: acumula cada passo, loga no logcat e ENVIA automaticamente
+    // pro endpoint /api/debug-log (eu leio daqui). Debounce de 2.5s pra bater
+    // a sequência inteira de uma vez.
+    private val uploadDebugRunnable = Runnable { uploadDebug() }
+    private fun dbg(msg: String) {
+        android.util.Log.d("VitallCamUVC", msg)
+        val t = android.text.format.DateFormat.format("HH:mm:ss", System.currentTimeMillis())
+        debugLog = (debugLog + "[$t] $msg\n").takeLast(8000)
+        mainHandler.removeCallbacks(uploadDebugRunnable)
+        mainHandler.postDelayed(uploadDebugRunnable, 2500)
+    }
+
+    private fun uploadDebug() {
+        val payload = debugLog
+        Thread {
+            runCatching {
+                val url = java.net.URL("https://vitallcam.vercel.app/api/debug-log")
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.doOutput = true
+                conn.connectTimeout = 8000
+                conn.readTimeout = 8000
+                conn.setRequestProperty("Content-Type", "text/plain; charset=utf-8")
+                conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                val code = conn.responseCode
+                conn.disconnect()
+                runOnUiThread {
+                    android.widget.Toast.makeText(this, "Diagnóstico enviado (HTTP $code)", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }.onFailure {
+                runOnUiThread {
+                    android.widget.Toast.makeText(this, "Falha ao enviar diagnóstico: ${it.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    // Captura TUDO do USB sem precisar de permissão: ambiente + descritores,
+    // interfaces e endpoints (tipo ISÓCRONO = vídeo UVC). É o que diz se esse
+    // box consegue streamar a câmera.
+    private fun dumpUsbInfo() {
+        dbg("=== AMBIENTE: ${Build.MANUFACTURER} ${Build.MODEL} / Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) ===")
+        dbg("usb.host feature = ${packageManager.hasSystemFeature("android.hardware.usb.host")}")
+        val um = getSystemService(Context.USB_SERVICE) as? UsbManager
+        val list = um?.deviceList?.values?.toList().orEmpty()
+        dbg("UsbManager: ${list.size} device(s)")
+        list.forEach { d ->
+            dbg("DEV vid=${d.vendorId} pid=${d.productId} cls=${d.deviceClass}/${d.deviceSubclass} '${runCatching { d.manufacturerName }.getOrNull() ?: "?"}' '${runCatching { d.productName }.getOrNull() ?: d.deviceName}' perm=${um?.hasPermission(d)} ifaces=${d.interfaceCount}")
+            for (i in 0 until d.interfaceCount) {
+                val itf = d.getInterface(i)
+                dbg("  IF$i cls=${itf.interfaceClass} sub=${itf.interfaceSubclass} eps=${itf.endpointCount}")
+                for (e in 0 until itf.endpointCount) {
+                    val ep = itf.getEndpoint(e)
+                    val type = when (ep.type) { 0 -> "CTRL"; 1 -> "ISO"; 2 -> "BULK"; 3 -> "INT"; else -> "?" }
+                    val dir = if (ep.direction == 128) "IN" else "OUT"
+                    dbg("    EP $type $dir maxPkt=${ep.maxPacketSize} attr=${ep.attributes}")
+                }
+            }
+        }
+    }
+
     private val stateListener = object : ICameraHelper.StateCallback {
         override fun onAttach(device: UsbDevice) {
+            dbg("onAttach (device detectado)")
             connectedDevice = device
             cameraHelper?.selectDevice(device)
             previewState = PreviewState.Connecting
         }
 
         override fun onDeviceOpen(device: UsbDevice, isFirstOpen: Boolean) {
+            dbg("onDeviceOpen (permissão ok) → openCamera")
             cameraHelper?.openCamera()
         }
 
         override fun onCameraOpen(device: UsbDevice) {
+            dbg("onCameraOpen (câmera abriu!)")
             cancelOpenWatchdog()
             openRetries = 0
             applyResolutionForMode()
@@ -233,18 +299,24 @@ class IntraoralCaptureActivity : ComponentActivity() {
         }
 
         override fun onCameraClose(device: UsbDevice) {
+            dbg("onCameraClose")
             surfaceViewRef.value?.let { sv ->
                 runCatching { cameraHelper?.removeSurface(sv.holder.surface) }
             }
         }
 
-        override fun onDeviceClose(device: UsbDevice) {}
+        override fun onDeviceClose(device: UsbDevice) {
+            dbg("onDeviceClose")
+        }
 
         override fun onDetach(device: UsbDevice) {
+            dbg("onDetach (device removido)")
             previewState = PreviewState.Lost
         }
 
-        override fun onCancel(device: UsbDevice) {}
+        override fun onCancel(device: UsbDevice) {
+            dbg("onCancel (permissão negada/cancelada)")
+        }
     }
 
     private val usbReceiver = object : BroadcastReceiver() {
@@ -284,6 +356,8 @@ class IntraoralCaptureActivity : ComponentActivity() {
     }
 
     private fun initHelperAndOpen() {
+        dbg("initHelperAndOpen")
+        dumpUsbInfo()
         if (cameraHelper != null) tearDownHelper()
         cameraHelper = CameraHelper().apply { setStateCallback(stateListener) }
         // A câmera costuma já estar plugada ANTES do app abrir. Nesse caso o
@@ -301,22 +375,22 @@ class IntraoralCaptureActivity : ComponentActivity() {
     // corretamente. (Antes usávamos UsbManager do Android, que não casava com
     // o fluxo interno da lib.) Toast pra diagnóstico visível na TV box.
     private fun trySelectConnectedDevice() {
-        val helper = cameraHelper ?: return
-        if (helper.isCameraOpened) return
-        val devices = runCatching { helper.deviceList }.getOrNull().orEmpty()
-        runOnUiThread {
-            android.widget.Toast.makeText(
-                this,
-                if (devices.isEmpty()) "Câmera USB não encontrada (lista da lib vazia)"
-                else "Câmera USB encontrada (${devices.size}) — abrindo…",
-                android.widget.Toast.LENGTH_LONG,
-            ).show()
+        val helper = cameraHelper ?: run { dbg("trySelect: helper null"); return }
+        if (helper.isCameraOpened) { dbg("trySelect: já aberta"); return }
+        val libList = runCatching { helper.deviceList }.getOrNull().orEmpty()
+        val usbMgr = getSystemService(Context.USB_SERVICE) as? UsbManager
+        val androidCount = usbMgr?.deviceList?.size ?: -1
+        dbg("getDeviceList(lib)=${libList.size} | UsbManager(android)=$androidCount")
+        // Loga o que o Android enxerga (mesmo que a lib não filtre como UVC)
+        usbMgr?.deviceList?.values?.forEach {
+            dbg("  android dev: vid=${it.vendorId} pid=${it.productId} cls=${it.deviceClass} ${it.productName ?: it.deviceName}")
         }
-        val cam = devices.firstOrNull() ?: return
+        val cam = libList.firstOrNull()
+        if (cam == null) { dbg("lib não retornou device — selectDevice não chamado"); return }
+        dbg("device escolhido: vid=${cam.vendorId} pid=${cam.productId} ${cam.productName ?: cam.deviceName}")
         connectedDevice = cam
-        // A PRÓPRIA lib pede a permissão USB dentro de selectDevice (igual ao
-        // demo oficial). Sem pedido de permissão por fora.
-        runCatching { helper.selectDevice(cam) }
+        dbg("chamando selectDevice…")
+        runCatching { helper.selectDevice(cam) }.onFailure { dbg("selectDevice ERRO: ${it.message}") }
     }
 
     private fun scheduleOpenWatchdog() {

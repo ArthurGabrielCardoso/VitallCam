@@ -1515,7 +1515,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
           {!isNative && (
             <video
               ref={videoRef}
-              className="absolute inset-0 w-full h-full object-cover transition-transform duration-150"
+              className="absolute inset-0 w-full h-full object-contain transition-transform duration-150"
               style={{ transform: `scale(${zoomLevel}) ${isMirrored ? 'scaleY(-1)' : ''}`, transformOrigin: 'center center' }}
               playsInline
               muted

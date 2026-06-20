@@ -96,13 +96,13 @@ fun CaptureScreen(
         Row(
             Modifier
                 .fillMaxSize()
-                .padding(vertical = 6.dp),
+                .padding(vertical = 24.dp),
             verticalAlignment = Alignment.Top,
         ) {
             // Coluna esquerda — Fechar / Salvar / Thumbnail
             LeftSidebar(
                 modifier = Modifier
-                    .width(140.dp)
+                    .width(180.dp)
                     .fillMaxHeight(),
                 capturedCount = captured.size,
                 lastItem = captured.firstOrNull(),
@@ -119,7 +119,7 @@ fun CaptureScreen(
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .padding(horizontal = 2.dp),
+                    .padding(horizontal = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Stage(
@@ -135,7 +135,7 @@ fun CaptureScreen(
             // Coluna direita — Odontograma / Capture / Espelhar / Ajustes
             RightSidebar(
                 modifier = Modifier
-                    .width(140.dp)
+                    .width(180.dp)
                     .fillMaxHeight(),
                 isMirrored = isMirrored,
                 captureMode = captureMode,
@@ -277,9 +277,9 @@ private fun ThumbnailButton(
     Box(
         Modifier
             .size(width = 100.dp, height = 72.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(0.dp))
             .background(Neutral800)
-            .border(1.dp, White05, RoundedCornerShape(6.dp))
+            .border(2.dp, White40, RoundedCornerShape(0.dp))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -917,11 +917,11 @@ private fun GalleryDialog(
         Box(
             Modifier
                 .fillMaxWidth(0.9f)
-                .heightIn(max = 600.dp)
+                .fillMaxHeight(0.92f)
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color.White),
         ) {
-            Column {
+            Column(Modifier.fillMaxSize()) {
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -945,10 +945,12 @@ private fun GalleryDialog(
                         Icon(Icons.Filled.Close, "Fechar", tint = Gray500, modifier = Modifier.size(16.dp))
                     }
                 }
+                // Imagem ocupa o espaço flexível (weight) — assim o rodapé com os
+                // botões NUNCA é cortado, mesmo na altura menor da TV box.
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 280.dp, max = 480.dp)
+                        .weight(1f)
                         .background(Color.Black),
                     contentAlignment = Alignment.Center,
                 ) {

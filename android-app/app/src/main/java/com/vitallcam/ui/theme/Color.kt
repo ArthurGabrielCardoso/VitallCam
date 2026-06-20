@@ -23,10 +23,10 @@ val Teal700 = Color(0xFF0f766e)
 val Teal700Alpha85 = Color(0xD90f766e) // bg-teal-700/85
 val Teal300Alpha30 = Color(0x4D5eead4) // ring-teal-300/30
 
-// Dourado (botão de captura ativo)
-val Dourado400 = Color(0xFFc99d6b)
-val Dourado500 = Color(0xFFa87f5c)
-val Dourado600 = Color(0xFF8a6448)
+// Dourado (botão de captura ativo) — mesmos hex do web (tailwind dourado-*)
+val Dourado400 = Color(0xFFcca97e)
+val Dourado500 = Color(0xFFBE9672)
+val Dourado600 = Color(0xFFa87f5c)
 
 // Cinza (textos secundários, fundos de cards)
 val Gray50 = Color(0xFFf9fafb)

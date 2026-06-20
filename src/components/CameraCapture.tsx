@@ -250,11 +250,27 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         return
       }
 
+      // fetch do arquivo local (appassets) com retry — raramente falha, mas
+      // garante que nenhuma captura suma por um soluço momentâneo.
+      const fetchBlobWithRetry = async (u: string, tries = 3): Promise<Blob> => {
+        let e: any
+        for (let i = 0; i < tries; i++) {
+          try {
+            const r = await fetch(u)
+            if (!r.ok) throw new Error(`HTTP ${r.status}`)
+            return await r.blob()
+          } catch (err) {
+            e = err
+            await new Promise(res => setTimeout(res, 400 * (i + 1)))
+          }
+        }
+        throw e
+      }
+
       const items: CapturedItem[] = []
       for (const url of urls) {
         try {
-          const res = await fetch(url)
-          const rawBlob = await res.blob()
+          const rawBlob = await fetchBlobWithRetry(url)
           const filename = url.split('/').pop() || ''
           const isVideo = filename.endsWith('.mp4') || rawBlob.type.startsWith('video/')
           if (isVideo) {
@@ -294,16 +310,48 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
       setCapturedItems(prev => [...items, ...prev])
       const photos = items.filter(i => i.kind === 'photo') as Extract<CapturedItem, { kind: 'photo' }>[]
-      const videos = items.filter(i => i.kind === 'video')
-      // Fotos: salvas imediatamente em paralelo
-      photos.forEach(item => uploadPhotoNow(item.dataUrl, item.id))
-      // Vídeos: ficam no strip aguardando o botão Salvar
-      if (videos.length > 0) setShowSaveButton(true)
-      const desc = [
-        photos.length ? `${photos.length} foto(s) salva(s) automaticamente` : null,
-        videos.length ? `${videos.length} vídeo(s) aguardando salvar` : null,
-      ].filter(Boolean).join(' + ')
-      toast({ title: 'Capturas recebidas', description: desc })
+      const videos = items.filter(i => i.kind === 'video') as Extract<CapturedItem, { kind: 'video' }>[]
+
+      // No app: salva TUDO na hora (igual web) e já abre a pasta com as fotos.
+      // Antes o componente ficava preso em "Abrindo câmera intraoral…" porque
+      // nunca fechava após salvar. Espera os uploads (internet lenta da TV box).
+      setIsSaving(true)
+      let folderId: string | null = null
+      try {
+        folderId = await ensureSessionFolder()
+        const photoResults = await Promise.all(
+          photos.map(item => uploadPhotoNow(item.dataUrl, item.id)),
+        )
+        const okPhotos = photoResults.filter(Boolean).length
+        let okVideos = 0
+        for (const v of videos) {
+          try {
+            const data = await uploadVideoItem(v, folderId)
+            onPhotoCapture(data)
+            okVideos++
+          } catch (e) {
+            console.error('Falha ao salvar vídeo:', e)
+          }
+        }
+        const failed = (photos.length - okPhotos) + (videos.length - okVideos)
+        if (okPhotos + okVideos > 0) {
+          toast({
+            title: 'Capturas salvas',
+            description: `${okPhotos} foto(s)${videos.length ? ` + ${okVideos} vídeo(s)` : ''}${failed ? ` · ${failed} falhou(ram)` : ''}`,
+          })
+        }
+        if (failed > 0) {
+          toast({ variant: 'destructive', title: 'Algumas capturas falharam', description: `${failed} não foram salvas — verifique a internet.` })
+        }
+      } catch (e: any) {
+        toast({ variant: 'destructive', title: 'Erro ao salvar', description: e?.message?.slice(0, 200) || 'Tente novamente.' })
+      } finally {
+        setCapturedItems([])
+        setIsSaving(false)
+        // Abre a pasta recém-criada com as fotos e fecha a câmera (igual web)
+        if (folderId) router.push(`/patients/${patientId}?folder=${folderId}`)
+        onClose?.()
+      }
     }
 
     // Auto-abre a tela nativa de captura ao entrar
@@ -962,7 +1010,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
   // Salva foto no Supabase (via Storage se possível) e atualiza o cache imediatamente.
   // O enhancement é disparado em paralelo ao upload — não espera Storage/DB.
-  const uploadPhotoNow = async (dataUrl: string, localId?: string) => {
+  const uploadPhotoNow = async (dataUrl: string, localId?: string): Promise<boolean> => {
     // 1) Já dispara o enhancement (não bloqueia upload). Promise retorna o base64 melhorado.
     const enhancePromise = startEnhancement(dataUrl)
 
@@ -978,30 +1026,40 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       })
     }
 
-    try {
-      const folderId = await ensureSessionFolder()
+    // Salva com até 3 tentativas — a internet da TV box é lenta/instável e
+    // antes algumas fotos sumiam silenciosamente. uploadToStorage já cai pra
+    // base64 se o Storage falhar; aqui re-tentamos o insert no banco também.
+    let lastErr: any
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const folderId = await ensureSessionFolder()
 
-      // 2) Em paralelo, sobe o original ao Storage
-      const storageUrl = await uploadToStorage(dataUrl)
-      const imageToStore = storageUrl ?? dataUrl
+        // 2) Em paralelo, sobe o original ao Storage
+        const storageUrl = await uploadToStorage(dataUrl)
+        const imageToStore = storageUrl ?? dataUrl
 
-      const { data, error } = await (supabase as any)
-        .from('photos')
-        .insert({ patient_id: patientId, image_data: imageToStore, folder_id: folderId })
-        .select()
-        .single()
-      if (error) throw error
+        const { data, error } = await (supabase as any)
+          .from('photos')
+          .insert({ patient_id: patientId, image_data: imageToStore, folder_id: folderId })
+          .select()
+          .single()
+        if (error) throw error
 
-      // Foto aparece na galeria na hora, sem precisar fechar a câmera
-      queryClient.setQueryData(['photos', patientId], (old: Photo[] = []) => [data, ...old])
-      queryClient.setQueryData(['folder-photos', folderId], (old: Photo[] = []) => [data, ...old])
+        // Foto aparece na galeria na hora, sem precisar fechar a câmera
+        queryClient.setQueryData(['photos', patientId], (old: Photo[] = []) => [data, ...old])
+        queryClient.setQueryData(['folder-photos', folderId], (old: Photo[] = []) => [data, ...old])
 
-      // 3) Quando o enhancement terminar, aplica na foto
-      applyEnhancementWhenReady(data.id, enhancePromise)
-    } catch (err: any) {
-      console.error('Erro ao salvar foto automaticamente:', err)
-      toast({ variant: 'destructive', title: 'Erro ao salvar foto', description: err?.message?.slice(0, 200) })
+        // 3) Quando o enhancement terminar, aplica na foto
+        applyEnhancementWhenReady(data.id, enhancePromise)
+        return true
+      } catch (err: any) {
+        lastErr = err
+        if (attempt < 3) await new Promise(r => setTimeout(r, 800 * attempt))
+      }
     }
+    console.error('Erro ao salvar foto automaticamente:', lastErr)
+    toast({ variant: 'destructive', title: 'Erro ao salvar foto', description: lastErr?.message?.slice(0, 200) })
+    return false
   }
 
   // Semáforo: máximo 5 enhancements simultâneos

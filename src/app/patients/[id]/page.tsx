@@ -97,6 +97,12 @@ export default function PatientPage() {
     const url = tab === 'overview' ? `/patients/${patientId}` : `/patients/${patientId}?tab=${tab}`
     router.push(url, { scroll: false })
   }
+  // App nativo: após salvar as capturas, a câmera navega pra ?folder=<id> pra
+  // abrir direto a pasta com as fotos (em vez de só voltar pra overview).
+  const folderParam = searchParams.get('folder')
+  useEffect(() => {
+    if (folderParam) setCurrentFolder(folderParam)
+  }, [folderParam])
   const foldersScrollRef = useRef<HTMLDivElement>(null)
   const photosScrollRef = useRef<HTMLDivElement>(null)
   const profileVideoRef = useRef<HTMLVideoElement>(null)
@@ -844,44 +850,57 @@ export default function PatientPage() {
       setIsProcessingAI(true)
       setAiEnhancedImage(null)
 
-      // Chamar API do Gemini
-      const enhancedImage = await transformSmileWithGemini(photo.image_data)
+      // image_data pode ser URL do Storage ou dataUrl base64. Converte pra dataUrl reduzido.
+      const sourceDataUrl = await toDownscaledDataUrl(photo.image_data, 1024)
+
+      const res = await fetch('/api/enhance-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageData: sourceDataUrl }),
+      })
+      if (res.status === 503) throw new Error('OPENAI_API_KEY não configurada')
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const { imageData: enhancedImage } = await res.json()
+      if (!enhancedImage) throw new Error('Sem retorno da IA')
 
       setAiEnhancedImage(enhancedImage)
       setShowAIComparison(true)
 
       toast({
         title: "Sucesso!",
-        description: "Sorriso aprimorado pela IA"
+        description: "Imagem aprimorada pela IA"
       })
     } catch (error: any) {
       console.error('Erro ao processar com IA:', error)
-
-      // Verificar se é erro 429 (quota exceeded)
-      const errorMessage = error?.message || error?.toString() || ''
-      const is429Error = errorMessage.includes('429') ||
-                         errorMessage.includes('quota') ||
-                         errorMessage.includes('Quota exceeded')
-
-      if (is429Error) {
-        // Mensagem amigável para erro de quota
-        toast({
-          variant: "destructive",
-          title: "Limite de uso atingido",
-          description: "A quota gratuita do Gemini foi excedida. Aguarde alguns minutos e tente novamente, ou considere fazer upgrade para o plano pago."
-        })
-      } else {
-        // Mensagem genérica para outros erros
-        toast({
-          variant: "destructive",
-          title: "Erro ao processar imagem",
-          description: "Não foi possível aprimorar o sorriso. Tente novamente."
-        })
-      }
+      toast({
+        variant: "destructive",
+        title: "Erro ao processar imagem",
+        description: error?.message?.slice(0, 200) || "Não foi possível aprimorar a foto. Tente novamente."
+      })
     } finally {
       setIsProcessingAI(false)
     }
   }
+
+  // Carrega URL ou dataUrl, redimensiona pro maior lado <= maxEdge e devolve dataUrl JPEG
+  const toDownscaledDataUrl = (src: string, maxEdge = 1024): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        const scale = Math.min(1, maxEdge / Math.max(img.width, img.height))
+        const w = Math.round(img.width * scale)
+        const h = Math.round(img.height * scale)
+        const c = document.createElement('canvas')
+        c.width = w; c.height = h
+        const ctx = c.getContext('2d')
+        if (!ctx) return reject(new Error('canvas context'))
+        ctx.drawImage(img, 0, 0, w, h)
+        try { resolve(c.toDataURL('image/jpeg', 0.85)) } catch (e) { reject(e as any) }
+      }
+      img.onerror = () => reject(new Error('falha ao carregar imagem'))
+      img.src = src
+    })
 
   // Função para salvar imagem aprimorada pela IA
   const handleSaveAIEnhanced = async () => {
@@ -2040,8 +2059,8 @@ export default function PatientPage() {
               <div className="flex items-center gap-1 p-1 rounded bg-neutral-900/40 backdrop-blur-xl border border-white/10 shadow-2xl">
                 <button
                   onClick={() => handleAIEnhance(selectedPhoto)}
-                  className="h-9 w-9 rounded bg-gradient-to-br from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white flex items-center justify-center transition-all shadow-sm"
-                  title="Aprimorar sorriso com IA"
+                  className="h-9 w-9 rounded bg-gradient-to-br from-teal-600 to-dourado-500 hover:from-teal-700 hover:to-dourado-400 text-white flex items-center justify-center transition-all shadow-sm"
+                  title="Aprimorar imagem com IA"
                 >
                   <Sparkles className="w-4 h-4" />
                 </button>
@@ -2311,30 +2330,41 @@ export default function PatientPage() {
 
       {/* Modal de Comparação Before/After com IA */}
       {showAIComparison && aiEnhancedImage && selectedPhoto && (
-        <div className="fixed inset-0 bg-black z-50 flex flex-col">
-          {/* Header com botões */}
+        <div className="fixed inset-0 bg-neutral-950 z-50 flex flex-col">
+          {/* Header */}
           <div className="absolute top-4 left-0 right-0 flex justify-between items-center px-6 z-10">
-            <div className="flex items-center gap-3 bg-black/50 backdrop-blur-sm px-4 py-2 rounded-full">
-              <Sparkles className="w-5 h-5 text-yellow-400" />
-              <span className="text-white font-semibold">Resultado da IA</span>
+            <div className="flex items-center gap-2.5 px-3.5 py-1.5 rounded bg-gradient-to-r from-teal-600/25 to-dourado-500/25 border border-teal-300/20 backdrop-blur-md shadow-lg">
+              <Sparkles className="w-4 h-4 text-dourado-300" />
+              <span className="text-sm font-medium text-white/95 tracking-wide">
+                Antes / Depois
+              </span>
             </div>
-            <div className="flex gap-2">
-              <Button
+            <div className="flex items-center gap-2">
+              <button
                 onClick={handleSaveAIEnhanced}
-                className="bg-primary hover:bg-primary/90 text-white px-6"
+                className="h-9 px-5 rounded bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white text-sm font-semibold shadow-md shadow-teal-500/20 transition-all"
               >
-                Salvar Resultado
-              </Button>
-              <Button
+                Salvar resultado
+              </button>
+              <button
                 onClick={() => {
                   setShowAIComparison(false)
                   setAiEnhancedImage(null)
                 }}
-                className="bg-destructive hover:bg-destructive/90 text-white rounded-full w-10 h-10 p-0"
+                className="h-9 w-9 rounded bg-white/10 hover:bg-white/20 text-white border border-white/10 backdrop-blur-md flex items-center justify-center transition-colors"
+                title="Descartar"
               >
-                <X className="w-5 h-5" />
-              </Button>
+                <X className="w-4 h-4" />
+              </button>
             </div>
+          </div>
+
+          {/* Labels Antes/Depois nos cantos */}
+          <div className="absolute bottom-6 left-6 z-10 px-3 py-1 rounded bg-black/60 backdrop-blur-md border border-white/10 text-white/80 text-xs font-medium tracking-wide">
+            Antes
+          </div>
+          <div className="absolute bottom-6 right-6 z-10 px-3 py-1 rounded bg-gradient-to-r from-teal-600/40 to-dourado-500/40 backdrop-blur-md border border-dourado-300/20 text-white/95 text-xs font-medium tracking-wide">
+            Depois (IA)
           </div>
 
           {/* Before/After Slider */}

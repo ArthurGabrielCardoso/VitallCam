@@ -463,9 +463,14 @@ class IntraoralCaptureActivity : ComponentActivity() {
         val chars = cm.getCameraCharacteristics(id)
         val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
         val jpegSizes = map?.getOutputSizes(ImageFormat.JPEG)?.toList().orEmpty()
-        photoSize = jpegSizes.firstOrNull { it.width == 2592 && it.height == 1944 }
+        // 2592x1944 (5MP) trava o HAL externo desse box (onError 4, banda USB).
+        // Usa o MAIOR 4:3 até 2048 de largura → mesmo FOV (4:3), bem mais leve.
+        photoSize = jpegSizes
+            .filter { it.width <= 2048 && kotlin.math.abs(it.width.toFloat() / it.height - 4f / 3f) < 0.05f }
+            .maxByOrNull { it.width.toLong() * it.height }
+            ?: jpegSizes.filter { it.width <= 2048 }.maxByOrNull { it.width.toLong() * it.height }
             ?: jpegSizes.maxByOrNull { it.width.toLong() * it.height }
-            ?: android.util.Size(1920, 1080)
+            ?: android.util.Size(1024, 768)
         // Preview: maior 4:3 disponível pro SurfaceView (mesmo FOV da foto 4:3)
         val surfSizes = map?.getOutputSizes(SurfaceHolder::class.java)?.toList().orEmpty()
         previewSize = surfSizes.filter { kotlin.math.abs(it.width.toFloat() / it.height - 4f / 3f) < 0.05f }
@@ -669,11 +674,21 @@ class IntraoralCaptureActivity : ComponentActivity() {
         val session = captureSession ?: run { dbg("captureImage: sem sessão"); return }
         val reader = imageReader ?: return
         runCatching {
-            val req = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+            // TEMPLATE_PREVIEW (não STILL_CAPTURE): o HAL externo não suporta a
+            // sequência de pré-captura/AE do still e dá erro fatal.
+            val req = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
                 addTarget(reader.surface)
                 set(CaptureRequest.JPEG_ORIENTATION, 0)
             }
-            session.capture(req.build(), null, cameraBgHandler)
+            session.capture(req.build(), object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureFailed(
+                    s: CameraCaptureSession,
+                    r: CaptureRequest,
+                    failure: android.hardware.camera2.CaptureFailure,
+                ) {
+                    dbg("captura FALHOU reason=${failure.reason}")
+                }
+            }, cameraBgHandler)
         }.onFailure { dbg("captureImage ERRO: ${it.message}") }
     }
 

@@ -295,32 +295,27 @@ class IntraoralCaptureActivity : ComponentActivity() {
         scheduleOpenWatchdog()
     }
 
-    // Enumera dispositivos USB já conectados (API padrão do Android, sempre
-    // disponível) e seleciona a câmera UVC manualmente. Mostra um Toast com a
-    // contagem pra diagnóstico visível na TV box (sem precisar de logcat).
+    // Seleciona a câmera já conectada usando a lista da PRÓPRIA lib
+    // (helper.getDeviceList) — são os devices que o monitor interno dela
+    // reconhece, o que selectDevice espera pra disparar o fluxo de permissão
+    // corretamente. (Antes usávamos UsbManager do Android, que não casava com
+    // o fluxo interno da lib.) Toast pra diagnóstico visível na TV box.
     private fun trySelectConnectedDevice() {
         val helper = cameraHelper ?: return
         if (helper.isCameraOpened) return
-        val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager ?: return
-        val devices = usbManager.deviceList.values.toList()
+        val devices = runCatching { helper.deviceList }.getOrNull().orEmpty()
         runOnUiThread {
             android.widget.Toast.makeText(
                 this,
-                if (devices.isEmpty()) "USB: nenhum dispositivo detectado"
-                else "USB: ${devices.size} dispositivo(s) — abrindo câmera…",
+                if (devices.isEmpty()) "Câmera USB não encontrada (lista da lib vazia)"
+                else "Câmera USB encontrada (${devices.size}) — abrindo…",
                 android.widget.Toast.LENGTH_LONG,
             ).show()
         }
-        if (devices.isEmpty()) return
-        // Prioriza quem tem interface de vídeo (UVC); senão pega o primeiro.
-        val cam = devices.firstOrNull { dev ->
-            dev.deviceClass == 239 || dev.deviceClass == 14 || dev.deviceClass == 255 ||
-                (0 until dev.interfaceCount).any { dev.getInterface(it).interfaceClass == 14 }
-        } ?: devices.first()
+        val cam = devices.firstOrNull() ?: return
         connectedDevice = cam
         // A PRÓPRIA lib pede a permissão USB dentro de selectDevice (igual ao
-        // demo oficial). Pedir permissão por fora (PendingIntent próprio) estava
-        // CONFLITANDO com o fluxo interno da lib e voltando "negada". Removido.
+        // demo oficial). Sem pedido de permissão por fora.
         runCatching { helper.selectDevice(cam) }
     }
 

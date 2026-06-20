@@ -1507,15 +1507,18 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         </button>
       </aside>
 
-      {/* STAGE — vídeo ocupa a tela inteira, fica atrás dos painéis */}
+      {/* STAGE — confinado ao centro livre, ENTRE os painéis laterais (não
+          fica mais atrás das "películas" translúcidas). left/right = mesma
+          largura dos painéis (inline pra não depender da geração do Tailwind). */}
       <div
         ref={stageRef}
-        className="absolute inset-0 overflow-hidden bg-black"
+        className="absolute top-0 bottom-0 overflow-hidden bg-black"
+        style={{ left: 'clamp(140px,15vw,220px)', right: 'clamp(140px,15vw,220px)' }}
       >
           {!isNative && (
             <video
               ref={videoRef}
-              className="absolute inset-0 w-full h-full object-cover transition-transform duration-150"
+              className="absolute inset-0 w-full h-full object-contain transition-transform duration-150"
               style={{ transform: `scale(${zoomLevel}) ${isMirrored ? 'scaleY(-1)' : ''}`, transformOrigin: 'center center' }}
               playsInline
               muted
@@ -1549,7 +1552,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
           {/* Diagnóstico de FOV (web) — me envie estes números */}
           {!isNative && (
             <div className="absolute top-2 left-2 z-30 rounded bg-black/75 px-2 py-1 text-[11px] font-mono leading-tight text-lime-300 ring-1 ring-white/20 pointer-events-none">
-              <div>FOV-DEBUG v7</div>
+              <div>FOV-DEBUG v8 (centro)</div>
               {realRes
                 ? <div>stream: {realRes.w}×{realRes.h} ({(realRes.w / realRes.h).toFixed(2)})</div>
                 : <div>stream: aguardando…</div>}

@@ -361,8 +361,34 @@ class IntraoralCaptureActivity : ComponentActivity() {
         usbReceiverRegistered = false
     }
 
+    // Enumera as câmeras via Camera2 (HAL/V4L2) — caminho que NÃO precisa de
+    // permissão USB. Lista os tamanhos JPEG que a câmera externa oferece; se
+    // tiver 2592x1944, dá pra capturar 5MP por aqui (FOV cheio) sem a permissão
+    // USB que o box bloqueia.
+    private fun dumpCamera2Info() {
+        runCatching {
+            val cm = getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
+            val ids = cm.cameraIdList
+            dbg("=== CAMERA2: ${ids.size} camera(s) ===")
+            for (id in ids) {
+                val ch = cm.getCameraCharacteristics(id)
+                val facing = ch.get(android.hardware.camera2.CameraCharacteristics.LENS_FACING)
+                val facingStr = when (facing) { 0 -> "FRONT"; 1 -> "BACK"; 2 -> "EXTERNAL"; else -> "?" }
+                val map = ch.get(android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                val jpeg = map?.getOutputSizes(android.graphics.ImageFormat.JPEG)
+                    ?.sortedByDescending { it.width * it.height }
+                    ?.joinToString(",") { "${it.width}x${it.height}" }
+                val yuv = map?.getOutputSizes(android.graphics.ImageFormat.YUV_420_888)
+                    ?.sortedByDescending { it.width * it.height }
+                    ?.take(3)?.joinToString(",") { "${it.width}x${it.height}" }
+                dbg("CAM id=$id facing=$facingStr JPEG=[$jpeg] YUVtop=[$yuv]")
+            }
+        }.onFailure { dbg("Camera2 erro: ${it.message}") }
+    }
+
     private fun initHelperAndOpen() {
         dbg("initHelperAndOpen")
+        dumpCamera2Info()
         dumpUsbInfo()
         if (cameraHelper != null) tearDownHelper()
         cameraHelper = CameraHelper().apply { setStateCallback(stateListener) }

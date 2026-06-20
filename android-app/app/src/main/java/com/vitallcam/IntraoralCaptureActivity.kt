@@ -341,7 +341,13 @@ class IntraoralCaptureActivity : ComponentActivity() {
         } else {
             // Pede a permissão do DISPOSITIVO USB (diferente da permissão de
             // câmera do Android). Sem ela, selectDevice nunca abre a câmera.
-            val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            // IMPORTANTE: o PendingIntent precisa ser MUTÁVEL — com FLAG_IMMUTABLE
+            // o sistema não consegue gravar o extra EXTRA_PERMISSION_GRANTED na
+            // resposta, e a permissão volta SEMPRE como "negada".
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            else
+                PendingIntent.FLAG_UPDATE_CURRENT
             val pi = PendingIntent.getBroadcast(
                 this, 0,
                 Intent(actionUsbPermission).setPackage(packageName),
@@ -565,6 +571,7 @@ class IntraoralCaptureActivity : ComponentActivity() {
 
     private fun reconnect() {
         previewState = PreviewState.Connecting
+        openRetries = 0
         tearDownHelper()
         mainHandler.postDelayed({ initHelperAndOpen() }, 600)
     }

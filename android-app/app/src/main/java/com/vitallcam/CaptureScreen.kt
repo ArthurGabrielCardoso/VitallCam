@@ -128,6 +128,7 @@ fun CaptureScreen(
                     recordingSeconds = recordingSeconds,
                     previewState = previewState,
                     onSurfaceReady = onSurfaceReady,
+                    onReconnect = onReconnect,
                 )
             }
 
@@ -318,6 +319,7 @@ private fun Stage(
     recordingSeconds: Int,
     previewState: IntraoralCaptureActivity.PreviewState,
     onSurfaceReady: (AspectRatioSurfaceView) -> Unit,
+    onReconnect: () -> Unit,
 ) {
     Box(
         Modifier
@@ -400,6 +402,16 @@ private fun Stage(
                     color = White70,
                     fontSize = 14.sp,
                 )
+                Spacer(Modifier.height(20.dp))
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Teal400)
+                        .clickable(onClick = onReconnect)
+                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                ) {
+                    Text("Reconectar câmera", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                }
             }
         }
     }

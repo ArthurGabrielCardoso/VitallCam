@@ -9,7 +9,7 @@ import { Photo, CameraDevice } from '@/lib/types'
 import { useCreateFolder } from '@/hooks/useFolders'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Camera, Loader2, AlertCircle, RefreshCw, X, FlipHorizontal2, Settings2, Video, Square, ChevronLeft, ChevronRight, Trash2, Check, Play } from 'lucide-react'
+import { Camera, Loader2, AlertCircle, RefreshCw, X, FlipHorizontal2, Settings2, Video, Square, ChevronLeft, ChevronRight, Trash2, Check, Play, Sparkles } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 
 
@@ -23,8 +23,8 @@ interface CameraCaptureProps {
 type CaptureMode = 'photo' | 'video'
 
 type CapturedItem =
-  | { kind: 'photo'; dataUrl: string }
-  | { kind: 'video'; dataUrl: string; blob: Blob; duration: number; mimeType: string }
+  | { kind: 'photo'; id: string; dataUrl: string; enhancedDataUrl?: string; enhanceStatus?: 'pending' | 'done' | 'failed' }
+  | { kind: 'video'; id: string; dataUrl: string; blob: Blob; duration: number; mimeType: string }
 
 declare global {
   interface Window {
@@ -268,7 +268,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
             const m = filename.match(/_d(\d+)\.mp4$/)
             const duration = m ? parseInt(m[1], 10) : 0
             const poster = await generateVideoPoster(blob).catch(() => '')
-            items.push({ kind: 'video', dataUrl: poster, blob, duration, mimeType: 'video/mp4' })
+            items.push({ kind: 'video', id: crypto.randomUUID(), dataUrl: poster, blob, duration, mimeType: 'video/mp4' })
           } else {
             // Pra foto, transforma em dataURL pra fluxo legado de upload (column image_data)
             const dataUrl: string = await new Promise((resolve, reject) => {
@@ -277,7 +277,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
               r.onerror = () => reject(r.error)
               r.readAsDataURL(rawBlob)
             })
-            items.push({ kind: 'photo', dataUrl })
+            items.push({ kind: 'photo', id: crypto.randomUUID(), dataUrl, enhanceStatus: 'pending' })
           }
           // Limpa o arquivo do cache nativo após processar
           ;(window.VitallCam as any)?.deleteCaptureFile?.(filename)
@@ -293,10 +293,10 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       }
 
       setCapturedItems(prev => [...items, ...prev])
-      const photos = items.filter(i => i.kind === 'photo')
+      const photos = items.filter(i => i.kind === 'photo') as Extract<CapturedItem, { kind: 'photo' }>[]
       const videos = items.filter(i => i.kind === 'video')
       // Fotos: salvas imediatamente em paralelo
-      photos.forEach(item => uploadPhotoNow(item.dataUrl))
+      photos.forEach(item => uploadPhotoNow(item.dataUrl, item.id))
       // Vídeos: ficam no strip aguardando o botão Salvar
       if (videos.length > 0) setShowSaveButton(true)
       const desc = [
@@ -383,9 +383,10 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         setFlyAnim({ src: finalDataUrl, from: stageRect, to: thumbRect })
         setTimeout(() => setFlyAnim(null), 650)
       }
-      setCapturedItems(prev => [{ kind: 'photo', dataUrl: finalDataUrl }, ...prev])
+      const localId = crypto.randomUUID()
+      setCapturedItems(prev => [{ kind: 'photo', id: localId, dataUrl: finalDataUrl, enhanceStatus: 'pending' }, ...prev])
       // Salva imediatamente no Supabase — galeria atualiza em tempo real
-      uploadPhotoNow(finalDataUrl)
+      uploadPhotoNow(finalDataUrl, localId)
     }
     window.VitallCam.captureIntraoralFrame('window.__onIntraoralFrame')
   }
@@ -877,18 +878,32 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         stream.getTracks().forEach(track => track.stop())
       }
 
-      const constraints: MediaStreamConstraints = {
-        video: {
-          deviceId: { exact: deviceId },
-          // Preferir 4:3 nativo da SkyCam (5MP) — full FOV.
-          // Se a câmera não suportar, getUserMedia escolhe a mais próxima.
-          width: { ideal: 2592 },
-          height: { ideal: 1944 },
-          frameRate: { ideal: 30 }
-        }
-      }
+      // No Android (TV box via OTG), pedir só width/height "ideal" faz o driver
+      // cair pra um modo 16:9 center-cropped → perde FOV ("câmera muito perto").
+      // aspectRatio: { exact: 4/3 } OBRIGA o sensor a entregar o quadro 4:3
+      // completo (full FOV), igual ao desktop. Todos os modos 4:3 da SkyCam
+      // compartilham o mesmo FOV — só muda a resolução.
+      const baseVideo = { deviceId: { exact: deviceId }, frameRate: { ideal: 30 } }
 
-      const newStream = await navigator.mediaDevices.getUserMedia(constraints)
+      let newStream: MediaStream
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            ...baseVideo,
+            aspectRatio: { exact: 4 / 3 },
+            width: { ideal: 2592 },
+            height: { ideal: 1944 },
+          },
+        })
+        const s = newStream.getVideoTracks()[0]?.getSettings()
+        console.log(`📐 Stream 4:3 forçado: ${s?.width}x${s?.height} (ratio ${s?.aspectRatio?.toFixed(2)})`)
+      } catch (e) {
+        // Driver não tem modo 4:3 — fallback pro comportamento antigo
+        console.warn('⚠️ aspectRatio 4:3 recusado, usando ideal 4:3 sem exact:', e)
+        newStream = await navigator.mediaDevices.getUserMedia({
+          video: { ...baseVideo, width: { ideal: 2592 }, height: { ideal: 1944 } },
+        })
+      }
 
       if (videoRef.current) {
         videoRef.current.srcObject = newStream
@@ -953,12 +968,28 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     return promise
   }
 
-  // Salva foto no Supabase (via Storage se possível) e atualiza o cache imediatamente
-  const uploadPhotoNow = async (dataUrl: string) => {
+  // Salva foto no Supabase (via Storage se possível) e atualiza o cache imediatamente.
+  // O enhancement é disparado em paralelo ao upload — não espera Storage/DB.
+  const uploadPhotoNow = async (dataUrl: string, localId?: string) => {
+    // 1) Já dispara o enhancement (não bloqueia upload). Promise retorna o base64 melhorado.
+    const enhancePromise = startEnhancement(dataUrl)
+
+    // 1a) Atualiza a galeria local assim que a IA responder, mesmo se o upload demorar
+    if (localId) {
+      enhancePromise.then(enhanced => {
+        setCapturedItems(prev => prev.map(it => {
+          if (it.kind !== 'photo' || it.id !== localId) return it
+          return enhanced
+            ? { ...it, enhancedDataUrl: enhanced, enhanceStatus: 'done' }
+            : { ...it, enhanceStatus: 'failed' }
+        }))
+      })
+    }
+
     try {
       const folderId = await ensureSessionFolder()
 
-      // Tenta Storage primeiro (URL pequena no banco); fallback base64
+      // 2) Em paralelo, sobe o original ao Storage
       const storageUrl = await uploadToStorage(dataUrl)
       const imageToStore = storageUrl ?? dataUrl
 
@@ -973,8 +1004,8 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       queryClient.setQueryData(['photos', patientId], (old: Photo[] = []) => [data, ...old])
       queryClient.setQueryData(['folder-photos', folderId], (old: Photo[] = []) => [data, ...old])
 
-      // Enhancement envia sempre o base64 original (qualidade máxima para a IA)
-      queueEnhancement(data.id, dataUrl)
+      // 3) Quando o enhancement terminar, aplica na foto
+      applyEnhancementWhenReady(data.id, enhancePromise)
     } catch (err: any) {
       console.error('Erro ao salvar foto automaticamente:', err)
       toast({ variant: 'destructive', title: 'Erro ao salvar foto', description: err?.message?.slice(0, 200) })
@@ -997,38 +1028,65 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     else activeEnhanceRef.current--
   }
 
-  // Enfileira enhancement para uma foto já salva no Supabase
-  const queueEnhancement = (photoId: string, dataUrl: string) => {
-    const run = async () => {
-      await acquireEnhanceSlot()
-      try {
-        const res = await fetch('/api/enhance-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageData: dataUrl }),
-        })
-        if (res.status === 503) return // API não configurada, ignora silenciosamente
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const { imageData: enhancedBase64 } = await res.json()
-        if (!enhancedBase64) return
-
-        // Tenta salvar versão melhorada no Storage; fallback base64
-        const enhancedUrl = await uploadToStorage(enhancedBase64)
-        const enhancedToStore = enhancedUrl ?? enhancedBase64
-
-        // Atualiza no Supabase e no cache — galeria mostra versão melhorada
-        await (supabase as any).from('photos').update({ image_data: enhancedToStore }).eq('id', photoId)
-        const update = (old: Photo[] = []) => old.map(p => p.id === photoId ? { ...p, image_data: enhancedToStore } : p)
-        queryClient.setQueryData(['photos', patientId], update)
-        queryClient.setQueryData(['photo-data', photoId], enhancedToStore)
-        if (sessionFolderIdRef.current) queryClient.setQueryData(['folder-photos', sessionFolderIdRef.current], update)
-      } catch (err) {
-        console.error('Enhancement error photo', photoId, err)
-      } finally {
-        releaseEnhanceSlot()
+  // Reduz a imagem pro maior lado <= 1024px, JPEG 0.85 — corta input tokens da OpenAI
+  const downscaleForEnhance = (dataUrl: string, maxEdge = 1024): Promise<string> =>
+    new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const scale = Math.min(1, maxEdge / Math.max(img.width, img.height))
+        if (scale === 1) return resolve(dataUrl)
+        const w = Math.round(img.width * scale)
+        const h = Math.round(img.height * scale)
+        const c = document.createElement('canvas')
+        c.width = w; c.height = h
+        const ctx = c.getContext('2d')
+        if (!ctx) return resolve(dataUrl)
+        ctx.drawImage(img, 0, 0, w, h)
+        resolve(c.toDataURL('image/jpeg', 0.85))
       }
+      img.onerror = () => resolve(dataUrl)
+      img.src = dataUrl
+    })
+
+  // Dispara a chamada à OpenAI imediatamente. Retorna o base64 melhorado ou null.
+  const startEnhancement = async (dataUrl: string): Promise<string | null> => {
+    await acquireEnhanceSlot()
+    try {
+      const small = await downscaleForEnhance(dataUrl)
+      const res = await fetch('/api/enhance-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageData: small }),
+      })
+      if (res.status === 503) return null // API não configurada, ignora silenciosamente
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const { imageData: enhancedBase64 } = await res.json()
+      return enhancedBase64 ?? null
+    } catch (err) {
+      console.error('Enhancement error', err)
+      return null
+    } finally {
+      releaseEnhanceSlot()
     }
-    run()
+  }
+
+  // Quando o enhancement (já em andamento) terminar, persiste na foto correspondente
+  const applyEnhancementWhenReady = async (photoId: string, enhancePromise: Promise<string | null>) => {
+    try {
+      const enhancedBase64 = await enhancePromise
+      if (!enhancedBase64) return
+
+      const enhancedUrl = await uploadToStorage(enhancedBase64)
+      const enhancedToStore = enhancedUrl ?? enhancedBase64
+
+      await (supabase as any).from('photos').update({ image_data: enhancedToStore }).eq('id', photoId)
+      const update = (old: Photo[] = []) => old.map(p => p.id === photoId ? { ...p, image_data: enhancedToStore } : p)
+      queryClient.setQueryData(['photos', patientId], update)
+      queryClient.setQueryData(['photo-data', photoId], enhancedToStore)
+      if (sessionFolderIdRef.current) queryClient.setQueryData(['folder-photos', sessionFolderIdRef.current], update)
+    } catch (err) {
+      console.error('Apply enhancement error photo', photoId, err)
+    }
   }
 
   const capturePhoto = async () => {
@@ -1083,9 +1141,10 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         setTimeout(() => setFlyAnim(null), 650)
       }
 
-      setCapturedItems(prev => [{ kind: 'photo', dataUrl: finalImageData }, ...prev])
+      const localId = crypto.randomUUID()
+      setCapturedItems(prev => [{ kind: 'photo', id: localId, dataUrl: finalImageData, enhanceStatus: 'pending' }, ...prev])
       // Salva imediatamente no Supabase — galeria atualiza em tempo real
-      uploadPhotoNow(finalImageData)
+      uploadPhotoNow(finalImageData, localId)
 
     } catch {
       toast({
@@ -1122,7 +1181,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
           const blob = await res.blob()
           const duration = recordingTime
           const poster = await generateVideoPoster(blob)
-          const item: CapturedItem = { kind: 'video', dataUrl: poster, blob, duration, mimeType: 'video/mp4' }
+          const item: CapturedItem = { kind: 'video', id: crypto.randomUUID(), dataUrl: poster, blob, duration, mimeType: 'video/mp4' }
           setCapturedItems(prev => [item, ...prev])
           setShowSaveButton(true)
           const stageRect = stageRef.current?.getBoundingClientRect()
@@ -1186,7 +1245,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       // Gera poster (primeiro frame visível) usando um <video> off-DOM
       const poster = await generateVideoPoster(blob)
 
-      const item: CapturedItem = { kind: 'video', dataUrl: poster, blob, duration, mimeType }
+      const item: CapturedItem = { kind: 'video', id: crypto.randomUUID(), dataUrl: poster, blob, duration, mimeType }
       setCapturedItems(prev => [item, ...prev])
       setShowSaveButton(true)
 
@@ -1373,6 +1432,12 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   }
 
   const lastItem = capturedItems[0]
+  // Helper: pega o melhor preview disponível (enhanced se já chegou, senão original)
+  const previewOf = (item: CapturedItem) =>
+    item.kind === 'photo' && item.enhancedDataUrl ? item.enhancedDataUrl : item.dataUrl
+  const enhancingCount = capturedItems.filter(
+    i => i.kind === 'photo' && i.enhanceStatus === 'pending'
+  ).length
 
   const content = (
     <>
@@ -1418,12 +1483,19 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
           {lastItem ? (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={lastItem.dataUrl} alt="" className="w-full h-full object-cover" />
+              <img src={previewOf(lastItem)} alt="" className="w-full h-full object-cover" />
               {lastItem.kind === 'video' && (
                 <span className="absolute inset-0 flex items-center justify-center bg-black/30">
                   <span className="w-9 h-9 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
                     <Play className="w-4 h-4 text-teal-700 fill-current ml-0.5" />
                   </span>
+                </span>
+              )}
+              {/* Contador de fotos sendo melhoradas no canto superior direito do thumb */}
+              {enhancingCount > 0 && (
+                <span className="absolute top-1 right-1 flex items-center gap-1 px-1.5 py-0.5 rounded bg-dourado-500/95 text-white text-[10px] font-semibold shadow-md ring-1 ring-white/30">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                  {enhancingCount}
                 </span>
               )}
             </>
@@ -1709,7 +1781,20 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
                   <video src={URL.createObjectURL(current.blob)} controls className="max-h-full max-w-full" />
                 ) : (
                   /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src={current.dataUrl} alt="" className="max-h-full max-w-full object-contain" />
+                  <img src={previewOf(current)} alt="" className="max-h-full max-w-full object-contain" />
+                )}
+                {/* Badge de status do enhancement na foto atual */}
+                {current.kind === 'photo' && current.enhanceStatus === 'pending' && (
+                  <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded bg-gradient-to-r from-teal-600 to-dourado-500 text-white text-[11px] font-semibold shadow-lg">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Melhorando com IA…
+                  </div>
+                )}
+                {current.kind === 'photo' && current.enhanceStatus === 'done' && (
+                  <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded bg-teal-600 text-white text-[11px] font-semibold shadow-lg">
+                    <Sparkles className="w-3 h-3 text-dourado-300" />
+                    Melhorada
+                  </div>
                 )}
                 {capturedItems.length > 1 && (
                   <>
@@ -1733,15 +1818,25 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
               <div className="px-4 py-3 flex gap-2 overflow-x-auto bg-gray-50">
                 {capturedItems.map((it, i) => (
                   <button
-                    key={i}
+                    key={it.id}
                     onClick={() => setGalleryIndex(i)}
                     className={`relative shrink-0 w-16 h-16 rounded overflow-hidden ring-2 transition-all ${i === galleryIndex ? 'ring-teal-500' : 'ring-transparent hover:ring-gray-300'}`}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={it.dataUrl} alt="" className="w-full h-full object-cover" />
+                    <img src={previewOf(it)} alt="" className="w-full h-full object-cover" />
                     {it.kind === 'video' && (
                       <span className="absolute inset-0 flex items-center justify-center bg-black/30">
                         <Play className="w-4 h-4 text-white fill-current" />
+                      </span>
+                    )}
+                    {it.kind === 'photo' && it.enhanceStatus === 'pending' && (
+                      <span className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded bg-dourado-500/95 flex items-center justify-center shadow ring-1 ring-white/40">
+                        <Loader2 className="w-2.5 h-2.5 text-white animate-spin" />
+                      </span>
+                    )}
+                    {it.kind === 'photo' && it.enhanceStatus === 'done' && (
+                      <span className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded bg-teal-600 flex items-center justify-center shadow ring-1 ring-white/40">
+                        <Sparkles className="w-2.5 h-2.5 text-dourado-300" />
                       </span>
                     )}
                   </button>

@@ -96,13 +96,13 @@ fun CaptureScreen(
         Row(
             Modifier
                 .fillMaxSize()
-                .padding(vertical = 24.dp),
+                .padding(vertical = 6.dp),
             verticalAlignment = Alignment.Top,
         ) {
             // Coluna esquerda — Fechar / Salvar / Thumbnail
             LeftSidebar(
                 modifier = Modifier
-                    .width(180.dp)
+                    .width(140.dp)
                     .fillMaxHeight(),
                 capturedCount = captured.size,
                 lastItem = captured.firstOrNull(),
@@ -119,7 +119,7 @@ fun CaptureScreen(
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .padding(horizontal = 8.dp),
+                    .padding(horizontal = 2.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Stage(
@@ -135,7 +135,7 @@ fun CaptureScreen(
             // Coluna direita — Odontograma / Capture / Espelhar / Ajustes
             RightSidebar(
                 modifier = Modifier
-                    .width(180.dp)
+                    .width(140.dp)
                     .fillMaxHeight(),
                 isMirrored = isMirrored,
                 captureMode = captureMode,

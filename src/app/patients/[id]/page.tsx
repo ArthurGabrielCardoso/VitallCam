@@ -97,12 +97,6 @@ export default function PatientPage() {
     const url = tab === 'overview' ? `/patients/${patientId}` : `/patients/${patientId}?tab=${tab}`
     router.push(url, { scroll: false })
   }
-  // App nativo: após salvar as capturas, a câmera navega pra ?folder=<id> pra
-  // abrir direto a pasta com as fotos (em vez de só voltar pra overview).
-  const folderParam = searchParams.get('folder')
-  useEffect(() => {
-    if (folderParam) setCurrentFolder(folderParam)
-  }, [folderParam])
   const foldersScrollRef = useRef<HTMLDivElement>(null)
   const photosScrollRef = useRef<HTMLDivElement>(null)
   const profileVideoRef = useRef<HTMLVideoElement>(null)

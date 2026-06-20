@@ -221,6 +221,10 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   const isNativeRef = useRef(false)
   const previewSlotRef = useRef<HTMLDivElement>(null)
   const [isNative, setIsNative] = useState(false)
+  // App: depois do "Salvar" no nativo, mostra as capturas na hora (em memória)
+  // enquanto sobem pro Supabase em background — igual web.
+  const [nativeReviewOpen, setNativeReviewOpen] = useState(false)
+  const hasReviewedRef = useRef(false)
   const [nativePreviewState, setNativePreviewState] = useState<NativePreviewState>('idle')
   const [capabilities, setCapabilities] = useState<IntraoralCapabilities | null>(null)
   const [showDebug, setShowDebug] = useState(false)
@@ -246,31 +250,21 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
             description: error,
           })
         }
+        // Se já tinha capturas em revisão (veio do "Capturar mais" e cancelou),
+        // volta pra revisão em vez de fechar tudo.
+        if (hasReviewedRef.current) {
+          setNativeReviewOpen(true)
+          return
+        }
         onClose?.()
         return
-      }
-
-      // fetch do arquivo local (appassets) com retry — raramente falha, mas
-      // garante que nenhuma captura suma por um soluço momentâneo.
-      const fetchBlobWithRetry = async (u: string, tries = 3): Promise<Blob> => {
-        let e: any
-        for (let i = 0; i < tries; i++) {
-          try {
-            const r = await fetch(u)
-            if (!r.ok) throw new Error(`HTTP ${r.status}`)
-            return await r.blob()
-          } catch (err) {
-            e = err
-            await new Promise(res => setTimeout(res, 400 * (i + 1)))
-          }
-        }
-        throw e
       }
 
       const items: CapturedItem[] = []
       for (const url of urls) {
         try {
-          const rawBlob = await fetchBlobWithRetry(url)
+          const res = await fetch(url)
+          const rawBlob = await res.blob()
           const filename = url.split('/').pop() || ''
           const isVideo = filename.endsWith('.mp4') || rawBlob.type.startsWith('video/')
           if (isVideo) {
@@ -308,50 +302,27 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         return
       }
 
+      // IGUAL AO WEB: as fotos aparecem NA HORA (dataUrl em memória) e cada uma
+      // sobe pro Supabase em BACKGROUND (fire-and-forget) — sem tela de
+      // "Salvando" travando. O usuário revê as fotos imediatamente.
       setCapturedItems(prev => [...items, ...prev])
       const photos = items.filter(i => i.kind === 'photo') as Extract<CapturedItem, { kind: 'photo' }>[]
       const videos = items.filter(i => i.kind === 'video') as Extract<CapturedItem, { kind: 'video' }>[]
-
-      // No app: salva TUDO na hora (igual web) e já abre a pasta com as fotos.
-      // Antes o componente ficava preso em "Abrindo câmera intraoral…" porque
-      // nunca fechava após salvar. Espera os uploads (internet lenta da TV box).
-      setIsSaving(true)
-      let folderId: string | null = null
-      try {
-        folderId = await ensureSessionFolder()
-        const photoResults = await Promise.all(
-          photos.map(item => uploadPhotoNow(item.dataUrl, item.id)),
-        )
-        const okPhotos = photoResults.filter(Boolean).length
-        let okVideos = 0
-        for (const v of videos) {
-          try {
-            const data = await uploadVideoItem(v, folderId)
-            onPhotoCapture(data)
-            okVideos++
-          } catch (e) {
-            console.error('Falha ao salvar vídeo:', e)
-          }
+      // Fotos: salvas imediatamente em paralelo (mesma função do web)
+      photos.forEach(item => uploadPhotoNow(item.dataUrl, item.id))
+      // Vídeos (se houver): sobem em background também
+      videos.forEach(async v => {
+        try {
+          const folderId = await ensureSessionFolder()
+          const data = await uploadVideoItem(v, folderId)
+          onPhotoCapture(data)
+        } catch (e) {
+          console.error('Falha ao salvar vídeo:', e)
         }
-        const failed = (photos.length - okPhotos) + (videos.length - okVideos)
-        if (okPhotos + okVideos > 0) {
-          toast({
-            title: 'Capturas salvas',
-            description: `${okPhotos} foto(s)${videos.length ? ` + ${okVideos} vídeo(s)` : ''}${failed ? ` · ${failed} falhou(ram)` : ''}`,
-          })
-        }
-        if (failed > 0) {
-          toast({ variant: 'destructive', title: 'Algumas capturas falharam', description: `${failed} não foram salvas — verifique a internet.` })
-        }
-      } catch (e: any) {
-        toast({ variant: 'destructive', title: 'Erro ao salvar', description: e?.message?.slice(0, 200) || 'Tente novamente.' })
-      } finally {
-        setCapturedItems([])
-        setIsSaving(false)
-        // Abre a pasta recém-criada com as fotos e fecha a câmera (igual web)
-        if (folderId) router.push(`/patients/${patientId}?folder=${folderId}`)
-        onClose?.()
-      }
+      })
+      // Mostra a tela de revisão das capturas (em memória, instantâneo)
+      hasReviewedRef.current = true
+      setNativeReviewOpen(true)
     }
 
     // Auto-abre a tela nativa de captura ao entrar
@@ -1010,7 +981,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
   // Salva foto no Supabase (via Storage se possível) e atualiza o cache imediatamente.
   // O enhancement é disparado em paralelo ao upload — não espera Storage/DB.
-  const uploadPhotoNow = async (dataUrl: string, localId?: string): Promise<boolean> => {
+  const uploadPhotoNow = async (dataUrl: string, localId?: string) => {
     // 1) Já dispara o enhancement (não bloqueia upload). Promise retorna o base64 melhorado.
     const enhancePromise = startEnhancement(dataUrl)
 
@@ -1026,40 +997,30 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       })
     }
 
-    // Salva com até 3 tentativas — a internet da TV box é lenta/instável e
-    // antes algumas fotos sumiam silenciosamente. uploadToStorage já cai pra
-    // base64 se o Storage falhar; aqui re-tentamos o insert no banco também.
-    let lastErr: any
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const folderId = await ensureSessionFolder()
+    try {
+      const folderId = await ensureSessionFolder()
 
-        // 2) Em paralelo, sobe o original ao Storage
-        const storageUrl = await uploadToStorage(dataUrl)
-        const imageToStore = storageUrl ?? dataUrl
+      // 2) Em paralelo, sobe o original ao Storage
+      const storageUrl = await uploadToStorage(dataUrl)
+      const imageToStore = storageUrl ?? dataUrl
 
-        const { data, error } = await (supabase as any)
-          .from('photos')
-          .insert({ patient_id: patientId, image_data: imageToStore, folder_id: folderId })
-          .select()
-          .single()
-        if (error) throw error
+      const { data, error } = await (supabase as any)
+        .from('photos')
+        .insert({ patient_id: patientId, image_data: imageToStore, folder_id: folderId })
+        .select()
+        .single()
+      if (error) throw error
 
-        // Foto aparece na galeria na hora, sem precisar fechar a câmera
-        queryClient.setQueryData(['photos', patientId], (old: Photo[] = []) => [data, ...old])
-        queryClient.setQueryData(['folder-photos', folderId], (old: Photo[] = []) => [data, ...old])
+      // Foto aparece na galeria na hora, sem precisar fechar a câmera
+      queryClient.setQueryData(['photos', patientId], (old: Photo[] = []) => [data, ...old])
+      queryClient.setQueryData(['folder-photos', folderId], (old: Photo[] = []) => [data, ...old])
 
-        // 3) Quando o enhancement terminar, aplica na foto
-        applyEnhancementWhenReady(data.id, enhancePromise)
-        return true
-      } catch (err: any) {
-        lastErr = err
-        if (attempt < 3) await new Promise(r => setTimeout(r, 800 * attempt))
-      }
+      // 3) Quando o enhancement terminar, aplica na foto
+      applyEnhancementWhenReady(data.id, enhancePromise)
+    } catch (err: any) {
+      console.error('Erro ao salvar foto automaticamente:', err)
+      toast({ variant: 'destructive', title: 'Erro ao salvar foto', description: err?.message?.slice(0, 200) })
     }
-    console.error('Erro ao salvar foto automaticamente:', lastErr)
-    toast({ variant: 'destructive', title: 'Erro ao salvar foto', description: lastErr?.message?.slice(0, 200) })
-    return false
   }
 
   // Semáforo: máximo 5 enhancements simultâneos
@@ -1429,11 +1390,77 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   // No app, a UI da câmera é uma Activity nativa Compose — não renderiza
   // nada do React. Mostra um overlay neutro enquanto a Activity abre/processa.
   if (isNative) {
+    // Revisão pós-captura: as fotos aparecem NA HORA (em memória) enquanto
+    // sobem pro Supabase em background — mesma lógica do web.
+    if (nativeReviewOpen && capturedItems.length > 0) {
+      return (
+        <div className="fixed inset-0 z-[60] bg-neutral-950 flex flex-col">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+            <div>
+              <h2 className="text-white text-lg font-semibold">Capturas</h2>
+              <p className="text-white/50 text-xs mt-0.5">Salvas automaticamente no servidor</p>
+            </div>
+            <span className="text-teal-400 text-sm font-medium">
+              {capturedItems.length} {capturedItems.length === 1 ? 'item' : 'itens'}
+            </span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {capturedItems.map(item => {
+                const src = item.kind === 'photo' ? (item.enhancedDataUrl || item.dataUrl) : item.dataUrl
+                return (
+                  <div key={item.id} className="relative aspect-square rounded-lg overflow-hidden bg-neutral-800 ring-1 ring-white/10">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt="" className="w-full h-full object-cover" />
+                    {item.kind === 'video' && (
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/30">
+                        <span className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center">
+                          <Play className="w-5 h-5 text-teal-700 fill-current ml-0.5" />
+                        </span>
+                      </span>
+                    )}
+                    {item.kind === 'photo' && item.enhanceStatus === 'pending' && (
+                      <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 px-2 py-0.5 rounded bg-black/70 text-white text-[10px] font-medium">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Melhorando…
+                      </span>
+                    )}
+                    {item.kind === 'photo' && item.enhanceStatus === 'done' && (
+                      <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 px-2 py-0.5 rounded bg-teal-600 text-white text-[10px] font-medium">
+                        <Sparkles className="w-3 h-3 text-dourado-300" /> Melhorada
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-white/10">
+            <button
+              onClick={() => {
+                setNativeReviewOpen(false)
+                window.VitallCam?.openIntraoralCamera?.('window.__onIntraoralCapture')
+              }}
+              className="flex items-center gap-2 px-5 py-3 rounded-lg bg-white/10 hover:bg-white/15 text-white text-sm font-medium transition-colors"
+            >
+              <Camera className="w-4 h-4" /> Capturar mais
+            </button>
+            <button
+              onClick={() => onClose?.()}
+              className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white text-sm font-semibold transition-colors"
+            >
+              <Check className="w-4 h-4" /> Concluir
+            </button>
+          </div>
+        </div>
+      )
+    }
     return (
       <div className="fixed inset-0 z-[60] bg-neutral-950 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-white/70">
           <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
-          <p className="text-sm">{isSaving ? 'Salvando capturas…' : 'Abrindo câmera intraoral…'}</p>
+          <p className="text-sm">Abrindo câmera intraoral…</p>
         </div>
       </div>
     )

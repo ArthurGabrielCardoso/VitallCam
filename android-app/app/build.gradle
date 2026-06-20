@@ -68,7 +68,7 @@ dependencies {
     implementation 'androidx.compose.runtime:runtime'
 
     // UVCAndroid (shiyinghan) - Maven Central, suporte a câmera UVC via OTG
-    implementation 'com.herohan:UVCAndroid:1.0.9'
+    implementation 'com.herohan:UVCAndroid:1.0.13'
 
     // WebViewAssetLoader — serve arquivos do cache via https://appassets.androidplatform.net/...
     // pra contornar limite de Binder IPC (1MB) ao transferir capturas grandes pro JS

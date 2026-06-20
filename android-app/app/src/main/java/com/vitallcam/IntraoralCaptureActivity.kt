@@ -1,7 +1,6 @@
 package com.vitallcam
 
 import android.app.Activity
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -248,25 +247,9 @@ class IntraoralCaptureActivity : ComponentActivity() {
         override fun onCancel(device: UsbDevice) {}
     }
 
-    private val actionUsbPermission = "com.vitallcam.USB_PERMISSION"
-
     private val usbReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
-                actionUsbPermission -> {
-                    val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-                    @Suppress("DEPRECATION")
-                    val device: UsbDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                        intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
-                    else
-                        intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-                    if (granted && device != null) {
-                        connectedDevice = device
-                        runCatching { cameraHelper?.selectDevice(device) }
-                    } else {
-                        previewState = PreviewState.Error("Permissão USB negada — toque em reconectar")
-                    }
-                }
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
                     if (cameraHelper == null) initHelperAndOpen()
                     else if (cameraHelper?.isCameraOpened != true) scheduleOpenWatchdog()
@@ -282,7 +265,6 @@ class IntraoralCaptureActivity : ComponentActivity() {
     private fun registerUsbReceiver() {
         if (usbReceiverRegistered) return
         val filter = IntentFilter().apply {
-            addAction(actionUsbPermission)
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         }
@@ -336,25 +318,10 @@ class IntraoralCaptureActivity : ComponentActivity() {
                 (0 until dev.interfaceCount).any { dev.getInterface(it).interfaceClass == 14 }
         } ?: devices.first()
         connectedDevice = cam
-        if (usbManager.hasPermission(cam)) {
-            runCatching { helper.selectDevice(cam) }
-        } else {
-            // Pede a permissão do DISPOSITIVO USB (diferente da permissão de
-            // câmera do Android). Sem ela, selectDevice nunca abre a câmera.
-            // IMPORTANTE: o PendingIntent precisa ser MUTÁVEL — com FLAG_IMMUTABLE
-            // o sistema não consegue gravar o extra EXTRA_PERMISSION_GRANTED na
-            // resposta, e a permissão volta SEMPRE como "negada".
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-            else
-                PendingIntent.FLAG_UPDATE_CURRENT
-            val pi = PendingIntent.getBroadcast(
-                this, 0,
-                Intent(actionUsbPermission).setPackage(packageName),
-                flags,
-            )
-            runCatching { usbManager.requestPermission(cam, pi) }
-        }
+        // A PRÓPRIA lib pede a permissão USB dentro de selectDevice (igual ao
+        // demo oficial). Pedir permissão por fora (PendingIntent próprio) estava
+        // CONFLITANDO com o fluxo interno da lib e voltando "negada". Removido.
+        runCatching { helper.selectDevice(cam) }
     }
 
     private fun scheduleOpenWatchdog() {

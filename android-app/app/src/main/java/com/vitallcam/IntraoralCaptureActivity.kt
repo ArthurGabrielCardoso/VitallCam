@@ -23,6 +23,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
+import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.View
 import android.view.WindowManager
@@ -127,6 +128,7 @@ class IntraoralCaptureActivity : ComponentActivity() {
     private var cameraBgHandler: Handler? = null
     private var photoSize: android.util.Size? = null
     private var previewSize: android.util.Size? = null
+    private var lastPedalCaptureMs = 0L
 
     sealed class PreviewState {
         object Connecting : PreviewState()
@@ -692,6 +694,33 @@ class IntraoralCaptureActivity : ComponentActivity() {
                 }
             }, cameraBgHandler)
         }.onFailure { dbg("captureImage ERRO: ${it.message}") }
+    }
+
+    // Pedal/mouse: botão do meio (scroll) tira UMA foto. O pedal manda vários
+    // cliques por pisada, então o debounce de 1.2s garante 1 foto por pisada.
+    private fun triggerPedalCapture() {
+        val now = System.currentTimeMillis()
+        if (now - lastPedalCaptureMs < 1200) return
+        lastPedalCaptureMs = now
+        captureImage()
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_BUTTON_PRESS &&
+            (event.buttonState and MotionEvent.BUTTON_TERTIARY) != 0) {
+            triggerPedalCapture()
+            return true
+        }
+        return super.dispatchGenericMotionEvent(event)
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_BUTTON_PRESS &&
+            (event.buttonState and MotionEvent.BUTTON_TERTIARY) != 0) {
+            triggerPedalCapture()
+            return true
+        }
+        return super.onGenericMotionEvent(event)
     }
 
     private fun startRecording() {

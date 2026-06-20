@@ -286,7 +286,39 @@ class IntraoralCaptureActivity : ComponentActivity() {
     private fun initHelperAndOpen() {
         if (cameraHelper != null) tearDownHelper()
         cameraHelper = CameraHelper().apply { setStateCallback(stateListener) }
+        // A câmera costuma já estar plugada ANTES do app abrir. Nesse caso o
+        // onAttach do monitor interno da lib frequentemente NÃO dispara pra um
+        // device já presente — e fica eternamente "Conectando". Por isso
+        // enumeramos manualmente o USB e chamamos selectDevice. Delay pequeno
+        // pra dar tempo do monitor da lib registrar.
+        mainHandler.postDelayed({ trySelectConnectedDevice() }, 600)
         scheduleOpenWatchdog()
+    }
+
+    // Enumera dispositivos USB já conectados (API padrão do Android, sempre
+    // disponível) e seleciona a câmera UVC manualmente. Mostra um Toast com a
+    // contagem pra diagnóstico visível na TV box (sem precisar de logcat).
+    private fun trySelectConnectedDevice() {
+        val helper = cameraHelper ?: return
+        if (helper.isCameraOpened) return
+        val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager ?: return
+        val devices = usbManager.deviceList.values.toList()
+        runOnUiThread {
+            android.widget.Toast.makeText(
+                this,
+                if (devices.isEmpty()) "USB: nenhum dispositivo detectado"
+                else "USB: ${devices.size} dispositivo(s) — abrindo câmera…",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+        }
+        if (devices.isEmpty()) return
+        // Prioriza quem tem interface de vídeo (UVC); senão pega o primeiro.
+        val cam = devices.firstOrNull { dev ->
+            dev.deviceClass == 239 || dev.deviceClass == 14 || dev.deviceClass == 255 ||
+                (0 until dev.interfaceCount).any { dev.getInterface(it).interfaceClass == 14 }
+        } ?: devices.first()
+        connectedDevice = cam
+        runCatching { helper.selectDevice(cam) }
     }
 
     private fun scheduleOpenWatchdog() {

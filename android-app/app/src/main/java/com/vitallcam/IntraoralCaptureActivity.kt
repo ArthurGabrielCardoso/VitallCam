@@ -315,7 +315,13 @@ class IntraoralCaptureActivity : ComponentActivity() {
         }
 
         override fun onCancel(device: UsbDevice) {
-            dbg("onCancel (permissão negada/cancelada)")
+            dbg("onCancel (permissão USB negada/auto-cancelada pelo sistema)")
+            previewState = PreviewState.Error(
+                "A TV box bloqueou a permissão USB.\n\n" +
+                    "Solução: desconecte e reconecte o cabo da câmera, e quando o " +
+                    "Android perguntar, toque em \"Abrir VitallCam\" e marque " +
+                    "\"Usar por padrão para este dispositivo USB\".",
+            )
         }
     }
 

@@ -23,6 +23,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.View
@@ -705,22 +706,52 @@ class IntraoralCaptureActivity : ComponentActivity() {
         captureImage()
     }
 
-    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-        if (event.action == MotionEvent.ACTION_BUTTON_PRESS &&
-            (event.buttonState and MotionEvent.BUTTON_TERTIARY) != 0) {
-            triggerPedalCapture()
-            return true
+    // O pedal varia: pode emular clique do mouse (meio/direito) OU mandar uma
+    // tecla (Enter/Espaço/OK). Aceitamos todos esses. NÃO usamos o clique
+    // esquerdo (PRIMARY) pra não disparar ao tocar nos botões da tela.
+    private fun isPedalButton(buttonState: Int): Boolean {
+        return (buttonState and MotionEvent.BUTTON_TERTIARY) != 0 ||
+            (buttonState and MotionEvent.BUTTON_SECONDARY) != 0 ||
+            (buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
+    }
+
+    private fun handlePedalMotion(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_BUTTON_PRESS) {
+            // Loga o sinal exato do pedal pra eu identificar (sobe pro debug-log)
+            dbg("PEDAL? motion btnState=${event.buttonState} src=${event.source} dev='${event.device?.name ?: "?"}'")
+            if (isPedalButton(event.buttonState)) {
+                triggerPedalCapture()
+                return true
+            }
         }
+        return false
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (handlePedalMotion(event)) return true
         return super.dispatchGenericMotionEvent(event)
     }
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
-        if (event.action == MotionEvent.ACTION_BUTTON_PRESS &&
-            (event.buttonState and MotionEvent.BUTTON_TERTIARY) != 0) {
-            triggerPedalCapture()
-            return true
-        }
+        if (handlePedalMotion(event)) return true
         return super.onGenericMotionEvent(event)
+    }
+
+    // Pedal que emula teclado (Enter/Espaço/OK) — comum em pedais USB.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            dbg("PEDAL? key code=${event.keyCode} scan=${event.scanCode} src=${event.source} dev='${event.device?.name ?: "?"}'")
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_NUMPAD_ENTER,
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_SPACE -> {
+                    triggerPedalCapture()
+                    return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     private fun startRecording() {

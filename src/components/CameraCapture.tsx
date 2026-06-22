@@ -23,8 +23,8 @@ interface CameraCaptureProps {
 type CaptureMode = 'photo' | 'video'
 
 type CapturedItem =
-  | { kind: 'photo'; id: string; dataUrl: string; enhancedDataUrl?: string; enhanceStatus?: 'pending' | 'done' | 'failed' }
-  | { kind: 'video'; id: string; dataUrl: string; blob: Blob; duration: number; mimeType: string }
+  | { kind: 'photo'; id: string; dataUrl: string; enhancedDataUrl?: string; enhanceStatus?: 'pending' | 'done' | 'failed'; capturedAt?: number }
+  | { kind: 'video'; id: string; dataUrl: string; blob: Blob; duration: number; mimeType: string; capturedAt?: number }
 
 declare global {
   interface Window {
@@ -288,7 +288,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
             const duration = m ? parseInt(m[1], 10) : 0
             const poster = await generateVideoPoster(blob).catch(() => '')
             ;(window.VitallCam as any)?.deleteCaptureFile?.(filename)
-            return { kind: 'video', id: crypto.randomUUID(), dataUrl: poster, blob, duration, mimeType: 'video/mp4' }
+            return { kind: 'video', id: crypto.randomUUID(), dataUrl: poster, blob, duration, mimeType: 'video/mp4', capturedAt }
           }
           // Pra foto, transforma em dataURL pra fluxo legado de upload (column image_data)
           const dataUrl: string = await new Promise((resolve, reject) => {
@@ -300,7 +300,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
           ;(window.VitallCam as any)?.deleteCaptureFile?.(filename)
           const pid = crypto.randomUUID()
           if (capturedAt) captMillis.set(pid, capturedAt)
-          return { kind: 'photo', id: pid, dataUrl, enhanceStatus: 'pending' }
+          return { kind: 'photo', id: pid, dataUrl, enhanceStatus: 'pending', capturedAt }
         } catch (e) {
           console.error('Erro ao buscar captura:', url, e)
           emptyOrFailed++
@@ -357,8 +357,9 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       const localId = id || crypto.randomUUID()
       if (processedPhotoIds.current.has(localId)) return // dedup
       processedPhotoIds.current.add(localId)
-      setCapturedItems(prev => [{ kind: 'photo', id: localId, dataUrl, enhanceStatus: 'pending' }, ...prev])
-      uploadPhotoNow(dataUrl, localId, Number(capturedAt) || undefined)
+      const at = Number(capturedAt) || undefined
+      setCapturedItems(prev => [{ kind: 'photo', id: localId, dataUrl, enhanceStatus: 'pending', capturedAt: at }, ...prev])
+      uploadPhotoNow(dataUrl, localId, at)
       hasReviewedRef.current = true
       setNativeReviewOpen(true)
     }
@@ -1454,12 +1455,14 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
           <div className="flex-1 overflow-y-auto p-4">
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-              {capturedItems.map(item => {
+              {[...capturedItems]
+                .sort((a, b) => (b.capturedAt ?? 0) - (a.capturedAt ?? 0))
+                .map(item => {
                 const src = item.kind === 'photo' ? (item.enhancedDataUrl || item.dataUrl) : item.dataUrl
                 return (
                   <div key={item.id} className="relative aspect-square rounded-lg overflow-hidden bg-neutral-800 ring-1 ring-white/10">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={src} alt="" className="w-full h-full object-cover" />
+                    <img src={src} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     {item.kind === 'video' && (
                       <span className="absolute inset-0 flex items-center justify-center bg-black/30">
                         <span className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center">

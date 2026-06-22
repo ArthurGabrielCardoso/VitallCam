@@ -44,21 +44,32 @@ export default function ConfiguracoesPage() {
     ;(async () => {
       try {
         const db = supabase as any
-        const [foldersRes, patientsRes, photosRes] = await Promise.all([
-          db.from('folders').select('id, name, patient_id, created_at'),
-          db.from('patients').select('id, name'),
-          db.from('photos').select('folder_id, created_at'),
+        // PostgREST corta em 1000 linhas/req — pagina pra pegar TODAS as fotos.
+        const fetchAll = async (table: string, columns: string): Promise<any[]> => {
+          const all: any[] = []
+          let from = 0
+          const size = 1000
+          for (;;) {
+            const { data, error } = await db.from(table).select(columns).range(from, from + size - 1)
+            if (error) throw error
+            all.push(...(data || []))
+            if (!data || data.length < size) break
+            from += size
+          }
+          return all
+        }
+        const [folders, patients, allPhotos] = await Promise.all([
+          fetchAll('folders', 'id, name, patient_id, created_at'),
+          fetchAll('patients', 'id, name'),
+          fetchAll('photos', 'folder_id, created_at'),
         ])
-        if (foldersRes.error) throw foldersRes.error
-        if (patientsRes.error) throw patientsRes.error
-        if (photosRes.error) throw photosRes.error
 
         const patientName = new Map<string, string>()
-        for (const p of patientsRes.data || []) patientName.set(p.id, p.name)
+        for (const p of patients) patientName.set(p.id, p.name)
 
         // agrupa fotos por pasta → conta + min/max created_at
         const agg = new Map<string, { count: number; min: number; max: number }>()
-        for (const ph of photosRes.data || []) {
+        for (const ph of allPhotos) {
           if (!ph.folder_id) continue
           const t = new Date(ph.created_at).getTime()
           const a = agg.get(ph.folder_id)
@@ -66,7 +77,7 @@ export default function ConfiguracoesPage() {
           else { a.count++; a.min = Math.min(a.min, t); a.max = Math.max(a.max, t) }
         }
 
-        const rows: SessionRow[] = (foldersRes.data || [])
+        const rows: SessionRow[] = folders
           .map((f: any): SessionRow | null => {
             const a = agg.get(f.id)
             if (!a) return null // pasta sem fotos não vira sessão

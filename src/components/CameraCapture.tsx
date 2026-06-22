@@ -45,6 +45,7 @@ declare global {
       deleteCaptureFile?: (filename: string) => void
     }
     __onIntraoralCapture?: (dataUrls: string[], error: string | null) => void
+    __onIntraoralPhoto?: (dataUrl: string, id: string, capturedAt: number) => void
     __onIntraoralFrame?: (dataUrl: string | null, error: string | null) => void
     __onIntraoralVideo?: (dataUrl: string | null, error: string | null) => void
     __onIntraoralState?: (state: string) => void
@@ -225,6 +226,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   // enquanto sobem pro Supabase em background — igual web.
   const [nativeReviewOpen, setNativeReviewOpen] = useState(false)
   const hasReviewedRef = useRef(false)
+  const processedPhotoIds = useRef<Set<string>>(new Set())
   const [nativePreviewState, setNativePreviewState] = useState<NativePreviewState>('idle')
   const [capabilities, setCapabilities] = useState<IntraoralCapabilities | null>(null)
   const [showDebug, setShowDebug] = useState(false)
@@ -264,8 +266,12 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       // lê os arquivos o mais rápido possível, antes de qualquer limpeza no
       // nativo. E PULA blob vazio (0 bytes): nunca mais salva foto em branco.
       let emptyOrFailed = 0
+      const captMillis = new Map<string, number>() // id -> hora da captura (ordem)
       const settled = await Promise.all(urls.map(async (url): Promise<CapturedItem | null> => {
         const filename = url.split('/').pop() || ''
+        // nome do arquivo: intraoral_<millisDaCaptura>_<n>.jpg
+        const tsMatch = filename.match(/intraoral_(\d+)_/)
+        const capturedAt = tsMatch ? parseInt(tsMatch[1], 10) : undefined
         try {
           const res = await fetch(url)
           const rawBlob = await res.blob()
@@ -292,7 +298,9 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
             r.readAsDataURL(rawBlob)
           })
           ;(window.VitallCam as any)?.deleteCaptureFile?.(filename)
-          return { kind: 'photo', id: crypto.randomUUID(), dataUrl, enhanceStatus: 'pending' }
+          const pid = crypto.randomUUID()
+          if (capturedAt) captMillis.set(pid, capturedAt)
+          return { kind: 'photo', id: pid, dataUrl, enhanceStatus: 'pending' }
         } catch (e) {
           console.error('Erro ao buscar captura:', url, e)
           emptyOrFailed++
@@ -321,8 +329,9 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       setCapturedItems(prev => [...items, ...prev])
       const photos = items.filter(i => i.kind === 'photo') as Extract<CapturedItem, { kind: 'photo' }>[]
       const videos = items.filter(i => i.kind === 'video') as Extract<CapturedItem, { kind: 'video' }>[]
-      // Fotos: salvas imediatamente em paralelo (mesma função do web)
-      photos.forEach(item => uploadPhotoNow(item.dataUrl, item.id))
+      // Fotos: salvas imediatamente em paralelo (mesma função do web), com a
+      // hora da captura pra manter a ORDEM certa.
+      photos.forEach(item => uploadPhotoNow(item.dataUrl, item.id, captMillis.get(item.id)))
       // Vídeos (se houver): sobem em background também
       videos.forEach(async v => {
         try {
@@ -338,6 +347,22 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       setNativeReviewOpen(true)
     }
 
+    // STREAMING por captura (100% igual ao web): a câmera nativa entrega CADA
+    // foto na hora (bytes em base64), sem arquivo/busca/lote. Faz exatamente o
+    // que o capturePhoto do web faz: mostra na hora + uploadPhotoNow em
+    // background. capturedAt = hora da captura → vira created_at → ORDEM certa
+    // mesmo com uploads em paralelo terminando fora de ordem.
+    window.__onIntraoralPhoto = (dataUrl, id, capturedAt) => {
+      if (!dataUrl || !dataUrl.startsWith('data:') || dataUrl.length < 64) return // pula vazio
+      const localId = id || crypto.randomUUID()
+      if (processedPhotoIds.current.has(localId)) return // dedup
+      processedPhotoIds.current.add(localId)
+      setCapturedItems(prev => [{ kind: 'photo', id: localId, dataUrl, enhanceStatus: 'pending' }, ...prev])
+      uploadPhotoNow(dataUrl, localId, Number(capturedAt) || undefined)
+      hasReviewedRef.current = true
+      setNativeReviewOpen(true)
+    }
+
     // Auto-abre a tela nativa de captura ao entrar
     setTimeout(() => {
       window.VitallCam?.openIntraoralCamera?.('window.__onIntraoralCapture')
@@ -345,6 +370,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
     return () => {
       window.__onIntraoralCapture = undefined
+      window.__onIntraoralPhoto = undefined
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -994,7 +1020,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
   // Salva foto no Supabase (via Storage se possível) e atualiza o cache imediatamente.
   // O enhancement é disparado em paralelo ao upload — não espera Storage/DB.
-  const uploadPhotoNow = async (dataUrl: string, localId?: string) => {
+  const uploadPhotoNow = async (dataUrl: string, localId?: string, createdAtMillis?: number) => {
     // 1) Já dispara o enhancement (não bloqueia upload). Promise retorna o base64 melhorado.
     const enhancePromise = startEnhancement(dataUrl)
 
@@ -1019,7 +1045,14 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
       const { data, error } = await (supabase as any)
         .from('photos')
-        .insert({ patient_id: patientId, image_data: imageToStore, folder_id: folderId })
+        .insert({
+          patient_id: patientId,
+          image_data: imageToStore,
+          folder_id: folderId,
+          // Ordem certa: grava o instante da CAPTURA (não o do upload, que pode
+          // terminar fora de ordem por causa do paralelismo). Só no app nativo.
+          ...(createdAtMillis ? { created_at: new Date(createdAtMillis).toISOString() } : {}),
+        })
         .select()
         .single()
       if (error) throw error

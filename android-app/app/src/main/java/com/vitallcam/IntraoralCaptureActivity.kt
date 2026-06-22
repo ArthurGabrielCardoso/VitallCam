@@ -133,6 +133,9 @@ class IntraoralCaptureActivity : ComponentActivity() {
     // Quando o usuário SALVA, NÃO apagamos os arquivos no onDestroy — o WebView
     // ainda vai buscá-los via appassets. Apagar na hora (corrida) zerava fotos.
     private var savedOk = false
+    // Caminhos das fotos JÁ entregues ao web por streaming (igual capturePhoto).
+    // No Salvar só devolvemos as que NÃO streamaram (fallback) → sem duplicar.
+    private val streamedPaths = java.util.Collections.synchronizedSet(HashSet<String>())
 
     sealed class PreviewState {
         object Connecting : PreviewState()
@@ -244,15 +247,16 @@ class IntraoralCaptureActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Só apaga se NÃO salvou. Se salvou, o WebView ainda vai buscar os
-        // arquivos via appassets e ele mesmo limpa depois (deleteCaptureFile).
-        // Apagar aqui no save zerava as fotos (corrida com o fetch do WebView).
-        if (!savedOk) {
-            captured.forEach {
-                when (it) {
-                    is CapturedItem.Photo -> runCatching { it.file.delete() }
-                    is CapturedItem.Video -> runCatching { it.file.delete() }
-                }
+        // Cancelou (!savedOk): apaga tudo.
+        // Salvou: apaga só as fotos JÁ entregues por streaming (o web tem). As de
+        // fallback ficam pro WebView buscar via appassets (ele limpa depois).
+        captured.forEach {
+            val f = when (it) {
+                is CapturedItem.Photo -> it.file
+                is CapturedItem.Video -> it.file
+            }
+            if (!savedOk || streamedPaths.contains(f.absolutePath)) {
+                runCatching { f.delete() }
             }
         }
         captured.clear()
@@ -564,10 +568,23 @@ class IntraoralCaptureActivity : ComponentActivity() {
             val buf = image.planes[0].buffer
             val bytes = ByteArray(buf.remaining())
             buf.get(bytes)
-            val file = File(File(cacheDir, "captures").apply { mkdirs() }, "intraoral_${System.currentTimeMillis()}_${captured.size}.jpg")
-            file.writeBytes(bytes)
-            dbg("foto salva ${file.name} (${bytes.size / 1024}KB)")
-            runOnUiThread { captured.add(0, CapturedItem.Photo(file)) }
+            if (bytes.isNotEmpty()) {
+                val capturedAt = System.currentTimeMillis()
+                val file = File(File(cacheDir, "captures").apply { mkdirs() }, "intraoral_${capturedAt}_${captured.size}.jpg")
+                file.writeBytes(bytes)
+                dbg("foto ${file.name} (${bytes.size / 1024}KB)")
+                // IGUAL AO WEB: manda os BYTES da foto direto pro WebView na hora
+                // (sem arquivo/busca/lote). O web faz uploadPhotoNow em background.
+                // capturedAt vira created_at → ORDEM garantida mesmo com uploads
+                // em paralelo. Se o WebView não estiver vivo, cai no fallback.
+                val dataUrl = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                val sent = MainActivity.pushIntraoralPhoto(dataUrl, file.name, capturedAt)
+                if (sent) streamedPaths.add(file.absolutePath)
+                else dbg("stream falhou (WebView indisponível) — vai por fallback no Salvar")
+                runOnUiThread { captured.add(0, CapturedItem.Photo(file)) }
+            } else {
+                dbg("JPEG vazio — ignorado")
+            }
         }.onFailure { dbg("salvar JPEG ERRO: ${it.message}") }
         runCatching { image.close() }
     }
@@ -945,16 +962,18 @@ class IntraoralCaptureActivity : ComponentActivity() {
             finish()
             return
         }
-        // Retorna paths dos arquivos pro MainActivity converter em dataURLs e
-        // entregar via callback JS (mantém o contrato existente do bridge).
-        val paths = captured.map {
+        // As fotos já foram entregues ao web por STREAMING (na hora da captura).
+        // Aqui só devolvemos o FALLBACK: fotos que não conseguiram streamar +
+        // vídeos (que não usam streaming). Assim nada duplica.
+        val paths = captured.mapNotNull {
             when (it) {
-                is CapturedItem.Photo -> it.file.absolutePath
+                is CapturedItem.Photo ->
+                    if (streamedPaths.contains(it.file.absolutePath)) null else it.file.absolutePath
                 is CapturedItem.Video -> it.file.absolutePath
             }
         }.toTypedArray()
         val data = Intent().apply { putExtra(EXTRA_IMAGE_PATHS, paths) }
-        savedOk = true // não apagar no onDestroy — o WebView ainda vai buscar
+        savedOk = true // não apagar fallback no onDestroy — o WebView vai buscar
         setResult(Activity.RESULT_OK, data)
         finish()
     }

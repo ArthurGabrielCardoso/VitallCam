@@ -129,6 +129,8 @@ class MainActivity : AppCompatActivity() {
 
         val url = getString(R.string.app_url)
         webView.loadUrl(url)
+
+        liveInstance = this
     }
 
     override fun onRequestPermissionsResult(
@@ -199,6 +201,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (liveInstance === this) liveInstance = null
         usbPermReceiver?.let { runCatching { unregisterReceiver(it) } }
         usbPermReceiver = null
     }
@@ -359,5 +362,25 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val CAMERA_PERMISSION_CODE = 1001
+
+        // Referência viva pra Activity nativa da câmera entregar CADA foto direto
+        // pro WebView na hora (igual capturePhoto do web): sem arquivo, sem busca.
+        @Volatile private var liveInstance: MainActivity? = null
+
+        /**
+         * Entrega UMA foto (dataURL base64) pro web imediatamente.
+         * @param capturedAt millis da captura — vira created_at no banco pra
+         *   garantir a ORDEM certa mesmo com uploads em paralelo.
+         * Retorna true se entregou (WebView vivo); false → cai no fallback do Salvar.
+         */
+        fun pushIntraoralPhoto(dataUrl: String, id: String, capturedAt: Long): Boolean {
+            val act = liveInstance ?: return false
+            act.runOnUiThread {
+                val js = "if(typeof window.__onIntraoralPhoto==='function'){" +
+                    "window.__onIntraoralPhoto(${act.jsString(dataUrl)},${act.jsString(id)},${capturedAt});}"
+                runCatching { act.webView.evaluateJavascript(js, null) }
+            }
+            return true
+        }
     }
 }

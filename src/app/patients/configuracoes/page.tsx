@@ -93,7 +93,18 @@ export default function ConfiguracoesPage() {
           .filter((r: SessionRow | null): r is SessionRow => r !== null)
           .sort((x: SessionRow, y: SessionRow) => new Date(y.date).getTime() - new Date(x.date).getTime())
 
-        if (!cancel) setSessions(rows)
+        // Sessões REAIS: dura entre 1 min e 1 h. Tira os pacientes de teste, as
+        // < 1min (1 foto / upload em lote / teste rápido) e as > 1h (câmera
+        // esquecida aberta / pasta do dia inteiro) — todas distorcem a média.
+        const EXCLUIDOS = new Set(['arthur gabriel cardoso', 'ana maria cardoso de oliveira'])
+        const UM_MINUTO = 60 * 1000
+        const UMA_HORA = 60 * 60 * 1000
+        const filtradas = rows.filter(r =>
+          !EXCLUIDOS.has(r.patientName.trim().toLowerCase()) &&
+          r.durationMs >= UM_MINUTO &&
+          r.durationMs <= UMA_HORA,
+        )
+        if (!cancel) setSessions(filtradas)
       } catch (e: any) {
         if (!cancel) setError(e?.message || 'Falha ao carregar estatísticas')
       } finally {
@@ -107,7 +118,11 @@ export default function ConfiguracoesPage() {
     const totalPhotos = sessions.reduce((s, r) => s + r.photoCount, 0)
     const totalMs = sessions.reduce((s, r) => s + r.durationMs, 0)
     const patients = new Set(sessions.map(r => r.patientId)).size
-    return { sessions: sessions.length, totalPhotos, totalMs, patients }
+    // Média só das sessões com duração mensurável (>1s) — ignora upload em
+    // lote e sessões de 1 foto, que não têm tempo real.
+    const reais = sessions.filter(r => r.durationMs >= 1000)
+    const avgMs = reais.length ? Math.round(reais.reduce((s, r) => s + r.durationMs, 0) / reais.length) : 0
+    return { sessions: sessions.length, totalPhotos, totalMs, patients, avgMs, reais: reais.length }
   }, [sessions])
 
   return (
@@ -129,10 +144,11 @@ export default function ConfiguracoesPage() {
         </div>
 
         {/* Cards de resumo */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <StatCard icon={<Timer className="w-5 h-5" />} label="Sessões" value={String(totals.sessions)} />
-          <StatCard icon={<Camera className="w-5 h-5" />} label="Fotos no total" value={String(totals.totalPhotos)} />
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          <StatCard icon={<Timer className="w-5 h-5" />} label={`Tempo médio${totals.reais ? ` (${totals.reais} sessões)` : ''}`} value={fmtDuration(totals.avgMs)} highlight />
           <StatCard icon={<Clock className="w-5 h-5" />} label="Tempo total" value={fmtDuration(totals.totalMs)} />
+          <StatCard icon={<Calendar className="w-5 h-5" />} label="Sessões" value={String(totals.sessions)} />
+          <StatCard icon={<Camera className="w-5 h-5" />} label="Fotos no total" value={String(totals.totalPhotos)} />
           <StatCard icon={<Users className="w-5 h-5" />} label="Pacientes" value={String(totals.patients)} />
         </div>
 
@@ -191,12 +207,12 @@ export default function ConfiguracoesPage() {
   )
 }
 
-function StatCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+function StatCard({ icon, label, value, highlight = false }: { icon: ReactNode; label: string; value: string; highlight?: boolean }) {
   return (
-    <div className="bg-white border border-gray-200 rounded shadow-sm p-4">
-      <div className="flex items-center gap-2 text-teal-600 mb-2">{icon}</div>
-      <p className="text-2xl font-semibold text-gray-700 tabular-nums">{value}</p>
-      <p className="text-xs text-gray-400 mt-0.5">{label}</p>
+    <div className={`rounded shadow-sm p-4 border ${highlight ? 'bg-teal-600 border-teal-600' : 'bg-white border-gray-200'}`}>
+      <div className={`flex items-center gap-2 mb-2 ${highlight ? 'text-white/80' : 'text-teal-600'}`}>{icon}</div>
+      <p className={`text-2xl font-semibold tabular-nums ${highlight ? 'text-white' : 'text-gray-700'}`}>{value}</p>
+      <p className={`text-xs mt-0.5 ${highlight ? 'text-white/70' : 'text-gray-400'}`}>{label}</p>
     </div>
   )
 }

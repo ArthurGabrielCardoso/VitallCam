@@ -286,9 +286,13 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         setIsSaving(false)
       }
 
-      // VAI DIRETO PRO ÁLBUM com as fotos (todas já salvas/subindo em background).
-      // Se nada foi capturado (folder não criado), só fecha pra página do paciente.
-      const folderId = sessionFolderIdRef.current
+      // VAI DIRETO PRO ÁLBUM. Se as fotos ainda estão subindo (pasta não criada
+      // ainda), garante a pasta pra abrir o álbum certo mesmo assim.
+      const hadCaptures = (urls && urls.length > 0) || processedPhotoIds.current.size > 0
+      let folderId = sessionFolderIdRef.current
+      if (hadCaptures && !folderId) {
+        try { folderId = await ensureSessionFolder() } catch { /* sem internet ainda */ }
+      }
       if (folderId) router.push(`/patients/${patientId}?folder=${folderId}`)
       onClose?.()
     }

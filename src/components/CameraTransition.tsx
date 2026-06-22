@@ -73,7 +73,9 @@ export default function CameraTransition({ isDataReady }: { isDataReady: boolean
       className={`fixed inset-0 z-[80] flex items-center justify-center overflow-hidden${exiting ? ' camera-reveal' : ''}`}
       style={{
         backgroundColor: '#ffffff',
-        pointerEvents:   exiting ? 'none' : 'auto',
+        // Splash puramente visual — NUNCA captura cliques (senão trava a página
+        // por ~5s se a animação re-dispara ao voltar da câmera nativa).
+        pointerEvents:   'none',
       }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}

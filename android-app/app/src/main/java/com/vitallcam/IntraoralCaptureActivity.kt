@@ -130,6 +130,9 @@ class IntraoralCaptureActivity : ComponentActivity() {
     private var photoSize: android.util.Size? = null
     private var previewSize: android.util.Size? = null
     private var lastPedalCaptureMs = 0L
+    // Quando o usuário SALVA, NÃO apagamos os arquivos no onDestroy — o WebView
+    // ainda vai buscá-los via appassets. Apagar na hora (corrida) zerava fotos.
+    private var savedOk = false
 
     sealed class PreviewState {
         object Connecting : PreviewState()
@@ -241,11 +244,15 @@ class IntraoralCaptureActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Limpa arquivos de captura caso usuário tenha matado a Activity sem salvar
-        captured.forEach {
-            when (it) {
-                is CapturedItem.Photo -> runCatching { it.file.delete() }
-                is CapturedItem.Video -> runCatching { it.file.delete() }
+        // Só apaga se NÃO salvou. Se salvou, o WebView ainda vai buscar os
+        // arquivos via appassets e ele mesmo limpa depois (deleteCaptureFile).
+        // Apagar aqui no save zerava as fotos (corrida com o fetch do WebView).
+        if (!savedOk) {
+            captured.forEach {
+                when (it) {
+                    is CapturedItem.Photo -> runCatching { it.file.delete() }
+                    is CapturedItem.Video -> runCatching { it.file.delete() }
+                }
             }
         }
         captured.clear()
@@ -947,6 +954,7 @@ class IntraoralCaptureActivity : ComponentActivity() {
             }
         }.toTypedArray()
         val data = Intent().apply { putExtra(EXTRA_IMAGE_PATHS, paths) }
+        savedOk = true // não apagar no onDestroy — o WebView ainda vai buscar
         setResult(Activity.RESULT_OK, data)
         finish()
     }

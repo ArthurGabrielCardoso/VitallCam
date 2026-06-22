@@ -260,12 +260,16 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         return
       }
 
-      const items: CapturedItem[] = []
-      for (const url of urls) {
+      // Busca TODAS as capturas EM PARALELO (não em série) — assim o WebView
+      // lê os arquivos o mais rápido possível, antes de qualquer limpeza no
+      // nativo. E PULA blob vazio (0 bytes): nunca mais salva foto em branco.
+      let emptyOrFailed = 0
+      const settled = await Promise.all(urls.map(async (url): Promise<CapturedItem | null> => {
+        const filename = url.split('/').pop() || ''
         try {
           const res = await fetch(url)
           const rawBlob = await res.blob()
-          const filename = url.split('/').pop() || ''
+          if (!rawBlob || rawBlob.size === 0) { emptyOrFailed++; return null }
           const isVideo = filename.endsWith('.mp4') || rawBlob.type.startsWith('video/')
           if (isVideo) {
             // O WebViewAssetLoader pode devolver Content-Type
@@ -274,26 +278,35 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
             const blob = rawBlob.type === 'video/mp4'
               ? rawBlob
               : new Blob([await rawBlob.arrayBuffer()], { type: 'video/mp4' })
-            // Duração embutida no nome: ..._d<segundos>.mp4
             const m = filename.match(/_d(\d+)\.mp4$/)
             const duration = m ? parseInt(m[1], 10) : 0
             const poster = await generateVideoPoster(blob).catch(() => '')
-            items.push({ kind: 'video', id: crypto.randomUUID(), dataUrl: poster, blob, duration, mimeType: 'video/mp4' })
-          } else {
-            // Pra foto, transforma em dataURL pra fluxo legado de upload (column image_data)
-            const dataUrl: string = await new Promise((resolve, reject) => {
-              const r = new FileReader()
-              r.onload = () => resolve(r.result as string)
-              r.onerror = () => reject(r.error)
-              r.readAsDataURL(rawBlob)
-            })
-            items.push({ kind: 'photo', id: crypto.randomUUID(), dataUrl, enhanceStatus: 'pending' })
+            ;(window.VitallCam as any)?.deleteCaptureFile?.(filename)
+            return { kind: 'video', id: crypto.randomUUID(), dataUrl: poster, blob, duration, mimeType: 'video/mp4' }
           }
-          // Limpa o arquivo do cache nativo após processar
+          // Pra foto, transforma em dataURL pra fluxo legado de upload (column image_data)
+          const dataUrl: string = await new Promise((resolve, reject) => {
+            const r = new FileReader()
+            r.onload = () => resolve(r.result as string)
+            r.onerror = () => reject(r.error)
+            r.readAsDataURL(rawBlob)
+          })
           ;(window.VitallCam as any)?.deleteCaptureFile?.(filename)
+          return { kind: 'photo', id: crypto.randomUUID(), dataUrl, enhanceStatus: 'pending' }
         } catch (e) {
           console.error('Erro ao buscar captura:', url, e)
+          emptyOrFailed++
+          return null
         }
+      }))
+      const items: CapturedItem[] = settled.filter((x): x is CapturedItem => x !== null)
+
+      if (emptyOrFailed > 0) {
+        toast({
+          variant: 'destructive',
+          title: `${emptyOrFailed} foto(s) não vieram`,
+          description: 'Capture essas de novo (de preferência em lotes menores).',
+        })
       }
 
       if (items.length === 0) {

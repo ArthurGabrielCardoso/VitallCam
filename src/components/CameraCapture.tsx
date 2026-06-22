@@ -1378,16 +1378,11 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   // No app, a UI da câmera é uma Activity nativa Compose — não renderiza
   // nada do React. Mostra um overlay neutro enquanto a Activity abre/processa.
   if (isNative) {
-    // App: a câmera é uma Activity nativa por cima. Aqui só um overlay neutro
-    // enquanto abre/salva. Ao fechar (Salvar/Fechar), vai direto pro álbum.
-    return (
-      <div className="fixed inset-0 z-[60] bg-neutral-950 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3 text-white/70">
-          <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
-          <p className="text-sm">{isSaving ? 'Salvando capturas…' : 'Abrindo câmera intraoral…'}</p>
-        </div>
-      </div>
-    )
+    // App: a câmera é uma Activity nativa que abre POR CIMA. O React aqui é só
+    // o controlador (abre a câmera, recebe o streaming das fotos, salva e vai
+    // pro álbum). NÃO renderiza tela nenhuma — senão fica aquela tela cinza
+    // "Abrindo câmera intraoral…" travada quando o fluxo não fecha na hora.
+    return null
   }
 
   if (isInitializing) {

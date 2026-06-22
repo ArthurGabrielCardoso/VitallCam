@@ -97,6 +97,11 @@ export default function PatientPage() {
     const url = tab === 'overview' ? `/patients/${patientId}` : `/patients/${patientId}?tab=${tab}`
     router.push(url, { scroll: false })
   }
+  // App nativo: ao salvar/fechar a câmera, vai pra ?folder=<id> e abre o álbum.
+  const folderParam = searchParams.get('folder')
+  useEffect(() => {
+    if (folderParam) setCurrentFolder(folderParam)
+  }, [folderParam])
   const foldersScrollRef = useRef<HTMLDivElement>(null)
   const photosScrollRef = useRef<HTMLDivElement>(null)
   const profileVideoRef = useRef<HTMLVideoElement>(null)

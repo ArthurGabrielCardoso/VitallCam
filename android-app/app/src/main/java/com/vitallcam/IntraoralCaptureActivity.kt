@@ -129,7 +129,6 @@ class IntraoralCaptureActivity : ComponentActivity() {
     private var cameraBgHandler: Handler? = null
     private var photoSize: android.util.Size? = null
     private var previewSize: android.util.Size? = null
-    private var lastPedalCaptureMs = 0L
     // Quando o usuário SALVA, NÃO apagamos os arquivos no onDestroy — o WebView
     // ainda vai buscá-los via appassets. Apagar na hora (corrida) zerava fotos.
     private var savedOk = false
@@ -139,6 +138,10 @@ class IntraoralCaptureActivity : ComponentActivity() {
     // Sequência atômica → nome/id de foto SEMPRE único (2 capturas no mesmo ms
     // não colidem; senão o dedup do web descartaria a 2ª).
     private val captureSeq = java.util.concurrent.atomic.AtomicInteger(0)
+    // Dedup GLOBAL de captura: o pedal "Virtual" dispara clique + BACK por
+    // pisada (e o clique ainda bate no botão). 400ms garante 1 foto por pisada,
+    // qualquer que seja a origem, sem bloquear capturas manuais espaçadas.
+    private var lastCaptureMs = 0L
 
     sealed class PreviewState {
         object Connecting : PreviewState()
@@ -188,7 +191,7 @@ class IntraoralCaptureActivity : ComponentActivity() {
                     onSurfaceReady = { surfaceView ->
                         surfaceViewRef.value = surfaceView
                     },
-                    onClose = ::onCancel,
+                    onClose = ::onSave, // Fechar também SALVA o que foi tirado
                     onSave = ::onSave,
                     onMirrorToggle = { isMirrored = !isMirrored },
                     onModeChange = { newMode ->
@@ -267,7 +270,7 @@ class IntraoralCaptureActivity : ComponentActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        onCancel()
+        onSave() // voltar também salva (nunca descarta o que foi tirado)
     }
 
     // ---------- Lógica da câmera ----------
@@ -702,6 +705,9 @@ class IntraoralCaptureActivity : ComponentActivity() {
     }
 
     private fun captureImage() {
+        val now = System.currentTimeMillis()
+        if (now - lastCaptureMs < 400) { dbg("captura ignorada (dedup ${now - lastCaptureMs}ms)"); return }
+        lastCaptureMs = now
         val device = cameraDevice ?: run { dbg("captureImage: câmera não aberta"); return }
         val session = captureSession ?: run { dbg("captureImage: sem sessão"); return }
         val reader = imageReader ?: return
@@ -724,18 +730,17 @@ class IntraoralCaptureActivity : ComponentActivity() {
         }.onFailure { dbg("captureImage ERRO: ${it.message}") }
     }
 
-    // Pedal/mouse: botão do meio (scroll) tira UMA foto. O pedal manda vários
-    // cliques por pisada, então o debounce de 1.2s garante 1 foto por pisada.
     private fun triggerPedalCapture() {
-        val now = System.currentTimeMillis()
-        if (now - lastPedalCaptureMs < 1200) return
-        lastPedalCaptureMs = now
-        captureImage()
+        captureImage() // o dedup global está no captureImage (400ms)
     }
 
-    // O pedal varia: pode emular clique do mouse (meio/direito) OU mandar uma
-    // tecla (Enter/Espaço/OK). Aceitamos todos esses. NÃO usamos o clique
-    // esquerdo (PRIMARY) pra não disparar ao tocar nos botões da tela.
+    // O pedal deste box é um dispositivo "Virtual" (visto no diagnóstico) que
+    // manda clique esquerdo + tecla BACK por pisada. Identificamos por ele e
+    // tratamos QUALQUER sinal dele como captura — nunca como fechar.
+    private fun isPedalDevice(event: android.view.InputEvent): Boolean =
+        event.device?.name?.contains("Virtual", ignoreCase = true) == true
+
+    // Outros pedais USB podem emular clique do meio/direito do mouse.
     private fun isPedalButton(buttonState: Int): Boolean {
         return (buttonState and MotionEvent.BUTTON_TERTIARY) != 0 ||
             (buttonState and MotionEvent.BUTTON_SECONDARY) != 0 ||
@@ -743,13 +748,9 @@ class IntraoralCaptureActivity : ComponentActivity() {
     }
 
     private fun handlePedalMotion(event: MotionEvent): Boolean {
-        if (event.action == MotionEvent.ACTION_BUTTON_PRESS) {
-            // Loga o sinal exato do pedal pra eu identificar (sobe pro debug-log)
-            dbg("PEDAL? motion btnState=${event.buttonState} src=${event.source} dev='${event.device?.name ?: "?"}'")
-            if (isPedalButton(event.buttonState)) {
-                triggerPedalCapture()
-                return true
-            }
+        if (event.action == MotionEvent.ACTION_BUTTON_PRESS && isPedalButton(event.buttonState)) {
+            triggerPedalCapture()
+            return true
         }
         return false
     }
@@ -764,16 +765,24 @@ class IntraoralCaptureActivity : ComponentActivity() {
         return super.onGenericMotionEvent(event)
     }
 
-    // Pedal que emula teclado (Enter/Espaço/OK) — comum em pedais USB.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Pedal "Virtual": captura na descida e CONSOME tudo (incl. BACK) pra
+        // nunca fechar a câmera. O dedup do captureImage garante 1 por pisada.
+        if (isPedalDevice(event)) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                dbg("PEDAL key code=${event.keyCode} dev='${event.device?.name}' -> captura")
+                captureImage()
+            }
+            return true
+        }
+        // Teclados normais: Enter/Espaço/OK também capturam.
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-            dbg("PEDAL? key code=${event.keyCode} scan=${event.scanCode} src=${event.source} dev='${event.device?.name ?: "?"}'")
             when (event.keyCode) {
                 KeyEvent.KEYCODE_ENTER,
                 KeyEvent.KEYCODE_NUMPAD_ENTER,
                 KeyEvent.KEYCODE_DPAD_CENTER,
                 KeyEvent.KEYCODE_SPACE -> {
-                    triggerPedalCapture()
+                    captureImage()
                     return true
                 }
             }

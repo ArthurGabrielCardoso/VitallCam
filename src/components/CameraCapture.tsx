@@ -222,10 +222,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   const isNativeRef = useRef(false)
   const previewSlotRef = useRef<HTMLDivElement>(null)
   const [isNative, setIsNative] = useState(false)
-  // App: depois do "Salvar" no nativo, mostra as capturas na hora (em memória)
-  // enquanto sobem pro Supabase em background — igual web.
-  const [nativeReviewOpen, setNativeReviewOpen] = useState(false)
-  const hasReviewedRef = useRef(false)
+  // Dedup das fotos que chegam por streaming do app nativo.
   const processedPhotoIds = useRef<Set<string>>(new Set())
   const [nativePreviewState, setNativePreviewState] = useState<NativePreviewState>('idle')
   const [capabilities, setCapabilities] = useState<IntraoralCapabilities | null>(null)
@@ -243,125 +240,68 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     // Agora o native manda URLs (https://appassets.androidplatform.net/captures/...)
     // ao invés de dataURLs gigantes em base64 (que estouravam o limite de
     // 1MB da Binder IPC com fotos 5MP / vídeos longos).
+    // Chamado quando a câmera nativa FECHA (Salvar OU Fechar — os dois salvam).
+    // As fotos já subiram por STREAMING durante a captura. Aqui só tratamos o
+    // FALLBACK (as que não conseguiram streamar) e então vamos DIRETO pro álbum.
     window.__onIntraoralCapture = async (urls, error) => {
-      if (error === 'cancelled' || !urls || urls.length === 0) {
-        if (error && error !== 'cancelled') {
-          toast({
-            variant: 'destructive',
-            title: 'Câmera intraoral',
-            description: error,
-          })
-        }
-        // Se já tinha capturas em revisão (veio do "Capturar mais" e cancelou),
-        // volta pra revisão em vez de fechar tudo.
-        if (hasReviewedRef.current) {
-          setNativeReviewOpen(true)
-          return
-        }
-        onClose?.()
-        return
+      if (error && error !== 'cancelled') {
+        toast({ variant: 'destructive', title: 'Câmera intraoral', description: error })
       }
 
-      // Busca TODAS as capturas EM PARALELO (não em série) — assim o WebView
-      // lê os arquivos o mais rápido possível, antes de qualquer limpeza no
-      // nativo. E PULA blob vazio (0 bytes): nunca mais salva foto em branco.
-      let emptyOrFailed = 0
-      const captMillis = new Map<string, number>() // id -> hora da captura (ordem)
-      const settled = await Promise.all(urls.map(async (url): Promise<CapturedItem | null> => {
-        const filename = url.split('/').pop() || ''
-        // nome do arquivo: intraoral_<millisDaCaptura>_<n>.jpg
-        const tsMatch = filename.match(/intraoral_(\d+)_/)
-        const capturedAt = tsMatch ? parseInt(tsMatch[1], 10) : undefined
-        try {
-          const res = await fetch(url)
-          const rawBlob = await res.blob()
-          if (!rawBlob || rawBlob.size === 0) { emptyOrFailed++; return null }
-          const isVideo = filename.endsWith('.mp4') || rawBlob.type.startsWith('video/')
-          if (isVideo) {
-            // O WebViewAssetLoader pode devolver Content-Type
-            // application/octet-stream pro .mp4, e aí o <video> não decodifica
-            // o blob URL. Re-embrulha forçando video/mp4.
-            const blob = rawBlob.type === 'video/mp4'
-              ? rawBlob
-              : new Blob([await rawBlob.arrayBuffer()], { type: 'video/mp4' })
-            const m = filename.match(/_d(\d+)\.mp4$/)
-            const duration = m ? parseInt(m[1], 10) : 0
-            const poster = await generateVideoPoster(blob).catch(() => '')
+      if (urls && urls.length > 0) {
+        setIsSaving(true)
+        await Promise.all(urls.map(async (url) => {
+          const filename = url.split('/').pop() || ''
+          const tsMatch = filename.match(/intraoral_(\d+)_/) // hora da captura (ordem)
+          const capturedAt = tsMatch ? parseInt(tsMatch[1], 10) : undefined
+          try {
+            const res = await fetch(url)
+            const rawBlob = await res.blob()
+            if (!rawBlob || rawBlob.size === 0) return
+            const isVideo = filename.endsWith('.mp4') || rawBlob.type.startsWith('video/')
             ;(window.VitallCam as any)?.deleteCaptureFile?.(filename)
-            return { kind: 'video', id: crypto.randomUUID(), dataUrl: poster, blob, duration, mimeType: 'video/mp4', capturedAt }
+            if (isVideo) {
+              const blob = rawBlob.type === 'video/mp4'
+                ? rawBlob
+                : new Blob([await rawBlob.arrayBuffer()], { type: 'video/mp4' })
+              const m = filename.match(/_d(\d+)\.mp4$/)
+              const duration = m ? parseInt(m[1], 10) : 0
+              const poster = await generateVideoPoster(blob).catch(() => '')
+              const folderId = await ensureSessionFolder()
+              const data = await uploadVideoItem({ kind: 'video', id: crypto.randomUUID(), dataUrl: poster, blob, duration, mimeType: 'video/mp4' }, folderId)
+              onPhotoCapture(data)
+            } else {
+              const dataUrl: string = await new Promise((resolve, reject) => {
+                const r = new FileReader()
+                r.onload = () => resolve(r.result as string)
+                r.onerror = () => reject(r.error)
+                r.readAsDataURL(rawBlob)
+              })
+              await uploadPhotoNow(dataUrl, crypto.randomUUID(), capturedAt)
+            }
+          } catch (e) {
+            console.error('Erro no fallback de captura:', url, e)
           }
-          // Pra foto, transforma em dataURL pra fluxo legado de upload (column image_data)
-          const dataUrl: string = await new Promise((resolve, reject) => {
-            const r = new FileReader()
-            r.onload = () => resolve(r.result as string)
-            r.onerror = () => reject(r.error)
-            r.readAsDataURL(rawBlob)
-          })
-          ;(window.VitallCam as any)?.deleteCaptureFile?.(filename)
-          const pid = crypto.randomUUID()
-          if (capturedAt) captMillis.set(pid, capturedAt)
-          return { kind: 'photo', id: pid, dataUrl, enhanceStatus: 'pending', capturedAt }
-        } catch (e) {
-          console.error('Erro ao buscar captura:', url, e)
-          emptyOrFailed++
-          return null
-        }
-      }))
-      const items: CapturedItem[] = settled.filter((x): x is CapturedItem => x !== null)
-
-      if (emptyOrFailed > 0) {
-        toast({
-          variant: 'destructive',
-          title: `${emptyOrFailed} foto(s) não vieram`,
-          description: 'Capture essas de novo (de preferência em lotes menores).',
-        })
+        }))
+        setIsSaving(false)
       }
 
-      if (items.length === 0) {
-        toast({ variant: 'destructive', title: 'Erro', description: 'Falha ao ler capturas.' })
-        onClose?.()
-        return
-      }
-
-      // IGUAL AO WEB: as fotos aparecem NA HORA (dataUrl em memória) e cada uma
-      // sobe pro Supabase em BACKGROUND (fire-and-forget) — sem tela de
-      // "Salvando" travando. O usuário revê as fotos imediatamente.
-      setCapturedItems(prev => [...items, ...prev])
-      const photos = items.filter(i => i.kind === 'photo') as Extract<CapturedItem, { kind: 'photo' }>[]
-      const videos = items.filter(i => i.kind === 'video') as Extract<CapturedItem, { kind: 'video' }>[]
-      // Fotos: salvas imediatamente em paralelo (mesma função do web), com a
-      // hora da captura pra manter a ORDEM certa.
-      photos.forEach(item => uploadPhotoNow(item.dataUrl, item.id, captMillis.get(item.id)))
-      // Vídeos (se houver): sobem em background também
-      videos.forEach(async v => {
-        try {
-          const folderId = await ensureSessionFolder()
-          const data = await uploadVideoItem(v, folderId)
-          onPhotoCapture(data)
-        } catch (e) {
-          console.error('Falha ao salvar vídeo:', e)
-        }
-      })
-      // Mostra a tela de revisão das capturas (em memória, instantâneo)
-      hasReviewedRef.current = true
-      setNativeReviewOpen(true)
+      // VAI DIRETO PRO ÁLBUM com as fotos (todas já salvas/subindo em background).
+      // Se nada foi capturado (folder não criado), só fecha pra página do paciente.
+      const folderId = sessionFolderIdRef.current
+      if (folderId) router.push(`/patients/${patientId}?folder=${folderId}`)
+      onClose?.()
     }
 
     // STREAMING por captura (100% igual ao web): a câmera nativa entrega CADA
-    // foto na hora (bytes em base64), sem arquivo/busca/lote. Faz exatamente o
-    // que o capturePhoto do web faz: mostra na hora + uploadPhotoNow em
-    // background. capturedAt = hora da captura → vira created_at → ORDEM certa
-    // mesmo com uploads em paralelo terminando fora de ordem.
+    // foto na hora (bytes base64), sem arquivo/busca/lote. Sobe pro Supabase em
+    // background na hora. capturedAt = hora da captura → created_at → ORDEM certa.
     window.__onIntraoralPhoto = (dataUrl, id, capturedAt) => {
       if (!dataUrl || !dataUrl.startsWith('data:') || dataUrl.length < 64) return // pula vazio
       const localId = id || crypto.randomUUID()
       if (processedPhotoIds.current.has(localId)) return // dedup
       processedPhotoIds.current.add(localId)
-      const at = Number(capturedAt) || undefined
-      setCapturedItems(prev => [{ kind: 'photo', id: localId, dataUrl, enhanceStatus: 'pending', capturedAt: at }, ...prev])
-      uploadPhotoNow(dataUrl, localId, at)
-      hasReviewedRef.current = true
-      setNativeReviewOpen(true)
+      uploadPhotoNow(dataUrl, localId, Number(capturedAt) || undefined)
     }
 
     // Auto-abre a tela nativa de captura ao entrar
@@ -1438,79 +1378,13 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   // No app, a UI da câmera é uma Activity nativa Compose — não renderiza
   // nada do React. Mostra um overlay neutro enquanto a Activity abre/processa.
   if (isNative) {
-    // Revisão pós-captura: as fotos aparecem NA HORA (em memória) enquanto
-    // sobem pro Supabase em background — mesma lógica do web.
-    if (nativeReviewOpen && capturedItems.length > 0) {
-      return (
-        <div className="fixed inset-0 z-[60] bg-neutral-950 flex flex-col">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-            <div>
-              <h2 className="text-white text-lg font-semibold">Capturas</h2>
-              <p className="text-white/50 text-xs mt-0.5">Salvas automaticamente no servidor</p>
-            </div>
-            <span className="text-teal-400 text-sm font-medium">
-              {capturedItems.length} {capturedItems.length === 1 ? 'item' : 'itens'}
-            </span>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-              {[...capturedItems]
-                .sort((a, b) => (b.capturedAt ?? 0) - (a.capturedAt ?? 0))
-                .map(item => {
-                const src = item.kind === 'photo' ? (item.enhancedDataUrl || item.dataUrl) : item.dataUrl
-                return (
-                  <div key={item.id} className="relative aspect-square rounded-lg overflow-hidden bg-neutral-800 ring-1 ring-white/10">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={src} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                    {item.kind === 'video' && (
-                      <span className="absolute inset-0 flex items-center justify-center bg-black/30">
-                        <span className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center">
-                          <Play className="w-5 h-5 text-teal-700 fill-current ml-0.5" />
-                        </span>
-                      </span>
-                    )}
-                    {item.kind === 'photo' && item.enhanceStatus === 'pending' && (
-                      <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 px-2 py-0.5 rounded bg-black/70 text-white text-[10px] font-medium">
-                        <Loader2 className="w-3 h-3 animate-spin" /> Melhorando…
-                      </span>
-                    )}
-                    {item.kind === 'photo' && item.enhanceStatus === 'done' && (
-                      <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 px-2 py-0.5 rounded bg-teal-600 text-white text-[10px] font-medium">
-                        <Sparkles className="w-3 h-3 text-dourado-300" /> Melhorada
-                      </span>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-white/10">
-            <button
-              onClick={() => {
-                setNativeReviewOpen(false)
-                window.VitallCam?.openIntraoralCamera?.('window.__onIntraoralCapture')
-              }}
-              className="flex items-center gap-2 px-5 py-3 rounded-lg bg-white/10 hover:bg-white/15 text-white text-sm font-medium transition-colors"
-            >
-              <Camera className="w-4 h-4" /> Capturar mais
-            </button>
-            <button
-              onClick={() => onClose?.()}
-              className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white text-sm font-semibold transition-colors"
-            >
-              <Check className="w-4 h-4" /> Concluir
-            </button>
-          </div>
-        </div>
-      )
-    }
+    // App: a câmera é uma Activity nativa por cima. Aqui só um overlay neutro
+    // enquanto abre/salva. Ao fechar (Salvar/Fechar), vai direto pro álbum.
     return (
       <div className="fixed inset-0 z-[60] bg-neutral-950 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-white/70">
           <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
-          <p className="text-sm">Abrindo câmera intraoral…</p>
+          <p className="text-sm">{isSaving ? 'Salvando capturas…' : 'Abrindo câmera intraoral…'}</p>
         </div>
       </div>
     )

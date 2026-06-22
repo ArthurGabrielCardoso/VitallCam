@@ -199,7 +199,7 @@ function PatientsLayoutContent({
           {/* Ações direita */}
           <div className="flex items-center gap-2 ml-auto shrink-0">
             <Link
-              href="/patients"
+              href="/patients/configuracoes"
               className="flex items-center justify-center h-9 w-9 rounded hover:bg-teal-700 transition-colors"
               title="Configurações"
             >

@@ -1043,18 +1043,19 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       const storageUrl = await uploadToStorage(dataUrl)
       const imageToStore = storageUrl ?? dataUrl
 
-      const { data, error } = await (supabase as any)
-        .from('photos')
-        .insert({
-          patient_id: patientId,
-          image_data: imageToStore,
-          folder_id: folderId,
-          // Ordem certa: grava o instante da CAPTURA (não o do upload, que pode
-          // terminar fora de ordem por causa do paralelismo). Só no app nativo.
-          ...(createdAtMillis ? { created_at: new Date(createdAtMillis).toISOString() } : {}),
-        })
-        .select()
-        .single()
+      // Ordem certa: grava o instante da CAPTURA (não o do upload, que pode
+      // terminar fora de ordem por causa do paralelismo). Só no app nativo.
+      const baseRow = { patient_id: patientId, image_data: imageToStore, folder_id: folderId }
+      const rowWithTs = createdAtMillis
+        ? { ...baseRow, created_at: new Date(createdAtMillis).toISOString() }
+        : baseRow
+      let ins = await (supabase as any).from('photos').insert(rowWithTs).select().single()
+      // À prova de falha: se a tabela rejeitar created_at explícito, NÃO perde a
+      // foto — re-tenta sem ele (perde só a precisão da ordem, nunca a imagem).
+      if (ins.error && createdAtMillis) {
+        ins = await (supabase as any).from('photos').insert(baseRow).select().single()
+      }
+      const { data, error } = ins
       if (error) throw error
 
       // Foto aparece na galeria na hora, sem precisar fechar a câmera

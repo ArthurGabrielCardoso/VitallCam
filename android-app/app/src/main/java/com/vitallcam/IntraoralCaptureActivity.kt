@@ -136,6 +136,9 @@ class IntraoralCaptureActivity : ComponentActivity() {
     // Caminhos das fotos JÁ entregues ao web por streaming (igual capturePhoto).
     // No Salvar só devolvemos as que NÃO streamaram (fallback) → sem duplicar.
     private val streamedPaths = java.util.Collections.synchronizedSet(HashSet<String>())
+    // Sequência atômica → nome/id de foto SEMPRE único (2 capturas no mesmo ms
+    // não colidem; senão o dedup do web descartaria a 2ª).
+    private val captureSeq = java.util.concurrent.atomic.AtomicInteger(0)
 
     sealed class PreviewState {
         object Connecting : PreviewState()
@@ -570,7 +573,7 @@ class IntraoralCaptureActivity : ComponentActivity() {
             buf.get(bytes)
             if (bytes.isNotEmpty()) {
                 val capturedAt = System.currentTimeMillis()
-                val file = File(File(cacheDir, "captures").apply { mkdirs() }, "intraoral_${capturedAt}_${captured.size}.jpg")
+                val file = File(File(cacheDir, "captures").apply { mkdirs() }, "intraoral_${capturedAt}_${captureSeq.incrementAndGet()}.jpg")
                 file.writeBytes(bytes)
                 dbg("foto ${file.name} (${bytes.size / 1024}KB)")
                 // IGUAL AO WEB: manda os BYTES da foto direto pro WebView na hora

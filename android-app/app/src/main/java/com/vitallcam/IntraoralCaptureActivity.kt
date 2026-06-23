@@ -988,6 +988,7 @@ class IntraoralCaptureActivity : ComponentActivity() {
                 is CapturedItem.Video -> it.file.absolutePath
             }
         }.toTypedArray()
+        dbg("onSave: captured=${captured.size} streamed=${streamedPaths.size} fallbackPaths=${paths.size} -> finish()")
         val data = Intent().apply { putExtra(EXTRA_IMAGE_PATHS, paths) }
         savedOk = true // não apagar fallback no onDestroy — o WebView vai buscar
         setResult(Activity.RESULT_OK, data)
@@ -1012,6 +1013,6 @@ class IntraoralCaptureActivity : ComponentActivity() {
         const val REQUEST_CODE = 4243
         // Diagnóstico pro servidor + toast "Diagnóstico enviado". Deixe false
         // pra produção; true só quando eu precisar dos logs do app.
-        private const val DEBUG_TO_SERVER = false
+        private const val DEBUG_TO_SERVER = true
     }
 }

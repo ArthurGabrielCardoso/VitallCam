@@ -130,8 +130,10 @@ class MainActivity : AppCompatActivity() {
         // Se voltamos da câmera via openAlbumUrl (recreate), abre direto a URL
         // do álbum; senão a URL inicial do app.
         val url = pendingStartUrl ?: getString(R.string.app_url)
+        val veioDoAlbum = pendingStartUrl != null
         pendingStartUrl = null
         webView.loadUrl(url)
+        slog("onCreate carregando ${if (veioDoAlbum) "ALBUM" else "inicial"}: $url")
 
         liveInstance = this
     }
@@ -155,6 +157,7 @@ class MainActivity : AppCompatActivity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        slog("onActivityResult req=$requestCode res=$resultCode (OK=${Activity.RESULT_OK})")
         if (requestCode == IntraoralCaptureActivity.REQUEST_CODE
             || requestCode == UsbCameraActivity.REQUEST_CODE) {
             val callback = pendingJsCallback ?: "window.__onIntraoralCapture"
@@ -185,8 +188,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 val arrayJs = urls.joinToString(",") { jsString(it) }
                 val js = "if(typeof $callback==='function'){$callback([$arrayJs],null);}"
+                slog("evaluateJS OK: ${urls.size} url(s) (fallback) -> $callback")
                 webView.evaluateJavascript(js, null)
             } else {
+                slog("evaluateJS cancelled -> $callback")
                 val js = "if(typeof $callback==='function'){$callback([],'cancelled');}"
                 webView.evaluateJavascript(js, null)
             }
@@ -199,12 +204,35 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        slog("onResume")
         // Garante WebView ativo e com foco ao retomar (ex.: voltando da câmera).
         runCatching {
             webView.onResume()
             webView.resumeTimers()
             webView.requestFocus()
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        slog("onStop")
+    }
+
+    // Log silencioso (sem toast) pro /api/debug-log — diagnóstico do fluxo
+    // pós-câmera (toque morto). Só pra investigar; depois removo.
+    private fun slog(msg: String) {
+        android.util.Log.d("VitallCamMain", msg)
+        Thread {
+            runCatching {
+                val u = java.net.URL("https://vitallcam.vercel.app/api/debug-log")
+                val c = u.openConnection() as java.net.HttpURLConnection
+                c.requestMethod = "POST"; c.doOutput = true
+                c.connectTimeout = 6000; c.readTimeout = 6000
+                c.setRequestProperty("Content-Type", "text/plain; charset=utf-8")
+                c.outputStream.use { it.write("MAIN ${android.text.format.DateFormat.format("HH:mm:ss", System.currentTimeMillis())} $msg".toByteArray()) }
+                c.responseCode; c.disconnect()
+            }
+        }.start()
     }
 
     @Deprecated("Deprecated in Java")
@@ -377,10 +405,12 @@ class MainActivity : AppCompatActivity() {
          */
         @JavascriptInterface
         fun openAlbumUrl(path: String) {
-            if (!path.startsWith("/")) return
+            slog("openAlbumUrl chamado path=$path")
+            if (!path.startsWith("/")) { slog("openAlbumUrl IGNORADO (path invalido)"); return }
             runOnUiThread {
                 val u = android.net.Uri.parse(getString(R.string.app_url))
                 pendingStartUrl = "${u.scheme}://${u.authority}$path"
+                slog("openAlbumUrl -> recreate() pra $pendingStartUrl")
                 recreate()
             }
         }

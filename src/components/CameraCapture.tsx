@@ -248,6 +248,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     // As fotos já subiram por STREAMING durante a captura. Aqui só tratamos o
     // FALLBACK (as que não conseguiram streamar) e então vamos DIRETO pro álbum.
     window.__onIntraoralCapture = async (urls, error) => {
+      fetch('/api/debug-log', { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: `WEB __onIntraoralCapture urls=${urls?.length ?? 0} err=${error ?? 'null'} streamed=${processedPhotoIds.current.size} pending=${uploadPromisesRef.current.length}` }).catch(() => {})
       if (error && error !== 'cancelled') {
         toast({ variant: 'destructive', title: 'Câmera intraoral', description: error })
       }
@@ -314,6 +315,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         setIsSaving(false)
         const path = folderId ? `/patients/${patientId}?tab=photos&folder=${folderId}` : null
         const nativeOpen = window.VitallCam?.openAlbumUrl
+        fetch('/api/debug-log', { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: `WEB pos-save folderId=${folderId} path=${path} openAlbumUrl=${typeof nativeOpen}` }).catch(() => {})
         if (path && typeof nativeOpen === 'function') {
           // App: recria a WebView JÁ no álbum — conserta o toque "morto" da TV
           // box (mesmo efeito de fechar/reabrir o app) e mostra todas as fotos.

@@ -187,6 +187,20 @@ class MainActivity : AppCompatActivity() {
                 val js = "if(typeof $callback==='function'){$callback([],'cancelled');}"
                 webView.evaluateJavascript(js, null)
             }
+            // Voltou da câmera nativa → devolve foco/toque pro WebView. Sem isso
+            // os cliques ficavam "mortos" na TV box ao retornar da Activity.
+            runCatching { webView.requestFocus() }
+            webView.postDelayed({ runCatching { webView.requestFocus(); webView.requestFocusFromTouch() } }, 300)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Garante WebView ativo e com foco ao retomar (ex.: voltando da câmera).
+        runCatching {
+            webView.onResume()
+            webView.resumeTimers()
+            webView.requestFocus()
         }
     }
 

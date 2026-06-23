@@ -293,7 +293,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       if (hadCaptures && !folderId) {
         try { folderId = await ensureSessionFolder() } catch { /* sem internet ainda */ }
       }
-      if (folderId) router.push(`/patients/${patientId}?folder=${folderId}`)
+      if (folderId) router.push(`/patients/${patientId}?tab=photos&folder=${folderId}`)
       onClose?.()
     }
 

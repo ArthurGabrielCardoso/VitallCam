@@ -66,7 +66,10 @@ export default function PatientPage() {
   const [showFrameExtractor, setShowFrameExtractor] = useState(false)
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
-  const [currentFolder, setCurrentFolder] = useState<string | null>(null)
+  // Inicializa JÁ com a pasta da URL (?folder=) — sem isso, no 1º render
+  // mostrava a LISTA de álbuns e só depois abria a pasta (flash feio ao
+  // voltar do Salvar). Assim já abre direto na pasta.
+  const [currentFolder, setCurrentFolder] = useState<string | null>(() => searchParams?.get('folder') ?? null)
   const [selectedPhotos, setSelectedPhotos] = useState<string[]>([])
   const [showMoveToFolderModal, setShowMoveToFolderModal] = useState(false)
   const [isSelectionMode, setIsSelectionMode] = useState(false)

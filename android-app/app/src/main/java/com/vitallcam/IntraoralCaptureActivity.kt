@@ -1013,6 +1013,6 @@ class IntraoralCaptureActivity : ComponentActivity() {
         const val REQUEST_CODE = 4243
         // Diagnóstico pro servidor + toast "Diagnóstico enviado". Deixe false
         // pra produção; true só quando eu precisar dos logs do app.
-        private const val DEBUG_TO_SERVER = true
+        private const val DEBUG_TO_SERVER = false
     }
 }

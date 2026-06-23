@@ -108,12 +108,14 @@ export default function PatientPage() {
   const profileStreamRef = useRef<MediaStream | null>(null)
   const [isUploadingProfilePhoto, setIsUploadingProfilePhoto] = useState(false)
   const [showProfileCamera, setShowProfileCamera] = useState(false)
+  // Câmera do perfil: padrão TRASEIRA (environment) — no tablet abria frontal.
+  const [profileFacing, setProfileFacing] = useState<'environment' | 'user'>('environment')
   const [printEditorPhotos, setPrintEditorPhotos] = useState<Photo[] | null>(null)
 
-  const openProfileCamera = async () => {
-    setShowProfileCamera(true)
+  const startProfileStream = async (facing: 'environment' | 'user') => {
+    profileStreamRef.current?.getTracks().forEach(t => t.stop())
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false })
       profileStreamRef.current = stream
       if (profileVideoRef.current) {
         profileVideoRef.current.srcObject = stream
@@ -123,6 +125,17 @@ export default function PatientPage() {
       toast({ variant: 'destructive', title: 'Não foi possível acessar a câmera' })
       setShowProfileCamera(false)
     }
+  }
+
+  const openProfileCamera = async () => {
+    setShowProfileCamera(true)
+    await startProfileStream(profileFacing)
+  }
+
+  const flipProfileCamera = async () => {
+    const next = profileFacing === 'environment' ? 'user' : 'environment'
+    setProfileFacing(next)
+    await startProfileStream(next)
   }
 
   const closeProfileCamera = () => {
@@ -1960,6 +1973,14 @@ export default function PatientPage() {
               className="h-16 w-16 rounded-full bg-white hover:bg-gray-100 flex items-center justify-center shadow-lg transition-colors"
             >
               <Camera className="w-7 h-7 text-teal-700" />
+            </button>
+            <button
+              onClick={flipProfileCamera}
+              title="Inverter câmera (frente/trás)"
+              className="h-12 px-5 rounded-full bg-white/20 hover:bg-white/30 text-white font-medium flex items-center gap-2 transition-colors"
+            >
+              <RotateCw className="w-5 h-5" />
+              {profileFacing === 'environment' ? 'Traseira' : 'Frontal'}
             </button>
           </div>
         </div>

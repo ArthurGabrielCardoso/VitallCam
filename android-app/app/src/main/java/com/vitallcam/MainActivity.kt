@@ -49,6 +49,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         webView = WebView(this)
+        // Fundo branco — durante o recarregamento (recreate ao abrir o álbum) a
+        // WebView fica branca em vez de cinza, emendando na animação do app.
+        webView.setBackgroundColor(android.graphics.Color.WHITE)
         setContentView(webView)
 
         webView.settings.apply {
@@ -219,9 +222,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Log silencioso (sem toast) pro /api/debug-log — diagnóstico do fluxo
-    // pós-câmera (toque morto). Só pra investigar; depois removo.
+    // pós-câmera. Desligado por padrão; ligar só pra investigar.
     private fun slog(msg: String) {
         android.util.Log.d("VitallCamMain", msg)
+        if (!DEBUG_MAIN) return
         Thread {
             runCatching {
                 val u = java.net.URL("https://vitallcam.vercel.app/api/debug-log")
@@ -426,6 +430,8 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val CAMERA_PERMISSION_CODE = 1001
+        // Log de diagnóstico do MainActivity pro servidor. false em produção.
+        private const val DEBUG_MAIN = false
 
         // Referência viva pra Activity nativa da câmera entregar CADA foto direto
         // pro WebView na hora (igual capturePhoto do web): sem arquivo, sem busca.

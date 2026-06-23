@@ -281,6 +281,10 @@ class IntraoralCaptureActivity : ComponentActivity() {
     private val uploadDebugRunnable = Runnable { uploadDebug() }
     private fun dbg(msg: String) {
         android.util.Log.d("VitallCamUVC", msg)
+        // Desligado por padrão: não envia pro servidor nem mostra o toast
+        // "Diagnóstico enviado". Religar (DEBUG_TO_SERVER=true) só quando eu
+        // precisar dos logs do app (ex.: pedal).
+        if (!DEBUG_TO_SERVER) return
         val t = android.text.format.DateFormat.format("HH:mm:ss", System.currentTimeMillis())
         debugLog = (debugLog + "[$t] $msg\n").takeLast(8000)
         mainHandler.removeCallbacks(uploadDebugRunnable)
@@ -1006,5 +1010,8 @@ class IntraoralCaptureActivity : ComponentActivity() {
     companion object {
         const val EXTRA_IMAGE_PATHS = "image_paths"
         const val REQUEST_CODE = 4243
+        // Diagnóstico pro servidor + toast "Diagnóstico enviado". Deixe false
+        // pra produção; true só quando eu precisar dos logs do app.
+        private const val DEBUG_TO_SERVER = false
     }
 }

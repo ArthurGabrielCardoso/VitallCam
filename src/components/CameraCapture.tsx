@@ -314,12 +314,13 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       } finally {
         setIsSaving(false)
         const path = folderId ? `/patients/${patientId}?tab=photos&folder=${folderId}` : null
-        const nativeOpen = window.VitallCam?.openAlbumUrl
-        fetch('/api/debug-log', { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: `WEB pos-save folderId=${folderId} path=${path} openAlbumUrl=${typeof nativeOpen}` }).catch(() => {})
-        if (path && typeof nativeOpen === 'function') {
+        const hasNative = typeof window.VitallCam?.openAlbumUrl === 'function'
+        fetch('/api/debug-log', { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: `WEB pos-save folderId=${folderId} path=${path} openAlbumUrl=${hasNative}` }).catch(() => {})
+        if (path && hasNative) {
           // App: recria a WebView JÁ no álbum — conserta o toque "morto" da TV
           // box (mesmo efeito de fechar/reabrir o app) e mostra todas as fotos.
-          nativeOpen(path)
+          // IMPORTANTE: chamar ANEXADO (no objeto), senão a bridge não executa.
+          window.VitallCam!.openAlbumUrl!(path)
         } else {
           // Web (ou APK antigo sem o bridge): navegação normal + fecha a câmera.
           if (path) router.push(path)

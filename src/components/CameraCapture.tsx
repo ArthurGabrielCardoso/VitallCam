@@ -248,53 +248,59 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         toast({ variant: 'destructive', title: 'Câmera intraoral', description: error })
       }
 
-      if (urls && urls.length > 0) {
-        setIsSaving(true)
-        await Promise.all(urls.map(async (url) => {
-          const filename = url.split('/').pop() || ''
-          const tsMatch = filename.match(/intraoral_(\d+)_/) // hora da captura (ordem)
-          const capturedAt = tsMatch ? parseInt(tsMatch[1], 10) : undefined
-          try {
-            const res = await fetch(url)
-            const rawBlob = await res.blob()
-            if (!rawBlob || rawBlob.size === 0) return
-            const isVideo = filename.endsWith('.mp4') || rawBlob.type.startsWith('video/')
-            ;(window.VitallCam as any)?.deleteCaptureFile?.(filename)
-            if (isVideo) {
-              const blob = rawBlob.type === 'video/mp4'
-                ? rawBlob
-                : new Blob([await rawBlob.arrayBuffer()], { type: 'video/mp4' })
-              const m = filename.match(/_d(\d+)\.mp4$/)
-              const duration = m ? parseInt(m[1], 10) : 0
-              const poster = await generateVideoPoster(blob).catch(() => '')
-              const folderId = await ensureSessionFolder()
-              const data = await uploadVideoItem({ kind: 'video', id: crypto.randomUUID(), dataUrl: poster, blob, duration, mimeType: 'video/mp4' }, folderId)
-              onPhotoCapture(data)
-            } else {
-              const dataUrl: string = await new Promise((resolve, reject) => {
-                const r = new FileReader()
-                r.onload = () => resolve(r.result as string)
-                r.onerror = () => reject(r.error)
-                r.readAsDataURL(rawBlob)
-              })
-              await uploadPhotoNow(dataUrl, crypto.randomUUID(), capturedAt)
+      let folderId: string | null = null
+      try {
+        if (urls && urls.length > 0) {
+          setIsSaving(true)
+          await Promise.all(urls.map(async (url) => {
+            const filename = url.split('/').pop() || ''
+            const tsMatch = filename.match(/intraoral_(\d+)_/) // hora da captura (ordem)
+            const capturedAt = tsMatch ? parseInt(tsMatch[1], 10) : undefined
+            try {
+              const res = await fetch(url)
+              const rawBlob = await res.blob()
+              if (!rawBlob || rawBlob.size === 0) return
+              const isVideo = filename.endsWith('.mp4') || rawBlob.type.startsWith('video/')
+              ;(window.VitallCam as any)?.deleteCaptureFile?.(filename)
+              if (isVideo) {
+                const blob = rawBlob.type === 'video/mp4'
+                  ? rawBlob
+                  : new Blob([await rawBlob.arrayBuffer()], { type: 'video/mp4' })
+                const m = filename.match(/_d(\d+)\.mp4$/)
+                const duration = m ? parseInt(m[1], 10) : 0
+                const poster = await generateVideoPoster(blob).catch(() => '')
+                const fId = await ensureSessionFolder()
+                const data = await uploadVideoItem({ kind: 'video', id: crypto.randomUUID(), dataUrl: poster, blob, duration, mimeType: 'video/mp4' }, fId)
+                onPhotoCapture(data)
+              } else {
+                const dataUrl: string = await new Promise((resolve, reject) => {
+                  const r = new FileReader()
+                  r.onload = () => resolve(r.result as string)
+                  r.onerror = () => reject(r.error)
+                  r.readAsDataURL(rawBlob)
+                })
+                await uploadPhotoNow(dataUrl, crypto.randomUUID(), capturedAt)
+              }
+            } catch (e) {
+              console.error('Erro no fallback de captura:', url, e)
             }
-          } catch (e) {
-            console.error('Erro no fallback de captura:', url, e)
-          }
-        }))
+          }))
+        }
+        // Garante a pasta pra abrir o álbum certo mesmo se ainda estiver subindo.
+        const hadCaptures = (urls && urls.length > 0) || processedPhotoIds.current.size > 0
+        folderId = sessionFolderIdRef.current
+        if (hadCaptures && !folderId) {
+          try { folderId = await ensureSessionFolder() } catch { /* sem internet ainda */ }
+        }
+      } catch (e) {
+        console.error('Erro no pós-captura:', e)
+      } finally {
+        // SEMPRE fecha a câmera e (se tem pasta) abre direto o álbum — assim
+        // nunca trava na tela do app nem deixa overlay preso.
         setIsSaving(false)
+        if (folderId) router.push(`/patients/${patientId}?tab=photos&folder=${folderId}`)
+        onClose?.()
       }
-
-      // VAI DIRETO PRO ÁLBUM. Se as fotos ainda estão subindo (pasta não criada
-      // ainda), garante a pasta pra abrir o álbum certo mesmo assim.
-      const hadCaptures = (urls && urls.length > 0) || processedPhotoIds.current.size > 0
-      let folderId = sessionFolderIdRef.current
-      if (hadCaptures && !folderId) {
-        try { folderId = await ensureSessionFolder() } catch { /* sem internet ainda */ }
-      }
-      if (folderId) router.push(`/patients/${patientId}?tab=photos&folder=${folderId}`)
-      onClose?.()
     }
 
     // STREAMING por captura (100% igual ao web): a câmera nativa entrega CADA
@@ -966,8 +972,11 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   // Salva foto no Supabase (via Storage se possível) e atualiza o cache imediatamente.
   // O enhancement é disparado em paralelo ao upload — não espera Storage/DB.
   const uploadPhotoNow = async (dataUrl: string, localId?: string, createdAtMillis?: number) => {
-    // 1) Já dispara o enhancement (não bloqueia upload). Promise retorna o base64 melhorado.
-    const enhancePromise = startEnhancement(dataUrl)
+    // 1) Enhancement: SÓ no web (desktop). No app (TV box) é desligado — com
+    // muitas fotos, o canvas do enhancement roda na thread principal e TRAVA a
+    // box (cliques param, pasta não carrega). Além disso, foto diagnóstica de
+    // paciente não deve ser alterada por IA.
+    const enhancePromise = isNativeRef.current ? Promise.resolve<string | null>(null) : startEnhancement(dataUrl)
 
     // 1a) Atualiza a galeria local assim que a IA responder, mesmo se o upload demorar
     if (localId) {
@@ -995,10 +1004,12 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
         ? { ...baseRow, created_at: new Date(createdAtMillis).toISOString() }
         : baseRow
       let ins = await (supabase as any).from('photos').insert(rowWithTs).select().single()
-      // À prova de falha: se a tabela rejeitar created_at explícito, NÃO perde a
-      // foto — re-tenta sem ele (perde só a precisão da ordem, nunca a imagem).
-      if (ins.error && createdAtMillis) {
-        ins = await (supabase as any).from('photos').insert(baseRow).select().single()
+      // Erro transitório → re-tenta MANTENDO o created_at (a tabela aceita), pra
+      // NÃO perder a ordem. Antes caía pro insert sem created_at → now() → a
+      // foto ia parar no topo (era o bug das 2 fotos fora de ordem).
+      if (ins.error) {
+        await new Promise(r => setTimeout(r, 600))
+        ins = await (supabase as any).from('photos').insert(rowWithTs).select().single()
       }
       const { data, error } = ins
       if (error) throw error

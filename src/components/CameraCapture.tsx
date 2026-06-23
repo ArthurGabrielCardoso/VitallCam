@@ -43,6 +43,7 @@ declare global {
       setIntraoralZoomPercent?: (percent: number) => void
       setIntraoralPreviewVisible?: (visible: boolean) => void
       deleteCaptureFile?: (filename: string) => void
+      openAlbumUrl?: (path: string) => void
     }
     __onIntraoralCapture?: (dataUrls: string[], error: string | null) => void
     __onIntraoralPhoto?: (dataUrl: string, id: string, capturedAt: number) => void
@@ -224,6 +225,9 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   const [isNative, setIsNative] = useState(false)
   // Dedup das fotos que chegam por streaming do app nativo.
   const processedPhotoIds = useRef<Set<string>>(new Set())
+  // Promises dos uploads em andamento — esperamos elas no Salvar antes de
+  // recriar a WebView (senão upload em andamento morre e perde foto).
+  const uploadPromisesRef = useRef<Promise<unknown>[]>([])
   const [nativePreviewState, setNativePreviewState] = useState<NativePreviewState>('idle')
   const [capabilities, setCapabilities] = useState<IntraoralCapabilities | null>(null)
   const [showDebug, setShowDebug] = useState(false)
@@ -250,8 +254,8 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
 
       let folderId: string | null = null
       try {
+        setIsSaving(true)
         if (urls && urls.length > 0) {
-          setIsSaving(true)
           await Promise.all(urls.map(async (url) => {
             const filename = url.split('/').pop() || ''
             const tsMatch = filename.match(/intraoral_(\d+)_/) // hora da captura (ordem)
@@ -286,6 +290,18 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
             }
           }))
         }
+        // ESPERA os uploads do streaming terminarem (com timeout de segurança)
+        // — assim recriar a WebView a seguir NÃO mata upload em andamento (não
+        // perde foto). Como o streaming sobe durante a captura, no Salvar quase
+        // tudo já está pronto.
+        const pending = uploadPromisesRef.current
+        uploadPromisesRef.current = []
+        if (pending.length) {
+          await Promise.race([
+            Promise.allSettled(pending),
+            new Promise(r => setTimeout(r, 25000)),
+          ])
+        }
         // Garante a pasta pra abrir o álbum certo mesmo se ainda estiver subindo.
         const hadCaptures = (urls && urls.length > 0) || processedPhotoIds.current.size > 0
         folderId = sessionFolderIdRef.current
@@ -295,11 +311,18 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       } catch (e) {
         console.error('Erro no pós-captura:', e)
       } finally {
-        // SEMPRE fecha a câmera e (se tem pasta) abre direto o álbum — assim
-        // nunca trava na tela do app nem deixa overlay preso.
         setIsSaving(false)
-        if (folderId) router.push(`/patients/${patientId}?tab=photos&folder=${folderId}`)
-        onClose?.()
+        const path = folderId ? `/patients/${patientId}?tab=photos&folder=${folderId}` : null
+        const nativeOpen = window.VitallCam?.openAlbumUrl
+        if (path && typeof nativeOpen === 'function') {
+          // App: recria a WebView JÁ no álbum — conserta o toque "morto" da TV
+          // box (mesmo efeito de fechar/reabrir o app) e mostra todas as fotos.
+          nativeOpen(path)
+        } else {
+          // Web (ou APK antigo sem o bridge): navegação normal + fecha a câmera.
+          if (path) router.push(path)
+          onClose?.()
+        }
       }
     }
 
@@ -311,7 +334,7 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       const localId = id || crypto.randomUUID()
       if (processedPhotoIds.current.has(localId)) return // dedup
       processedPhotoIds.current.add(localId)
-      uploadPhotoNow(dataUrl, localId, Number(capturedAt) || undefined)
+      uploadPromisesRef.current.push(uploadPhotoNow(dataUrl, localId, Number(capturedAt) || undefined))
     }
 
     // Auto-abre a tela nativa de captura ao entrar
@@ -1393,10 +1416,19 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   // No app, a UI da câmera é uma Activity nativa Compose — não renderiza
   // nada do React. Mostra um overlay neutro enquanto a Activity abre/processa.
   if (isNative) {
-    // App: a câmera é uma Activity nativa que abre POR CIMA. O React aqui é só
-    // o controlador (abre a câmera, recebe o streaming das fotos, salva e vai
-    // pro álbum). NÃO renderiza tela nenhuma — senão fica aquela tela cinza
-    // "Abrindo câmera intraoral…" travada quando o fluxo não fecha na hora.
+    // App: a câmera é uma Activity nativa por cima. O React aqui é só o
+    // controlador. Mostra "Salvando…" só durante o Salvar (que termina e
+    // recria a WebView no álbum); no resto, NADA (senão trava em loader).
+    if (isSaving) {
+      return (
+        <div className="fixed inset-0 z-[60] bg-neutral-950 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3 text-white/70">
+            <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
+            <p className="text-sm">Salvando fotos…</p>
+          </div>
+        </div>
+      )
+    }
     return null
   }
 

@@ -127,7 +127,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val url = getString(R.string.app_url)
+        // Se voltamos da câmera via openAlbumUrl (recreate), abre direto a URL
+        // do álbum; senão a URL inicial do app.
+        val url = pendingStartUrl ?: getString(R.string.app_url)
+        pendingStartUrl = null
         webView.loadUrl(url)
 
         liveInstance = this
@@ -365,6 +368,23 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface fun setIntraoralResolution(width: Int, height: Int) {}
         @JavascriptInterface fun setIntraoralZoomPercent(percent: Int) {}
 
+        /**
+         * Abre o álbum recriando a Activity/WebView (recreate). É o jeito
+         * confiável de voltar da câmera nativa: a TV box às vezes "mata" o toque
+         * do WebView ao voltar de uma Activity por cima — só recriando volta
+         * (mesmo efeito de fechar/reabrir o app). O web chama isso DEPOIS que os
+         * uploads terminam, então não perde foto.
+         */
+        @JavascriptInterface
+        fun openAlbumUrl(path: String) {
+            if (!path.startsWith("/")) return
+            runOnUiThread {
+                val u = android.net.Uri.parse(getString(R.string.app_url))
+                pendingStartUrl = "${u.scheme}://${u.authority}$path"
+                recreate()
+            }
+        }
+
         /** Deleta um arquivo capturado do cache depois de upload completo. */
         @JavascriptInterface
         fun deleteCaptureFile(filename: String) {
@@ -380,6 +400,10 @@ class MainActivity : AppCompatActivity() {
         // Referência viva pra Activity nativa da câmera entregar CADA foto direto
         // pro WebView na hora (igual capturePhoto do web): sem arquivo, sem busca.
         @Volatile private var liveInstance: MainActivity? = null
+
+        // URL pra carregar após recreate() (abrir o álbum ao voltar da câmera).
+        // Estática pra sobreviver ao recreate.
+        @Volatile private var pendingStartUrl: String? = null
 
         /**
          * Entrega UMA foto (dataURL base64) pro web imediatamente.

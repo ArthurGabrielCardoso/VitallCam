@@ -85,11 +85,11 @@ export default function CameraTransition({ isDataReady }: { isDataReady: boolean
         aria-hidden
         onLoad={() => setVisible(true)}
         style={{
-          width:           176,
-          height:          176,
+          width:           'min(176px, 42vw)',
+          height:          'min(176px, 42vw)',
           objectFit:       'contain',
           opacity:         exiting ? 0 : (visible ? 1 : 0),
-          transformOrigin: '50% 42%',
+          transformOrigin: '50% 50%',
           transform:       `scale(${scale})`,
           transition:      phase === 'zoom'
             ? 'transform 1s ease-in'

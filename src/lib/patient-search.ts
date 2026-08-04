@@ -63,8 +63,6 @@ function fuzzyScore(name: string, query: string) {
 export function searchPatients(patients: Patient[], value: string, limit?: number) {
   const query = normalizePatientSearch(value)
   const recentPatients = getRecentPatients(patients)
-  const recentIds = new Set(recentPatients.map((patient) => patient.id))
-
   if (!query) return typeof limit === 'number' ? recentPatients.slice(0, limit) : recentPatients
 
   const direct = patients
@@ -80,8 +78,6 @@ export function searchPatients(patients: Patient[], value: string, limit?: numbe
   const ordered = matches
     .sort((a, b) => a.score - b.score || a.patient.name.localeCompare(b.patient.name, 'pt-BR'))
     .map(({ patient }) => patient)
-    .filter((patient) => !recentIds.has(patient.id))
 
-  const results = [...recentPatients, ...ordered]
-  return typeof limit === 'number' ? results.slice(0, limit) : results
+  return typeof limit === 'number' ? ordered.slice(0, limit) : ordered
 }

@@ -99,7 +99,7 @@ function PatientsLayoutContent({
       <SidebarNav />
       {/* Header fixo */}
       <header className="sticky top-0 z-20 bg-teal-800 border-b border-teal-900/40 shadow-[0_4px_12px_rgba(0,0,0,0.25)]">
-        <div className="relative flex items-center h-14 px-4 lg:px-6">
+        <div className="relative flex items-center h-14 px-2 sm:px-4 lg:px-6">
 
           {/* Abrir sidebar */}
           <button
@@ -135,7 +135,7 @@ function PatientsLayoutContent({
           )}
 
           {/* Busca de pacientes — centralizada absolutamente */}
-          <div ref={searchRef} className="absolute left-1/2 -translate-x-1/2 w-full max-w-xl">
+          <div ref={searchRef} className="absolute left-12 right-12 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-full sm:max-w-xl">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-teal-300 pointer-events-none" />
               <input
@@ -145,7 +145,7 @@ function PatientsLayoutContent({
                 placeholder="Pesquisar pacientes..."
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full pl-9 pr-8 py-2 rounded bg-teal-700/60 border border-teal-600/50 text-sm text-white placeholder:text-teal-300 focus:outline-none focus:border-teal-300 focus:bg-teal-700 transition-all"
+                className="w-full pl-9 pr-8 py-2 rounded bg-teal-700/60 border border-teal-600/50 text-xs sm:text-sm text-white placeholder:text-teal-300 focus:outline-none focus:border-teal-300 focus:bg-teal-700 transition-all"
               />
               {isLoading && busca.trim() && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -156,7 +156,7 @@ function PatientsLayoutContent({
 
             {/* Dropdown de resultados */}
             {(temResultados || semResultados) && (
-              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 overflow-hidden">
+              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 overflow-y-auto max-h-[65vh]">
                 {temResultados && resultados.map((p) => {
                   const recente = !buscou && pacientesRecentes.has(p.id)
                   return (
@@ -164,7 +164,7 @@ function PatientsLayoutContent({
                     key={p.id}
                     href={`/patients/${p.id}`}
                     onClick={() => { setBusca(""); setOpen(false) }}
-                    className={`flex items-center gap-3 px-4 py-3 transition-colors group border-b border-gray-100 ${
+                    className={`flex items-center gap-2.5 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 transition-colors group border-b border-gray-100 ${
                       recente ? "bg-dourado-50/70 hover:bg-dourado-50 border-l-2 border-l-dourado-400" : "hover:bg-teal-50"
                     }`}
                   >
@@ -203,17 +203,17 @@ function PatientsLayoutContent({
           </div>
 
           {/* Ações direita */}
-          <div className="flex items-center gap-2 ml-auto shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2 ml-auto shrink-0">
             <Link
               href="/patients/configuracoes"
-              className="flex items-center justify-center h-9 w-9 rounded hover:bg-teal-700 transition-colors"
+              className="hidden sm:flex items-center justify-center h-9 w-9 rounded hover:bg-teal-700 transition-colors"
               title="Configurações"
             >
               <Settings className="h-5 w-5 text-white" />
             </Link>
 
             {/* Logo do app — fundo branco redondo */}
-            <div className="h-9 w-9 rounded-full bg-white flex items-center justify-center shadow-sm overflow-hidden">
+            <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-full bg-white flex items-center justify-center shadow-sm overflow-hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/vitall-logo.png" alt="VitallCam" className="h-6 w-6 object-contain" />
             </div>

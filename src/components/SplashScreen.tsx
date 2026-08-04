@@ -37,7 +37,8 @@ export default function SplashScreen() {
       }}
       aria-hidden
     >
-      <div className="flex items-center">
+      {/* Desktop: preserva a composição horizontal original. */}
+      <div className="hidden sm:flex items-center">
 
         {/* ── Icon ───────────────────────────────────────────────────────
             While text is hidden (maxWidth=0, margin=0) the flex row is
@@ -94,6 +95,57 @@ export default function SplashScreen() {
               Excelência em diagnóstico
             </span>
 
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile: marca abaixo do ícone, com tipografia fluida para telas estreitas. */}
+      <div className="flex sm:hidden w-full max-w-full flex-col items-center justify-center px-4">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/icon.png"
+          alt="VitallCam"
+          className="splash-icon h-[clamp(8rem,42vw,10.5rem)] w-[clamp(8rem,42vw,10.5rem)] shrink-0 object-contain"
+        />
+
+        <div
+          className="w-full max-w-[calc(100vw-2rem)] overflow-hidden text-center"
+          style={{
+            maxHeight: showText ? '150px' : '0',
+            marginTop: showText ? '18px' : '0',
+            opacity: showText ? 1 : 0,
+            transition: [
+              'max-height 0.72s cubic-bezier(0.65,0,0.35,1)',
+              'margin-top 0.72s cubic-bezier(0.65,0,0.35,1)',
+              'opacity 0.45s ease 0.12s',
+            ].join(', '),
+          }}
+        >
+          <div className="flex min-w-0 flex-col items-center">
+            <span
+              className="splash-brand-shimmer block max-w-full whitespace-nowrap text-[clamp(2rem,12vw,3.5rem)] font-medium leading-none tracking-tight"
+              style={{
+                background: 'linear-gradient(90deg, #0f766e 0%, #0f766e 20%, #cca97e 50%, #0f766e 80%, #0f766e 100%)',
+                backgroundSize: '300% auto',
+                backgroundPosition: '100% center',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+              }}
+            >
+              VitallCam
+            </span>
+
+            <span
+              className="mt-2 block max-w-full whitespace-nowrap text-[clamp(0.75rem,4vw,1rem)] font-medium tracking-wide text-gray-400"
+              style={{
+                opacity: showTag ? 1 : 0,
+                transform: showTag ? 'translateY(0)' : 'translateY(8px)',
+                transition: 'opacity 0.6s ease, transform 0.6s ease',
+              }}
+            >
+              Excelência em diagnóstico
+            </span>
           </div>
         </div>
       </div>

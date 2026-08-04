@@ -9,6 +9,7 @@ import { PanelLeftOpen, Search, Settings, ChevronRight, ArrowLeft, ImageIcon } f
 import Link from "next/link"
 import { usePatients, usePatientsBroadcast } from "@/hooks/usePatients"
 import type { Patient } from "@/lib/types"
+import { getLatestPatientCreatedToday, normalizePatientSearch, searchPatients } from "@/lib/patient-search"
 
 function getIniciais(nome: string) {
   return nome.split(" ").filter(Boolean).map((n) => n[0]).slice(0, 2).join("").toUpperCase()
@@ -70,10 +71,9 @@ function PatientsLayoutContent({
 
   // Filtro local
   const resultados = useMemo<Patient[]>(() => {
-    const q = busca.trim().toLowerCase()
-    if (!q) return []
-    return pacientes.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8)
+    return searchPatients(pacientes, busca, 8)
   }, [busca, pacientes])
+  const pacienteRecente = useMemo(() => getLatestPatientCreatedToday(pacientes), [pacientes])
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -86,8 +86,8 @@ function PatientsLayoutContent({
     return () => document.removeEventListener("mousedown", handleClick)
   }, [])
 
-  const buscou = open && busca.trim().length > 0
-  const temResultados = buscou && !isLoading && resultados.length > 0
+  const buscou = open && normalizePatientSearch(busca).length > 0
+  const temResultados = open && !isLoading && resultados.length > 0
   const semResultados = buscou && !isLoading && resultados.length === 0
 
   if (!isClient) {
@@ -143,6 +143,8 @@ function PatientsLayoutContent({
                 onChange={(e) => { setBusca(e.target.value); setOpen(true) }}
                 onFocus={() => setOpen(true)}
                 placeholder="Pesquisar pacientes..."
+                autoComplete="off"
+                spellCheck={false}
                 className="w-full pl-9 pr-8 py-2 rounded bg-teal-700/60 border border-teal-600/50 text-sm text-white placeholder:text-teal-300 focus:outline-none focus:border-teal-300 focus:bg-teal-700 transition-all"
               />
               {isLoading && busca.trim() && (
@@ -155,12 +157,16 @@ function PatientsLayoutContent({
             {/* Dropdown de resultados */}
             {(temResultados || semResultados) && (
               <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 overflow-hidden">
-                {temResultados && resultados.map((p, idx) => (
+                {temResultados && resultados.map((p) => {
+                  const recente = p.id === pacienteRecente?.id
+                  return (
                   <Link
                     key={p.id}
                     href={`/patients/${p.id}`}
                     onClick={() => { setBusca(""); setOpen(false) }}
-                    className={`flex items-center gap-3 px-4 py-3 hover:bg-teal-50 transition-colors group ${idx !== resultados.length - 1 ? "border-b border-gray-100" : ""}`}
+                    className={`flex items-center gap-3 px-4 py-3 transition-colors group border-b border-gray-100 ${
+                      recente ? "bg-dourado-50/70 hover:bg-dourado-50 border-l-2 border-l-dourado-400" : "hover:bg-teal-50"
+                    }`}
                   >
                     <div className="h-9 w-9 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
                       {p.profile_photo ? (
@@ -175,7 +181,14 @@ function PatientsLayoutContent({
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-800 truncate">{p.name}</p>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className="text-sm font-semibold text-gray-800 truncate">{p.name}</p>
+                        {recente && (
+                          <span className="shrink-0 rounded-full border border-dourado-300/80 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-dourado-700">
+                            Criado recentemente
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-3 flex-wrap mt-0.5">
                         <span className="flex items-center gap-1 text-xs text-gray-400">
                           <ImageIcon className="h-3 w-3" />
@@ -185,7 +198,7 @@ function PatientsLayoutContent({
                     </div>
                     <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-teal-500 transition-colors shrink-0" />
                   </Link>
-                ))}
+                )})}
                 {semResultados && (
                   <div className="px-4 py-3 text-sm text-gray-400 text-center">
                     Nenhum paciente encontrado para{" "}

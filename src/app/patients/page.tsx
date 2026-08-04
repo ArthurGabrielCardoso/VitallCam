@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic"
 
 import { useState, useRef, useEffect, useMemo } from "react"
 import Link from "next/link"
-import { Search, ChevronRight, ImageIcon } from "lucide-react"
+import { Search, ChevronRight, ImageIcon, Sparkles } from "lucide-react"
 
 import { usePatients, usePatientsBroadcast, usePrefetchPatient } from "@/hooks/usePatients"
 import NewPatientModal from "@/components/NewPatientModal"
@@ -14,6 +14,63 @@ import type { Patient } from "@/lib/types"
 
 function getIniciais(nome: string) {
   return nome.split(" ").filter(Boolean).map((n) => n[0]).slice(0, 2).join("").toUpperCase()
+}
+
+function normalizarBusca(valor: string) {
+  return valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("pt-BR")
+    .trim()
+    .replace(/\s+/g, " ")
+}
+
+function foiCriadoHoje(createdAt: string) {
+  const criado = new Date(createdAt)
+  const hoje = new Date()
+  return criado.getFullYear() === hoje.getFullYear()
+    && criado.getMonth() === hoje.getMonth()
+    && criado.getDate() === hoje.getDate()
+}
+
+function pontuarNome(nome: string, busca: string) {
+  const nomeNormalizado = normalizarBusca(nome)
+  if (nomeNormalizado === busca) return 0
+  if (nomeNormalizado.startsWith(busca)) return 1
+  if (nomeNormalizado.split(" ").some((parte) => parte.startsWith(busca))) return 2
+  if (nomeNormalizado.includes(busca)) return 3
+  return null
+}
+
+// Distância Damerau-Levenshtein: considera também duas letras vizinhas invertidas
+// (ex.: "aghata" encontra "agatha") como um único erro de digitação.
+function distanciaDeDigitacao(a: string, b: string) {
+  const matriz = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0))
+  for (let i = 0; i <= a.length; i++) matriz[i][0] = i
+  for (let j = 0; j <= b.length; j++) matriz[0][j] = j
+
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const custo = a[i - 1] === b[j - 1] ? 0 : 1
+      matriz[i][j] = Math.min(
+        matriz[i - 1][j] + 1,
+        matriz[i][j - 1] + 1,
+        matriz[i - 1][j - 1] + custo,
+      )
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        matriz[i][j] = Math.min(matriz[i][j], matriz[i - 2][j - 2] + 1)
+      }
+    }
+  }
+  return matriz[a.length][b.length]
+}
+
+function pontuarAproximacao(nome: string, busca: string) {
+  if (busca.length < 3) return null
+  const tolerancia = busca.length >= 6 ? 2 : 1
+  const palavras = normalizarBusca(nome).split(" ")
+  const melhorDistancia = Math.min(...palavras.map((palavra) => distanciaDeDigitacao(palavra, busca)))
+  return melhorDistancia <= tolerancia ? melhorDistancia : null
 }
 
 export default function PatientsPage() {
@@ -31,9 +88,36 @@ export default function PatientsPage() {
   }
 
   const resultados = useMemo<Patient[]>(() => {
-    const q = busca.trim().toLowerCase()
+    const q = normalizarBusca(busca)
     if (!q) return []
-    return pacientes.filter((p) => p.name.toLowerCase().includes(q))
+    const candidatosDiretos = pacientes
+      .map((paciente) => ({
+        paciente,
+        pontuacao: pontuarNome(paciente.name, q),
+        recente: foiCriadoHoje(paciente.created_at),
+      }))
+      .filter((item): item is typeof item & { pontuacao: number } => item.pontuacao !== null)
+
+    const candidatos = candidatosDiretos.length > 0
+      ? candidatosDiretos
+      : pacientes
+          .map((paciente) => ({
+            paciente,
+            pontuacao: pontuarAproximacao(paciente.name, q),
+            recente: foiCriadoHoje(paciente.created_at),
+          }))
+          .filter((item): item is typeof item & { pontuacao: number } => item.pontuacao !== null)
+
+    return candidatos
+      .sort((a, b) => {
+        if (a.recente !== b.recente) return a.recente ? -1 : 1
+        if (a.pontuacao !== b.pontuacao) return a.pontuacao - b.pontuacao
+        if (a.recente && b.recente) {
+          return new Date(b.paciente.created_at).getTime() - new Date(a.paciente.created_at).getTime()
+        }
+        return a.paciente.name.localeCompare(b.paciente.name, "pt-BR")
+      })
+      .map(({ paciente }) => paciente)
   }, [busca, pacientes])
 
   useEffect(() => { inputRef.current?.focus() }, [])
@@ -110,6 +194,8 @@ export default function PatientsPage() {
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Pesquisar..."
+              autoComplete="off"
+              spellCheck={false}
               className="w-full pl-12 pr-10 py-4 border border-gray-200 rounded focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 outline-none text-base bg-gray-100 transition-all placeholder:text-gray-400 shadow-sm"
             />
             {isLoading && (
@@ -121,16 +207,26 @@ export default function PatientsPage() {
 
           {/* Resultados */}
           {temResultados && (
-            <div className="w-full mt-5 border border-gray-200 rounded overflow-hidden shadow-sm bg-white">
-              {resultados.map((p, idx) => (
+            <div className="w-full mt-5 border border-gray-200 rounded overflow-hidden shadow-sm bg-white p-1.5">
+              {resultados.map((p) => {
+                const recente = foiCriadoHoje(p.created_at)
+                return (
                 <IntersectionPrefetch key={p.id} patientId={p.id}>
                   <Link
                     href={`/patients/${p.id}`}
                     prefetch={false}
                     onMouseEnter={() => handleHover(p.id)}
-                    className={`flex items-center gap-4 px-5 py-3.5 bg-white hover:bg-teal-50 transition-colors group ${idx !== resultados.length - 1 ? "border-b border-gray-100" : ""}`}
+                    className={`flex items-center gap-4 px-4 py-3.5 rounded transition-all group border ${
+                      recente
+                        ? "mb-1.5 border-dourado-400/70 bg-dourado-50/70 hover:bg-dourado-50 shadow-sm shadow-dourado-500/5"
+                        : "border-transparent bg-white hover:bg-teal-50"
+                    }`}
                   >
-                    <div className="h-9 w-9 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
+                    <div className={`h-9 w-9 rounded flex items-center justify-center shrink-0 shadow-sm overflow-hidden ${
+                      recente
+                        ? "bg-gradient-to-br from-dourado-500 to-dourado-600 ring-1 ring-dourado-300/70"
+                        : "bg-gradient-to-br from-teal-600 to-teal-700"
+                    }`}>
                       {p.profile_photo ? (
                         <img src={p.profile_photo} alt="" className="w-full h-full object-cover" />
                       ) : (
@@ -138,7 +234,15 @@ export default function PatientsPage() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-800 truncate leading-snug">{p.name}</p>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className="text-sm font-semibold text-gray-800 truncate leading-snug">{p.name}</p>
+                        {recente && (
+                          <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dourado-300/80 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-dourado-700">
+                            <Sparkles className="h-2.5 w-2.5" />
+                            Criado recentemente
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                         <span className="flex items-center gap-1 text-xs text-gray-400">
                           <ImageIcon className="h-3 w-3" />
@@ -146,10 +250,12 @@ export default function PatientsPage() {
                         </span>
                       </div>
                     </div>
-                    <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-teal-500 transition-colors shrink-0" />
+                    <ChevronRight className={`h-4 w-4 transition-colors shrink-0 ${
+                      recente ? "text-dourado-400 group-hover:text-dourado-600" : "text-gray-300 group-hover:text-teal-500"
+                    }`} />
                   </Link>
                 </IntersectionPrefetch>
-              ))}
+              )})}
             </div>
           )}
 

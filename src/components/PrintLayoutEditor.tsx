@@ -1542,7 +1542,19 @@ function PrintStyles() {
           background: #fff !important;
         }
         #print-document { padding: 0 !important; gap: 0 !important; display: block !important; }
-        .ple-page-wrap { display: block !important; gap: 0 !important; margin: 0 !important; }
+        .ple-page-wrap {
+          display: block !important;
+          gap: 0 !important;
+          margin: 0 !important;
+          page-break-inside: avoid !important;
+          break-inside: avoid-page !important;
+          page-break-after: always !important;
+          break-after: page !important;
+        }
+        .ple-page-wrap:last-child {
+          page-break-after: auto !important;
+          break-after: auto !important;
+        }
         .ple-photo-caption {
           border: none !important;
           background: transparent !important;
@@ -1557,8 +1569,10 @@ function PrintStyles() {
         .ple-page {
           box-shadow: none !important;
           border-radius: 0 !important;
-          page-break-after: always;
-          break-after: page;
+          page-break-after: auto !important;
+          break-after: auto !important;
+          page-break-inside: avoid !important;
+          break-inside: avoid-page !important;
           margin: 0 !important;
           width: 210mm !important;
           height: 297mm !important;
@@ -1568,7 +1582,6 @@ function PrintStyles() {
           overflow: hidden !important;
           background: #fff !important;
         }
-        .ple-page:last-child { page-break-after: auto; break-after: auto; }
         .ple-frame {
           min-height: 100% !important;
           height: 100% !important;

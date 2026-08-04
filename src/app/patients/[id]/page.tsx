@@ -88,6 +88,7 @@ export default function PatientPage() {
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [isDraggingFiles, setIsDraggingFiles] = useState(false)
+  const fileDragDepthRef = useRef(0)
   const [isProcessingAI, setIsProcessingAI] = useState(false)
   const [aiEnhancedImage, setAiEnhancedImage] = useState<string | null>(null)
   const [showAIComparison, setShowAIComparison] = useState(false)
@@ -569,12 +570,41 @@ export default function PatientPage() {
   }
 
   // Funções para drag and drop de arquivos
+  const resetFileDrag = useCallback(() => {
+    fileDragDepthRef.current = 0
+    setIsDraggingFiles(false)
+  }, [])
+
+  useEffect(() => {
+    const handleWindowDragLeave = (event: DragEvent) => {
+      if (!event.relatedTarget) resetFileDrag()
+    }
+    const handleVisibilityChange = () => {
+      if (document.hidden) resetFileDrag()
+    }
+
+    window.addEventListener('dragend', resetFileDrag, true)
+    window.addEventListener('drop', resetFileDrag, true)
+    window.addEventListener('blur', resetFileDrag)
+    window.addEventListener('dragleave', handleWindowDragLeave)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('dragend', resetFileDrag, true)
+      window.removeEventListener('drop', resetFileDrag, true)
+      window.removeEventListener('blur', resetFileDrag)
+      window.removeEventListener('dragleave', handleWindowDragLeave)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [resetFileDrag])
+
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
 
     // Verificar se está arrastando arquivos
     if (e.dataTransfer.types.includes('Files')) {
+      fileDragDepthRef.current += 1
       setIsDraggingFiles(true)
     }
   }
@@ -588,16 +618,18 @@ export default function PatientPage() {
     e.preventDefault()
     e.stopPropagation()
 
-    // Verificar se realmente saiu da área (e não apenas mudou de elemento filho)
-    if (e.currentTarget === e.target) {
-      setIsDraggingFiles(false)
+    if (e.dataTransfer.types.includes('Files')) {
+      fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1)
+      if (fileDragDepthRef.current === 0) {
+        setIsDraggingFiles(false)
+      }
     }
   }
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsDraggingFiles(false)
+    resetFileDrag()
 
     const files = Array.from(e.dataTransfer.files)
     if (files.length === 0) return

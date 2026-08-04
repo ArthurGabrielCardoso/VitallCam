@@ -433,6 +433,37 @@ export default function PatientPage() {
     }
   }
 
+  const handleDownloadProfilePhoto = async () => {
+    if (!patient?.profile_photo) return
+
+    try {
+      const response = await fetch(patient.profile_photo)
+      if (!response.ok) throw new Error('Não foi possível carregar a foto')
+
+      const blob = await response.blob()
+      const extensionByMimeType: Record<string, string> = {
+        'image/jpeg': 'jpg',
+        'image/png': 'png',
+        'image/webp': 'webp',
+        'image/gif': 'gif',
+      }
+      const extension = extensionByMimeType[blob.type] || 'jpg'
+      const safePatientName = patient.name.replace(/[\\/:*?"<>|]/g, '').trim() || 'Paciente'
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+
+      link.href = objectUrl
+      link.download = `Foto de perfil ${safePatientName}.${extension}`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(objectUrl)
+    } catch (error) {
+      console.error('Erro ao baixar foto de perfil:', error)
+      toast({ variant: 'destructive', title: 'Erro ao baixar foto de perfil' })
+    }
+  }
+
   const handleDeletePatient = async () => {
     try {
       await deletePatientMutation.mutateAsync(patientId)
@@ -1211,6 +1242,22 @@ export default function PatientPage() {
                         <Camera className="w-10 h-10 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
                       )}
                     </div>
+
+                    {/* Download da foto de perfil */}
+                    {patient.profile_photo && (
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation()
+                          handleDownloadProfilePhoto()
+                        }}
+                        className="absolute top-3 right-3 h-10 w-10 flex items-center justify-center rounded-full bg-black/55 hover:bg-black/75 text-white shadow-md transition-colors"
+                        title="Baixar foto de perfil"
+                        aria-label={`Baixar foto de perfil de ${patient.name}`}
+                      >
+                        <Download className="w-5 h-5" />
+                      </button>
+                    )}
 
                     {/* Botão upload na parte inferior — usa label para funcionar em tablet/iOS */}
                     <label

@@ -112,6 +112,7 @@ export default function PatientPage() {
   const [isUploadingProfilePhoto, setIsUploadingProfilePhoto] = useState(false)
   const [showProfileCamera, setShowProfileCamera] = useState(false)
   const [showProfilePhotoPrompt, setShowProfilePhotoPrompt] = useState(false)
+  const [showRemoveProfilePhotoConfirm, setShowRemoveProfilePhotoConfirm] = useState(false)
   const [pendingProfileTab, setPendingProfileTab] = useState<string | null>(null)
   // Câmera do perfil: padrão TRASEIRA (environment) — no tablet abria frontal.
   const [profileFacing, setProfileFacing] = useState<'environment' | 'user'>('environment')
@@ -502,6 +503,20 @@ export default function PatientPage() {
     } catch (error) {
       console.error('Erro ao baixar foto de perfil:', error)
       toast({ variant: 'destructive', title: 'Erro ao baixar foto de perfil' })
+    }
+  }
+
+  const handleRemoveProfilePhoto = async () => {
+    setIsUploadingProfilePhoto(true)
+    try {
+      await updatePatientMutation.mutateAsync({ patientId, profile_photo: null })
+      setShowRemoveProfilePhotoConfirm(false)
+      toast({ title: 'Foto de perfil removida' })
+    } catch (error) {
+      console.error('Erro ao remover foto de perfil:', error)
+      toast({ variant: 'destructive', title: 'Erro ao remover foto de perfil' })
+    } finally {
+      setIsUploadingProfilePhoto(false)
     }
   }
 
@@ -1261,7 +1276,7 @@ export default function PatientPage() {
           onClick={() => setShowProfilePhotoPrompt(false)}
         >
           <div
-            className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-white/30"
+            className="relative w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-white/30"
             onClick={e => e.stopPropagation()}
           >
             <div className="h-2 bg-gradient-to-r from-teal-700 via-teal-500 to-dourado-400" />
@@ -1274,49 +1289,87 @@ export default function PatientPage() {
               <X className="h-5 w-5" />
             </button>
 
-            <div className="px-7 pb-7 pt-8 text-center">
-              <div className="relative mx-auto mb-5 h-24 w-24">
-                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-teal-600 to-teal-800 shadow-lg shadow-teal-900/20">
-                  <User className="h-11 w-11 text-white" />
+            <div className="px-7 pb-7 pt-8 sm:px-9 sm:pb-8 sm:pt-9">
+              <div className="flex flex-col items-center gap-6 text-center sm:flex-row sm:items-start sm:gap-8 sm:text-left">
+                <div className="relative h-24 w-24 shrink-0 sm:mt-1 sm:h-28 sm:w-28">
+                  <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-teal-600 to-teal-800 shadow-lg shadow-teal-900/20">
+                    <User className="h-12 w-12 text-white sm:h-14 sm:w-14" />
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 flex h-10 w-10 items-center justify-center rounded-full border-4 border-white bg-gradient-to-br from-dourado-400 to-dourado-600 text-white shadow-md sm:h-11 sm:w-11">
+                    <ImageIcon className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </div>
                 </div>
-                <div className="absolute -bottom-1 -right-1 flex h-10 w-10 items-center justify-center rounded-full border-4 border-white bg-gradient-to-br from-dourado-400 to-dourado-600 text-white shadow-md">
-                  <ImageIcon className="h-4 w-4" />
+
+                <div className="min-w-0 flex-1">
+                  <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-dourado-600">Identificação do paciente</p>
+                  <h2 id="profile-photo-prompt-title" className="text-2xl font-semibold text-gray-800 sm:pr-8">
+                    Vamos registrar uma foto?
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-gray-500">
+                    A foto de perfil ajuda a equipe a identificar <strong className="font-semibold text-gray-700">{patient.name}</strong> com segurança durante os atendimentos.
+                  </p>
+
+                  <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={captureProfilePhotoFromPrompt}
+                      className="flex h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-teal-700 to-teal-600 px-4 text-sm font-semibold text-white shadow-md shadow-teal-700/20 transition-all hover:from-teal-800 hover:to-teal-700 hover:shadow-lg"
+                    >
+                      <Camera className="h-5 w-5" />
+                      Tirar foto agora
+                    </button>
+                    <button
+                      type="button"
+                      onClick={uploadProfilePhotoFromPrompt}
+                      className="flex h-12 items-center justify-center gap-2 rounded-xl border border-dourado-300 bg-dourado-50 px-4 text-sm font-semibold text-dourado-700 transition-colors hover:border-dourado-400 hover:bg-dourado-100"
+                    >
+                      <Upload className="h-5 w-5" />
+                      Escolher imagem
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={continueWithoutProfilePhoto}
+                    className="mt-4 text-sm font-medium text-gray-400 transition-colors hover:text-teal-700"
+                  >
+                    Continuar sem foto por enquanto
+                  </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
 
-              <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-dourado-600">Identificação do paciente</p>
-              <h2 id="profile-photo-prompt-title" className="text-2xl font-semibold text-gray-800">
-                Vamos registrar uma foto?
-              </h2>
-              <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-gray-500">
-                A foto de perfil ajuda a equipe a identificar <strong className="font-semibold text-gray-700">{patient.name}</strong> com segurança durante os atendimentos.
-              </p>
-
-              <div className="mt-7 grid gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={captureProfilePhotoFromPrompt}
-                  className="flex h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-teal-700 to-teal-600 px-4 text-sm font-semibold text-white shadow-md shadow-teal-700/20 transition-all hover:from-teal-800 hover:to-teal-700 hover:shadow-lg"
-                >
-                  <Camera className="h-5 w-5" />
-                  Tirar foto agora
-                </button>
-                <button
-                  type="button"
-                  onClick={uploadProfilePhotoFromPrompt}
-                  className="flex h-12 items-center justify-center gap-2 rounded-xl border border-dourado-300 bg-dourado-50 px-4 text-sm font-semibold text-dourado-700 transition-colors hover:border-dourado-400 hover:bg-dourado-100"
-                >
-                  <Upload className="h-5 w-5" />
-                  Escolher imagem
-                </button>
+      {/* Confirmação: remover somente a foto de perfil */}
+      {showRemoveProfilePhotoConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-red-50 text-red-600">
+                <Trash2 className="h-5 w-5" />
               </div>
-
+              <div>
+                <h3 className="font-semibold text-gray-800">Remover foto de perfil?</h3>
+                <p className="text-sm text-gray-500">O restante do cadastro será mantido.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
               <button
                 type="button"
-                onClick={continueWithoutProfilePhoto}
-                className="mt-5 text-sm font-medium text-gray-400 transition-colors hover:text-teal-700"
+                onClick={() => setShowRemoveProfilePhotoConfirm(false)}
+                className="h-11 flex-1 rounded-xl bg-gray-100 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-200"
               >
-                Continuar sem foto por enquanto
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleRemoveProfilePhoto}
+                disabled={isUploadingProfilePhoto}
+                className="h-11 flex-1 rounded-xl bg-red-600 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+              >
+                {isUploadingProfilePhoto ? 'Removendo...' : 'Remover foto'}
               </button>
             </div>
           </div>
@@ -1358,18 +1411,32 @@ export default function PatientPage() {
 
                     {/* Download da foto de perfil */}
                     {patient.profile_photo && (
-                      <button
-                        type="button"
-                        onClick={e => {
-                          e.stopPropagation()
-                          handleDownloadProfilePhoto()
-                        }}
-                        className="absolute top-3 right-3 h-10 w-10 flex items-center justify-center rounded-full bg-black/55 hover:bg-black/75 text-white shadow-md transition-colors"
-                        title="Baixar foto de perfil"
-                        aria-label={`Baixar foto de perfil de ${patient.name}`}
-                      >
-                        <Download className="w-5 h-5" />
-                      </button>
+                      <div className="absolute right-3 top-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation()
+                            handleDownloadProfilePhoto()
+                          }}
+                          className="flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white shadow-md transition-colors hover:bg-black/75"
+                          title="Baixar foto de perfil"
+                          aria-label={`Baixar foto de perfil de ${patient.name}`}
+                        >
+                          <Download className="h-5 w-5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation()
+                            setShowRemoveProfilePhotoConfirm(true)
+                          }}
+                          className="flex h-10 w-10 items-center justify-center rounded-full bg-red-600/90 text-white shadow-md transition-colors hover:bg-red-700"
+                          title="Remover foto de perfil"
+                          aria-label={`Remover foto de perfil de ${patient.name}`}
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      </div>
                     )}
 
                     {/* Botão upload na parte inferior — usa label para funcionar em tablet/iOS */}

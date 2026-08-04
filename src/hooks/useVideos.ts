@@ -1,6 +1,6 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 
 export interface VideoRow {
@@ -51,5 +51,40 @@ export const useUnfolderedVideos = (patientId: string | null) => {
       return (data || []) as VideoRow[]
     },
     enabled: !!patientId,
+  })
+}
+
+export const useDeleteVideo = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (video: VideoRow) => {
+      const { data, error } = await (supabase as any)
+        .from('videos')
+        .delete()
+        .eq('id', video.id)
+        .select('id')
+        .single()
+
+      if (error) throw error
+      if (!data?.id) throw new Error('Vídeo não encontrado ou sem permissão para excluir')
+
+      // Vídeos longos ficam no Storage; a linha já foi removida, então uma falha
+      // de limpeza não impede que o vídeo desapareça corretamente da interface.
+      if (video.storage_path) {
+        const { error: storageError } = await (supabase as any).storage
+          .from('patient-videos')
+          .remove([video.storage_path])
+        if (storageError) console.error('Erro ao limpar arquivo do vídeo:', storageError)
+      }
+
+      return video
+    },
+    onSuccess: (video) => {
+      queryClient.invalidateQueries({ queryKey: ['unfoldered-videos', video.patient_id] })
+      if (video.folder_id) {
+        queryClient.invalidateQueries({ queryKey: ['folder-videos', video.folder_id] })
+      }
+    },
   })
 }

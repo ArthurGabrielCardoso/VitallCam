@@ -6,7 +6,7 @@ import { useState, useRef, useEffect, useMemo } from "react"
 import Link from "next/link"
 import { Search, ChevronRight, ImageIcon } from "lucide-react"
 
-import { usePatients, usePatientsBroadcast, usePrefetchPatient } from "@/hooks/usePatients"
+import { usePatients, usePrefetchPatient } from "@/hooks/usePatients"
 import NewPatientModal from "@/components/NewPatientModal"
 import IntersectionPrefetch from "@/components/IntersectionPrefetch"
 import { useToast } from "@/hooks/use-toast"
@@ -22,11 +22,9 @@ export default function PatientsPage() {
   const [busca, setBusca] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const { data: pacientes = [], isLoading, error, refetch } = usePatients()
-  usePatientsBroadcast()
+  const { data: pacientes = [], isLoading, error } = usePatients()
   const { prefetchPatient } = usePrefetchPatient()
 
-  const handlePatientCreated = () => { refetch() }
   const handleHover = async (id: string) => {
     try { await prefetchPatient(id) } catch { /* silent */ }
   }
@@ -77,7 +75,7 @@ export default function PatientsPage() {
 
       {/* Botão canto superior esquerdo — z-20 p/ não ser coberto pelo container central */}
       <div className="absolute top-3 left-3 z-20 sm:top-6 sm:left-6">
-        <NewPatientModal onPatientCreated={handlePatientCreated} />
+        <NewPatientModal />
       </div>
 
       {/* Conteúdo */}

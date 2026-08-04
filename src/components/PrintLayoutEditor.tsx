@@ -13,7 +13,6 @@ import { useToast } from '@/hooks/use-toast'
 import { useQueryClient } from '@tanstack/react-query'
 import { usePhotos, useUnfolderedPhotos, useBatchPhotoLoader } from '@/hooks/usePhotos'
 import { useFolders, useFolderPhotos } from '@/hooks/useFolders'
-import LazyImage from '@/components/LazyImage'
 import LazyPhotoImage from '@/components/LazyPhotoImage'
 
 interface PrintLayoutEditorProps {
@@ -445,9 +444,14 @@ export default function PrintLayoutEditor({
 
   if (!portalReady) return null
   return createPortal(
-    <div className="fixed inset-0 z-50 bg-gray-100 flex flex-col print:bg-white print:static" id="ple-root" data-anim={animState}>
+    <div
+      className="fixed inset-0 z-50 bg-gray-100 flex flex-col print:bg-white print:static"
+      id="ple-root"
+      data-anim={animState}
+      data-desktop={isDesktop}
+    >
       {/* Topbar */}
-      <div className="h-14 bg-teal-800 border-b border-teal-900/40 shadow-[0_4px_12px_rgba(0,0,0,0.25)] flex items-center px-4 gap-2 shrink-0 print:hidden ple-topbar relative z-30">
+      <div className="h-14 bg-teal-800 border-b border-teal-900/40 shadow-[0_4px_12px_rgba(0,0,0,0.25)] flex items-center px-2 sm:px-4 gap-1 sm:gap-2 shrink-0 print:hidden ple-topbar relative z-30">
         <button
           onClick={requestClose}
           className="h-9 w-9 rounded hover:bg-teal-700 transition-colors flex items-center justify-center text-white"
@@ -473,7 +477,7 @@ export default function PrintLayoutEditor({
             />
           ) : (
             <>
-              <span className="text-sm font-semibold text-white truncate">
+              <span className="text-xs sm:text-sm font-semibold text-white truncate">
                 {reportTitle}
               </span>
               <button
@@ -488,13 +492,13 @@ export default function PrintLayoutEditor({
         </div>
         <div className="ml-auto flex items-center gap-2">
           {selectedSlot && (
-            <span className="text-xs px-2.5 py-1 rounded bg-teal-700/70 text-teal-50 border border-teal-500/50">
+            <span className="hidden lg:inline-flex text-xs px-2.5 py-1 rounded bg-teal-700/70 text-teal-50 border border-teal-500/50">
               Slot selecionado — clique uma foto à esquerda
             </span>
           )}
           <button
             onClick={handlePrint}
-            className="h-9 px-4 rounded bg-gradient-to-br from-dourado-500 to-dourado-400 hover:from-dourado-600 hover:to-dourado-500 text-white text-sm font-semibold shadow-md shadow-dourado-500/20 transition-all flex items-center gap-1.5"
+            className="h-9 px-3 sm:px-4 rounded bg-gradient-to-br from-dourado-500 to-dourado-400 hover:from-dourado-600 hover:to-dourado-500 text-white text-xs sm:text-sm font-semibold shadow-md shadow-dourado-500/20 transition-all flex items-center gap-1.5 shrink-0"
           >
             <Printer className="w-4 h-4" />
             Imprimir
@@ -548,9 +552,9 @@ export default function PrintLayoutEditor({
         {/* Right: document */}
         <main className="flex-1 min-w-0 flex flex-col print:block ple-main">
           {/* Toolbar (100% da largura do documento, itens centralizados) */}
-          <div className="bg-white border-b border-gray-200 px-2 py-2 flex items-center shrink-0 print:hidden ple-toolbar w-full flex-wrap">
-            <div className="flex-1" />
-            <div className="flex items-center gap-1 shrink-0">
+          <div className="bg-white border-b border-gray-200 px-1 sm:px-2 py-2 flex items-center justify-center shrink-0 print:hidden ple-toolbar w-full overflow-x-auto">
+            <div className="hidden sm:block flex-1" />
+            <div className="flex items-center gap-1 shrink-0 min-w-max">
               <ToolbarBtn onClick={() => exec('bold')} title="Negrito"><Bold className="w-4 h-4" /></ToolbarBtn>
               <ToolbarBtn onClick={() => exec('italic')} title="Itálico"><Italic className="w-4 h-4" /></ToolbarBtn>
               <ToolbarBtn onClick={() => exec('underline')} title="Sublinhado"><UnderlineIcon className="w-4 h-4" /></ToolbarBtn>
@@ -573,7 +577,7 @@ export default function PrintLayoutEditor({
                 <span className="hidden md:inline">{aiLoading ? 'Melhorando...' : 'Melhorar com IA'}</span>
               </button>
             </div>
-            <div className="flex-1 flex justify-end text-[11px] text-gray-500 px-2">
+            <div className="hidden sm:flex flex-1 justify-end text-[11px] text-gray-500 px-2">
               <span className="hidden sm:inline whitespace-nowrap">
                 {pages.length} {pages.length === 1 ? 'página' : 'páginas'}
               </span>
@@ -660,7 +664,7 @@ export default function PrintLayoutEditor({
               ))}
 
               {/* Add page button — sempre abaixo da última página */}
-              <div className="flex items-center gap-2 pb-8 print:hidden">
+              <div className="flex flex-wrap items-center justify-center gap-2 px-3 pb-8 print:hidden">
                 <button
                   onClick={addPhotosPage}
                   className="h-10 px-4 rounded border border-dashed border-gray-300 bg-white text-sm font-medium text-gray-600 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors flex items-center gap-1.5"
@@ -935,7 +939,7 @@ function LeftAlbumPanel({
             <div className="text-sm font-semibold text-gray-800">Álbuns e fotos avulsas</div>
           </div>
         )}
-        <div className="ml-auto text-[11px] px-2 py-1 rounded bg-teal-50 text-teal-700 border border-teal-200 whitespace-nowrap">
+        <div className="hidden sm:block ml-auto text-[11px] px-2 py-1 rounded bg-teal-50 text-teal-700 border border-teal-200 whitespace-nowrap">
           {photoPositionById.size} no documento
         </div>
         <button
@@ -1052,7 +1056,7 @@ function LeftAlbumPanel({
                 : "flex gap-3 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [scrollbar-width:none] scroll-smooth"
               }
             >
-              {sortedPhotos.map((photo, index) => {
+              {sortedPhotos.map((photo) => {
                 const pos = photoPositionById.get(photo.id)
                 const isPlaced = pos !== undefined
                 return (
@@ -1134,8 +1138,8 @@ function PrintStyles() {
         transform: translateY(-110%);
         opacity: 0;
       }
-      #ple-root[data-anim="enter"] .ple-aside,
-      #ple-root[data-anim="close"] .ple-aside {
+      #ple-root[data-desktop="true"][data-anim="enter"] .ple-aside,
+      #ple-root[data-desktop="true"][data-anim="close"] .ple-aside {
         transform: translateX(-105%);
         opacity: 0;
       }
@@ -1145,7 +1149,7 @@ function PrintStyles() {
         opacity: 0;
       }
       #ple-root[data-anim="open"] .ple-topbar,
-      #ple-root[data-anim="open"] .ple-aside,
+      #ple-root[data-desktop="true"][data-anim="open"] .ple-aside,
       #ple-root[data-anim="open"] .ple-main {
         transform: none;
         opacity: 1;

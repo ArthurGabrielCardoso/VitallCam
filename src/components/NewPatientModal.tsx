@@ -1,19 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { supabase } from '@/lib/supabase'
 import { Plus, Loader2, X, User } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import { useCreatePatient } from '@/hooks/usePatients'
 
-interface NewPatientModalProps {
-  onPatientCreated: () => void
-}
-
-export default function NewPatientModal({ onPatientCreated }: NewPatientModalProps) {
+export default function NewPatientModal() {
   const [isOpen, setIsOpen] = useState(false)
   const [patientName, setPatientName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const { toast } = useToast()
+  const createPatient = useCreatePatient()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -28,15 +25,7 @@ export default function NewPatientModal({ onPatientCreated }: NewPatientModalPro
 
     setIsCreating(true)
     try {
-      const { data, error } = await supabase
-        .from('patients')
-        .insert([{ name }])
-        .select()
-        .single()
-
-      if (error) throw error
-
-      onPatientCreated()
+      const data = await createPatient.mutateAsync(name)
       setPatientName('')
       setIsOpen(false)
       toast({ title: 'Paciente criado', description: `"${data.name}" foi adicionado com sucesso.` })

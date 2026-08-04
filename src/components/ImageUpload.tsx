@@ -7,6 +7,7 @@ import { useCreateFolder } from '@/hooks/useFolders'
 import { Upload, Loader2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { useQueryClient } from '@tanstack/react-query'
+import { deleteMediaFromR2, uploadMediaToR2 } from '@/lib/r2-client'
 
 interface ImageUploadProps {
   patientId: string
@@ -66,33 +67,22 @@ export default function ImageUpload({ patientId, onUpload, className = '', folde
       }
 
       const uploadPromises = Array.from(files).map(async (file) => {
-        return new Promise<Photo>((resolve, reject) => {
-          const reader = new FileReader()
+        const uploaded = await uploadMediaToR2({ patientId, mediaType: 'photo', data: file })
+        const { data, error } = await supabase
+          .from('photos')
+          .insert({
+            patient_id: patientId,
+            image_data: uploaded.url,
+            folder_id: targetFolderId
+          })
+          .select('id, patient_id, image_data, folder_id, created_at')
+          .single()
 
-          reader.onload = async (e) => {
-            try {
-              const imageData = e.target?.result as string
-
-              const { data, error } = await supabase
-                .from('photos')
-                .insert({
-                  patient_id: patientId,
-                  image_data: imageData,
-                  folder_id: targetFolderId
-                })
-                .select('id, patient_id, image_data, folder_id, created_at')
-                .single()
-
-              if (error) throw error
-              resolve(data)
-            } catch (error) {
-              reject(error)
-            }
-          }
-
-          reader.onerror = () => reject(new Error('Erro ao ler arquivo'))
-          reader.readAsDataURL(file)
-        })
+        if (error) {
+          deleteMediaFromR2(uploaded.url).catch(cleanupError => console.error('Erro ao limpar upload:', cleanupError))
+          throw error
+        }
+        return data
       })
 
       const uploadedPhotos = await Promise.all(uploadPromises)

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
 import { VideoRow, getVideoSrc } from '@/hooks/useVideos'
+import { uploadMediaToR2 } from '@/lib/r2-client'
 
 interface Props {
   patientId: string
@@ -82,20 +83,16 @@ export default function VideoFrameExtractor({ patientId, onClose, onSaved }: Pro
 
   const getPublicUrl = async (video: VideoRow): Promise<string> => {
     const src = getVideoSrc(video)
-    if (!src.startsWith('data:')) return src
+    if (!src.startsWith('data:')) return new URL(src, window.location.origin).toString()
 
     const mime = video.mime_type || 'video/mp4'
-    const ext  = mime.includes('mp4') ? 'mp4' : 'webm'
-    const blob = await (await fetch(src)).blob()
-    const path = `temp/${video.id}-${Date.now()}.${ext}`
-
-    const { error } = await (supabase as any).storage
-      .from('patient-videos')
-      .upload(path, blob, { contentType: mime, upsert: true })
-    if (error) throw new Error(`Upload temporário falhou: ${error.message}`)
-
-    const { data } = (supabase as any).storage.from('patient-videos').getPublicUrl(path)
-    return data.publicUrl
+    const uploaded = await uploadMediaToR2({ patientId, mediaType: 'video', data: src, contentType: mime })
+    await (supabase as any).from('videos').update({
+      storage_path: `r2://${uploaded.key}`,
+      video_url: uploaded.url,
+      video_data: null,
+    }).eq('id', video.id)
+    return new URL(uploaded.url, window.location.origin).toString()
   }
 
   const processVideo = async (video: VideoRow) => {
@@ -129,9 +126,10 @@ export default function VideoFrameExtractor({ patientId, onClose, onSaved }: Pro
   const saveCropAsPhoto = async (crop: Crop, idx: number) => {
     setSavingCropIdx(idx)
     try {
+      const uploaded = await uploadMediaToR2({ patientId, mediaType: 'photo', data: crop.image_data })
       const { error } = await (supabase as any).from('photos').insert({
         patient_id: patientId,
-        image_data: crop.image_data,
+        image_data: uploaded.url,
         folder_id:  null,
       })
       if (error) throw error
@@ -147,10 +145,13 @@ export default function VideoFrameExtractor({ patientId, onClose, onSaved }: Pro
   const saveAllCrops = async () => {
     setSavingAll(true)
     try {
-      const rows = crops.map(c => ({
-        patient_id: patientId,
-        image_data: c.image_data,
-        folder_id:  null,
+      const rows = await Promise.all(crops.map(async c => {
+        const uploaded = await uploadMediaToR2({ patientId, mediaType: 'photo', data: c.image_data })
+        return {
+          patient_id: patientId,
+          image_data: uploaded.url,
+          folder_id: null,
+        }
       }))
       const { error } = await (supabase as any).from('photos').insert(rows)
       if (error) throw error

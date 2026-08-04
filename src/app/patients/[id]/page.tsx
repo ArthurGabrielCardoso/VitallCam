@@ -35,6 +35,7 @@ import PrintLayoutEditor from '@/components/PrintLayoutEditor'
 import VideoFrameExtractor from '@/components/VideoFrameExtractor'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Transcription, Anamnese } from '@/lib/types'
+import { deleteMediaFromR2, uploadMediaToR2 } from '@/lib/r2-client'
 
 export default function PatientPage() {
   const params = useParams()
@@ -152,7 +153,7 @@ export default function PatientPage() {
     setShowProfileCamera(false)
   }
 
-  const captureProfilePhoto = () => {
+  const captureProfilePhoto = async () => {
     const video = profileVideoRef.current
     if (!video) return
     const canvas = document.createElement('canvas')
@@ -162,16 +163,23 @@ export default function PatientPage() {
     const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
     closeProfileCamera()
     setIsUploadingProfilePhoto(true)
-    updatePatientMutation.mutateAsync({ patientId, profile_photo: dataUrl })
-      .then(() => {
-        toast({ title: 'Foto de perfil atualizada!' })
-        if (pendingProfileTab) {
-          setActiveTab(pendingProfileTab)
-          setPendingProfileTab(null)
-        }
-      })
-      .catch(() => toast({ variant: 'destructive', title: 'Erro ao salvar foto' }))
-      .finally(() => setIsUploadingProfilePhoto(false))
+    try {
+      const previousPhoto = patient?.profile_photo
+      const uploaded = await uploadMediaToR2({ patientId, mediaType: 'profile', data: dataUrl })
+      await updatePatientMutation.mutateAsync({ patientId, profile_photo: uploaded.url })
+      if (previousPhoto && previousPhoto !== uploaded.url) {
+        deleteMediaFromR2(previousPhoto).catch(error => console.error('Erro ao limpar foto anterior:', error))
+      }
+      toast({ title: 'Foto de perfil atualizada!' })
+      if (pendingProfileTab) {
+        setActiveTab(pendingProfileTab)
+        setPendingProfileTab(null)
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Erro ao salvar foto' })
+    } finally {
+      setIsUploadingProfilePhoto(false)
+    }
   }
   const scrollCarousel = (ref: React.RefObject<HTMLDivElement>, dir: 'left' | 'right') => {
     if (!ref.current) return
@@ -448,24 +456,20 @@ export default function PatientPage() {
     if (!file.type.startsWith('image/')) return
     setIsUploadingProfilePhoto(true)
     try {
-      const reader = new FileReader()
-      reader.onload = async (e) => {
-        const dataUrl = e.target?.result as string
-        await updatePatientMutation.mutateAsync({ patientId, profile_photo: dataUrl })
-        toast({ title: 'Foto de perfil atualizada!' })
-        if (pendingProfileTab) {
-          setActiveTab(pendingProfileTab)
-          setPendingProfileTab(null)
-        }
-        setIsUploadingProfilePhoto(false)
+      const previousPhoto = patient?.profile_photo
+      const uploaded = await uploadMediaToR2({ patientId, mediaType: 'profile', data: file })
+      await updatePatientMutation.mutateAsync({ patientId, profile_photo: uploaded.url })
+      if (previousPhoto && previousPhoto !== uploaded.url) {
+        deleteMediaFromR2(previousPhoto).catch(error => console.error('Erro ao limpar foto anterior:', error))
       }
-      reader.onerror = () => {
-        toast({ variant: 'destructive', title: 'Erro ao ler imagem' })
-        setIsUploadingProfilePhoto(false)
+      toast({ title: 'Foto de perfil atualizada!' })
+      if (pendingProfileTab) {
+        setActiveTab(pendingProfileTab)
+        setPendingProfileTab(null)
       }
-      reader.readAsDataURL(file)
     } catch {
       toast({ variant: 'destructive', title: 'Erro ao salvar foto de perfil' })
+    } finally {
       setIsUploadingProfilePhoto(false)
     }
   }
@@ -533,7 +537,11 @@ export default function PatientPage() {
   const handleRemoveProfilePhoto = async () => {
     setIsUploadingProfilePhoto(true)
     try {
+      const previousPhoto = patient?.profile_photo
       await updatePatientMutation.mutateAsync({ patientId, profile_photo: null })
+      if (previousPhoto) {
+        deleteMediaFromR2(previousPhoto).catch(error => console.error('Erro ao limpar foto de perfil:', error))
+      }
       setShowRemoveProfilePhotoConfirm(false)
       toast({ title: 'Foto de perfil removida' })
     } catch (error) {
@@ -681,36 +689,23 @@ export default function PatientPage() {
         }
       }
 
-      const uploadPromises = imageFiles.map(async (file) => {
-        return new Promise<Photo>((resolve, reject) => {
-          const reader = new FileReader()
+      const uploadPromises = imageFiles.map(async file => {
+        const uploaded = await uploadMediaToR2({ patientId, mediaType: 'photo', data: file })
+        const { data, error } = await db
+          .from('photos')
+          .insert({
+            patient_id: patientId,
+            image_data: uploaded.url,
+            folder_id: targetFolderId
+          })
+          .select('id, patient_id, image_data, folder_id, created_at')
+          .single()
 
-          reader.onload = async (e) => {
-            try {
-              const imageData = e.target?.result as string
-
-              const { data, error } = await db
-                .from('photos')
-                .insert({
-                  patient_id: patientId,
-                  image_data: imageData,
-                  folder_id: targetFolderId
-                })
-                .select('id, patient_id, image_data, folder_id, created_at')
-                .single()
-
-              if (error) throw error
-
-              resolve(data)
-            } catch (error) {
-              console.error('Erro no upload:', error)
-              reject(error)
-            }
-          }
-
-          reader.onerror = () => reject(new Error('Erro ao ler arquivo'))
-          reader.readAsDataURL(file)
-        })
+        if (error) {
+          deleteMediaFromR2(uploaded.url).catch(cleanupError => console.error('Erro ao limpar upload:', cleanupError))
+          throw error
+        }
+        return data as Photo
       })
 
       await Promise.all(uploadPromises)
@@ -896,13 +891,14 @@ export default function PatientPage() {
     if (!editingPhoto) return
 
     try {
+      const uploaded = await uploadMediaToR2({ patientId, mediaType: 'photo', data: editedImageData })
       // Aqui você pode implementar a lógica para salvar a foto editada
       // Por exemplo, criar uma nova foto ou atualizar a existente
       const { error } = await db
         .from('photos')
         .insert({
           patient_id: patientId,
-          image_data: editedImageData,
+          image_data: uploaded.url,
           folder_id: editingPhoto.folder_id
         })
         .select()
@@ -1076,11 +1072,12 @@ export default function PatientPage() {
     if (!aiEnhancedImage || !selectedPhoto) return
 
     try {
+      const uploaded = await uploadMediaToR2({ patientId, mediaType: 'photo', data: aiEnhancedImage })
       const { error } = await db
         .from('photos')
         .insert({
           patient_id: patientId,
-          image_data: aiEnhancedImage,
+          image_data: uploaded.url,
           folder_id: selectedPhoto.folder_id
         })
         .select()

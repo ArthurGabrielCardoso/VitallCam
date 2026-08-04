@@ -9,18 +9,16 @@ export function normalizePatientSearch(value: string) {
     .replace(/\s+/g, ' ')
 }
 
-function wasCreatedToday(createdAt: string) {
+function isRecentPatient(createdAt: string) {
   const created = new Date(createdAt)
-  const today = new Date()
-  return created.getFullYear() === today.getFullYear()
-    && created.getMonth() === today.getMonth()
-    && created.getDate() === today.getDate()
+  const expiry = new Date(created.getFullYear(), created.getMonth(), created.getDate() + 2)
+  return new Date() < expiry
 }
 
-export function getLatestPatientCreatedToday(patients: Patient[]) {
+export function getRecentPatients(patients: Patient[]) {
   return patients
-    .filter((patient) => wasCreatedToday(patient.created_at))
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] ?? null
+    .filter((patient) => isRecentPatient(patient.created_at))
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 }
 
 function scoreName(name: string, query: string) {
@@ -64,9 +62,10 @@ function fuzzyScore(name: string, query: string) {
 
 export function searchPatients(patients: Patient[], value: string, limit?: number) {
   const query = normalizePatientSearch(value)
-  const recent = getLatestPatientCreatedToday(patients)
+  const recentPatients = getRecentPatients(patients)
+  const recentIds = new Set(recentPatients.map((patient) => patient.id))
 
-  if (!query) return recent ? [recent] : []
+  if (!query) return typeof limit === 'number' ? recentPatients.slice(0, limit) : recentPatients
 
   const direct = patients
     .map((patient) => ({ patient, score: scoreName(patient.name, query) }))
@@ -81,8 +80,8 @@ export function searchPatients(patients: Patient[], value: string, limit?: numbe
   const ordered = matches
     .sort((a, b) => a.score - b.score || a.patient.name.localeCompare(b.patient.name, 'pt-BR'))
     .map(({ patient }) => patient)
-    .filter((patient) => patient.id !== recent?.id)
+    .filter((patient) => !recentIds.has(patient.id))
 
-  const results = recent ? [recent, ...ordered] : ordered
+  const results = [...recentPatients, ...ordered]
   return typeof limit === 'number' ? results.slice(0, limit) : results
 }

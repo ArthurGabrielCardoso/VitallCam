@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Camera, Loader2, AlertCircle, RefreshCw, X, FlipHorizontal2, Settings2, Video, Square, ChevronLeft, ChevronRight, Trash2, Check, Play, Sparkles } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import { deleteMediaFromR2, uploadMediaToR2 } from '@/lib/r2-client'
 
 
 
@@ -943,33 +944,14 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
     }
   }
 
-  // Converte dataURL para Blob (browser-safe, sem Buffer)
-  const dataUrlToBlob = (dataUrl: string): Blob => {
-    const [header, b64] = dataUrl.split(',')
-    const mime = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg'
-    const binary = atob(b64)
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-    return new Blob([bytes], { type: mime })
-  }
-
-  // Faz upload de um dataURL para o Storage e retorna a URL assinada (1h)
+  // Faz upload de um dataURL para o R2 e retorna uma URL estável do VitallCam.
   // Retorna null se falhar — o chamador usa base64 como fallback
   const uploadToStorage = async (dataUrl: string): Promise<string | null> => {
     try {
-      const blob = dataUrlToBlob(dataUrl)
-      const ext = blob.type.includes('png') ? 'png' : 'jpg'
-      const path = `${patientId}/${crypto.randomUUID()}.${ext}`
-      const { error } = await (supabase as any).storage
-        .from('patient-photos')
-        .upload(path, blob, { contentType: blob.type, upsert: false })
-      if (error) throw error
-      const { data: signed } = await (supabase as any).storage
-        .from('patient-photos')
-        .createSignedUrl(path, 60 * 60) // 1 hora
-      return signed?.signedUrl ?? null
+      const uploaded = await uploadMediaToR2({ patientId, mediaType: 'photo', data: dataUrl })
+      return uploaded.url
     } catch (err) {
-      console.warn('Storage upload falhou, usando base64:', err)
+      console.warn('Upload R2 falhou, usando base64:', err)
       return null
     }
   }
@@ -1330,7 +1312,6 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
   }
 
   const uploadVideoItem = async (item: Extract<CapturedItem, { kind: 'video' }>, folderId: string) => {
-    const useStorage = item.duration > 10
     const baseRow = {
       patient_id: patientId,
       folder_id: folderId,
@@ -1338,30 +1319,23 @@ export default function CameraCapture({ patientId, onPhotoCapture, onClose }: Ca
       size_bytes: item.blob.size,
       mime_type: item.mimeType,
     }
-    let row: any
-    if (useStorage) {
-      const ext = item.mimeType.includes('mp4') ? 'mp4' : 'webm'
-      const storagePath = `${patientId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
-      const { error: upErr } = await (supabase as any).storage
-        .from('patient-videos')
-        .upload(storagePath, item.blob, { contentType: item.mimeType, upsert: false })
-      if (upErr) {
-        const sizeMB = (item.blob.size / 1024 / 1024).toFixed(1)
-        throw new Error(`${upErr.message || upErr} (vídeo ${sizeMB}MB, ${item.duration}s)`)
-      }
-      const { data: pub } = (supabase as any).storage.from('patient-videos').getPublicUrl(storagePath)
-      row = { ...baseRow, storage_path: storagePath, video_url: pub?.publicUrl ?? null }
-    } else {
-      const dataUrl: string = await new Promise((resolve, reject) => {
-        const r = new FileReader()
-        r.onload = () => resolve(r.result as string)
-        r.onerror = () => reject(r.error)
-        r.readAsDataURL(item.blob)
-      })
-      row = { ...baseRow, video_data: dataUrl }
+    const uploaded = await uploadMediaToR2({
+      patientId,
+      mediaType: 'video',
+      data: item.blob,
+      contentType: item.mimeType,
+    })
+    const row = {
+      ...baseRow,
+      storage_path: `r2://${uploaded.key}`,
+      video_url: uploaded.url,
+      video_data: null,
     }
     const { data, error } = await (supabase as any).from('videos').insert(row).select().single()
-    if (error) throw error
+    if (error) {
+      deleteMediaFromR2(uploaded.url).catch(cleanupError => console.error('Erro ao limpar vídeo do R2:', cleanupError))
+      throw error
+    }
     return data
   }
 

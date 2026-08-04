@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Photo, NewPhoto } from '@/lib/types'
+import { deleteMediaFromR2 } from '@/lib/r2-client'
 
 // Realtime: escuta inserções/atualizações via Postgres Changes (WAL) — funciona entre dispositivos sem broadcast manual
 export const usePhotosBroadcast = (patientId: string | null) => {
@@ -172,12 +173,19 @@ export const useDeletePhoto = () => {
 
   return useMutation({
     mutationFn: async ({ photoId, patientId }: { photoId: string, patientId: string }): Promise<{ photoId: string, patientId: string }> => {
+      const { data: photo } = await supabase
+        .from('photos')
+        .select('image_data')
+        .eq('id', photoId)
+        .maybeSingle()
+
       const { error } = await supabase
         .from('photos')
         .delete()
         .eq('id', photoId)
 
       if (error) throw error
+      deleteMediaFromR2(photo?.image_data).catch(cleanupError => console.error('Erro ao limpar foto do R2:', cleanupError))
       return { photoId, patientId }
     },
     onSuccess: ({ photoId, patientId }) => {

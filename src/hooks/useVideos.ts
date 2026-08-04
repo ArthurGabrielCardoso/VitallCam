@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { deleteMediaFromR2, extractR2Key } from '@/lib/r2-client'
 
 export interface VideoRow {
   id: string
@@ -72,10 +73,15 @@ export const useDeleteVideo = () => {
       // Vídeos longos ficam no Storage; a linha já foi removida, então uma falha
       // de limpeza não impede que o vídeo desapareça corretamente da interface.
       if (video.storage_path) {
-        const { error: storageError } = await (supabase as any).storage
-          .from('patient-videos')
-          .remove([video.storage_path])
-        if (storageError) console.error('Erro ao limpar arquivo do vídeo:', storageError)
+        if (extractR2Key(video.storage_path) || extractR2Key(video.video_url)) {
+          deleteMediaFromR2(video.storage_path || video.video_url)
+            .catch(cleanupError => console.error('Erro ao limpar arquivo R2 do vídeo:', cleanupError))
+        } else {
+          const { error: storageError } = await (supabase as any).storage
+            .from('patient-videos')
+            .remove([video.storage_path])
+          if (storageError) console.error('Erro ao limpar arquivo do vídeo:', storageError)
+        }
       }
 
       return video

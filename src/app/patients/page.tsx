@@ -20,7 +20,6 @@ function getIniciais(nome: string) {
 export default function PatientsPage() {
   const { toast } = useToast()
   const [busca, setBusca] = useState("")
-  const [buscaAtiva, setBuscaAtiva] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const { data: pacientes = [], isLoading, error, refetch } = usePatients()
@@ -33,7 +32,7 @@ export default function PatientsPage() {
   }
 
   const resultados = useMemo<Patient[]>(() => {
-    return searchPatients(pacientes, busca)
+    return normalizePatientSearch(busca) ? searchPatients(pacientes, busca) : []
   }, [busca, pacientes])
 
   const pacientesRecentes = useMemo(() => new Set(getRecentPatients(pacientes).map((p) => p.id)), [pacientes])
@@ -41,8 +40,8 @@ export default function PatientsPage() {
   useEffect(() => { inputRef.current?.focus() }, [])
 
   const buscou = normalizePatientSearch(busca).length > 0
-  const temResultados = buscaAtiva && !isLoading && resultados.length > 0
-  const semResultados = buscaAtiva && buscou && !isLoading && resultados.length === 0
+  const temResultados = buscou && !isLoading && resultados.length > 0
+  const semResultados = buscou && !isLoading && resultados.length === 0
 
   // Scroll do main: bloqueia quando não há resultados
   useEffect(() => {
@@ -63,7 +62,7 @@ export default function PatientsPage() {
 
       {/* Logo VitallCam — fixed, decorativo no canto direito */}
       <div
-        className="pointer-events-none select-none fixed z-0 opacity-80 flex items-center"
+        className="pointer-events-none select-none fixed z-0 opacity-80 hidden lg:flex items-center"
         style={{ height: "calc(100vh - 56px)", top: 56, right: 0, transform: "translateX(12%)" }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -77,16 +76,16 @@ export default function PatientsPage() {
       </div>
 
       {/* Botão canto superior esquerdo — z-20 p/ não ser coberto pelo container central */}
-      <div className="absolute top-6 left-6 z-20">
+      <div className="absolute top-3 left-3 z-20 sm:top-6 sm:left-6">
         <NewPatientModal onPatientCreated={handlePatientCreated} />
       </div>
 
       {/* Conteúdo */}
       <div
-        className="relative z-10 flex flex-col items-center justify-center gap-6 px-4"
+        className="relative z-10 flex flex-col items-center justify-start sm:justify-center gap-4 sm:gap-6 px-3 sm:px-4 pt-20 sm:pt-0"
         style={{ minHeight: "calc(100vh - 56px)" }}
       >
-        <div className="flex flex-col items-center gap-0 w-full max-w-2xl -mt-[20vh]">
+        <div className="flex flex-col items-center gap-0 w-full max-w-2xl sm:-mt-[14vh] lg:-mt-[20vh]">
 
           {/* Lottie video — exatamente como em /pacientes */}
           <video
@@ -95,13 +94,12 @@ export default function PatientsPage() {
             loop
             muted
             playsInline
-            style={{ width: 288, height: 288 }}
-            className="object-contain mix-blend-multiply"
+            className="object-contain mix-blend-multiply h-40 w-40 sm:h-60 sm:w-60 lg:h-72 lg:w-72"
           />
 
-          <div className="text-center mt-4">
-            <p className="text-2xl font-semibold text-gray-700">Busque por pacientes</p>
-            <p className="text-base text-gray-400 mt-1.5">Digite o nome para localizar o cadastro</p>
+          <div className="text-center mt-2 sm:mt-4 px-2">
+            <p className="text-xl sm:text-2xl font-semibold text-gray-700">Busque por pacientes</p>
+            <p className="text-sm sm:text-base text-gray-400 mt-1.5">Digite o nome para localizar o cadastro</p>
           </div>
 
           {/* Input */}
@@ -111,11 +109,10 @@ export default function PatientsPage() {
               ref={inputRef}
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              onFocus={() => setBuscaAtiva(true)}
               placeholder="Pesquisar..."
               autoComplete="off"
               spellCheck={false}
-              className="w-full pl-12 pr-10 py-4 border border-gray-200 rounded focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 outline-none text-base bg-gray-100 transition-all placeholder:text-gray-400 shadow-sm"
+              className="w-full pl-11 sm:pl-12 pr-10 py-3.5 sm:py-4 border border-gray-200 rounded focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 outline-none text-sm sm:text-base bg-gray-100 transition-all placeholder:text-gray-400 shadow-sm"
             />
             {isLoading && (
               <div className="absolute right-4 top-1/2 -translate-y-1/2">
@@ -126,7 +123,7 @@ export default function PatientsPage() {
 
           {/* Resultados */}
           {temResultados && (
-            <div className="w-full mt-5 border border-gray-200 rounded overflow-hidden shadow-sm bg-white p-1.5">
+            <div className="w-full mt-3 sm:mt-5 border border-gray-200 rounded overflow-y-auto max-h-[42vh] sm:max-h-[48vh] shadow-sm bg-white p-1.5">
               {resultados.map((p) => {
                 const recente = !buscou && pacientesRecentes.has(p.id)
                 return (
@@ -135,7 +132,7 @@ export default function PatientsPage() {
                     href={`/patients/${p.id}`}
                     prefetch={false}
                     onMouseEnter={() => handleHover(p.id)}
-                    className={`flex items-center gap-4 px-4 py-3.5 rounded transition-all group border ${
+                    className={`flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 sm:py-3.5 rounded transition-all group border ${
                       recente
                         ? "mb-1.5 border-dourado-400/70 bg-dourado-50/70 hover:bg-dourado-50 shadow-sm shadow-dourado-500/5"
                         : "border-transparent bg-white hover:bg-teal-50"

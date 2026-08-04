@@ -1251,7 +1251,10 @@ function PrintStyles() {
 
       .ple-page {
         width: 210mm;
+        height: 297mm;
         min-height: 297mm;
+        max-height: 297mm;
+        overflow: hidden;
         background: #fff;
         box-shadow: 0 2px 12px rgba(0,0,0,0.08);
         border-radius: 4px;
@@ -1264,7 +1267,8 @@ function PrintStyles() {
         border: 2px solid #cca97e;
         border-radius: 8px;
         padding: 6mm 7mm;
-        min-height: calc(297mm - 20mm);
+        height: calc(297mm - 20mm);
+        min-height: 0;
         display: flex;
         flex-direction: column;
         box-sizing: border-box;
@@ -1344,9 +1348,11 @@ function PrintStyles() {
 
       .ple-photos-grid {
         flex: 1;
+        min-height: 0;
         display: grid;
         grid-template-columns: 1fr 1fr;
-        grid-auto-rows: 1fr;
+        grid-template-rows: repeat(4, minmax(0, 1fr));
+        grid-auto-rows: minmax(0, 1fr);
         gap: 3mm;
       }
       .ple-photo-cell {
@@ -1544,16 +1550,18 @@ function PrintStyles() {
         #print-document { padding: 0 !important; gap: 0 !important; display: block !important; }
         .ple-page-wrap {
           display: block !important;
+          width: 210mm !important;
+          height: 297mm !important;
           gap: 0 !important;
           margin: 0 !important;
           page-break-inside: avoid !important;
           break-inside: avoid-page !important;
-          page-break-after: always !important;
-          break-after: page !important;
-        }
-        .ple-page-wrap:last-child {
           page-break-after: auto !important;
           break-after: auto !important;
+        }
+        .ple-page-wrap + .ple-page-wrap {
+          page-break-before: always !important;
+          break-before: page !important;
         }
         .ple-photo-caption {
           border: none !important;

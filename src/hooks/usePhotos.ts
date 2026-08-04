@@ -19,10 +19,16 @@ export const usePhotosBroadcast = (patientId: string | null) => {
       queryClient.invalidateQueries({ queryKey: ['folder-photos'] })
       queryClient.invalidateQueries({ queryKey: ['folders', patientId] })
     }
-    const channel = supabase
+    const broadcastChannel = supabase
       .channel(`photos-realtime:${patientId}`)
       // Mantém broadcast legado para compatibilidade
       .on('broadcast', { event: 'photos-changed' }, refreshPhotos)
+      .subscribe(status => {
+        if (status === 'SUBSCRIBED') refreshPhotos()
+      })
+
+    const postgresChannel = supabase
+      .channel(`photos-postgres:${patientId}:${Math.random().toString(36).slice(2)}`)
       // Postgres Changes: foto nova → aparece na hora sem precisar de broadcast manual
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos', filter: `patient_id=eq.${patientId}` }, (payload) => {
         const photo = payload.new as Photo
@@ -66,7 +72,8 @@ export const usePhotosBroadcast = (patientId: string | null) => {
     return () => {
       window.removeEventListener('online', refreshPhotos)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
-      supabase.removeChannel(channel)
+      supabase.removeChannel(broadcastChannel)
+      supabase.removeChannel(postgresChannel)
     }
   }, [patientId, queryClient])
 }

@@ -11,7 +11,7 @@ import NewPatientModal from "@/components/NewPatientModal"
 import IntersectionPrefetch from "@/components/IntersectionPrefetch"
 import { useToast } from "@/hooks/use-toast"
 import type { Patient } from "@/lib/types"
-import { getLatestPatientCreatedToday, normalizePatientSearch, searchPatients } from "@/lib/patient-search"
+import { getRecentPatients, normalizePatientSearch, searchPatients } from "@/lib/patient-search"
 
 function getIniciais(nome: string) {
   return nome.split(" ").filter(Boolean).map((n) => n[0]).slice(0, 2).join("").toUpperCase()
@@ -36,7 +36,7 @@ export default function PatientsPage() {
     return searchPatients(pacientes, busca)
   }, [busca, pacientes])
 
-  const pacienteRecente = useMemo(() => getLatestPatientCreatedToday(pacientes), [pacientes])
+  const pacientesRecentes = useMemo(() => new Set(getRecentPatients(pacientes).map((p) => p.id)), [pacientes])
 
   useEffect(() => { inputRef.current?.focus() }, [])
 
@@ -128,7 +128,7 @@ export default function PatientsPage() {
           {temResultados && (
             <div className="w-full mt-5 border border-gray-200 rounded overflow-hidden shadow-sm bg-white p-1.5">
               {resultados.map((p) => {
-                const recente = p.id === pacienteRecente?.id
+                const recente = pacientesRecentes.has(p.id)
                 return (
                 <IntersectionPrefetch key={p.id} patientId={p.id}>
                   <Link

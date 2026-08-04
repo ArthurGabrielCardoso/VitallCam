@@ -13,15 +13,16 @@ export const usePhotosBroadcast = (patientId: string | null) => {
   useEffect(() => {
     if (!patientId) return
 
+    const refreshPhotos = () => {
+      queryClient.invalidateQueries({ queryKey: ['photos', patientId] })
+      queryClient.invalidateQueries({ queryKey: ['unfoldered-photos', patientId] })
+      queryClient.invalidateQueries({ queryKey: ['folder-photos'] })
+      queryClient.invalidateQueries({ queryKey: ['folders', patientId] })
+    }
     const channel = supabase
       .channel(`photos-realtime:${patientId}`)
       // Mantém broadcast legado para compatibilidade
-      .on('broadcast', { event: 'photos-changed' }, () => {
-        queryClient.invalidateQueries({ queryKey: ['photos', patientId] })
-        queryClient.invalidateQueries({ queryKey: ['unfoldered-photos', patientId] })
-        queryClient.invalidateQueries({ queryKey: ['folder-photos'] })
-        queryClient.invalidateQueries({ queryKey: ['folders', patientId] })
-      })
+      .on('broadcast', { event: 'photos-changed' }, refreshPhotos)
       // Postgres Changes: foto nova → aparece na hora sem precisar de broadcast manual
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos', filter: `patient_id=eq.${patientId}` }, (payload) => {
         const photo = payload.new as Photo
@@ -52,9 +53,21 @@ export const usePhotosBroadcast = (patientId: string | null) => {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'folders', filter: `patient_id=eq.${patientId}` }, () => {
         queryClient.invalidateQueries({ queryKey: ['folders', patientId] })
       })
-      .subscribe()
+      .subscribe(status => {
+        if (status === 'SUBSCRIBED') refreshPhotos()
+      })
 
-    return () => { supabase.removeChannel(channel) }
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshPhotos()
+    }
+    window.addEventListener('online', refreshPhotos)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+
+    return () => {
+      window.removeEventListener('online', refreshPhotos)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+      supabase.removeChannel(channel)
+    }
   }, [patientId, queryClient])
 }
 
@@ -133,7 +146,7 @@ export const useUnfolderedPhotos = (patientId: string | null) => {
 }
 
 const broadcastPhotosChanged = async (patientId: string) => {
-  await supabase.channel(`photos-broadcast:${patientId}`).send({
+  await supabase.channel(`photos-realtime:${patientId}`).send({
     type: 'broadcast',
     event: 'photos-changed',
     payload: {},

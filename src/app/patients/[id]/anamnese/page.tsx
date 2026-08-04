@@ -2465,7 +2465,7 @@ export default function AnamneseForm() {
 
       {/* Header com logo e título */}
       <header className="w-full bg-white py-3">
-        <div className="max-w-xl mx-auto w-full px-2">
+        <div className="max-w-xl mx-auto w-full px-3 sm:px-2">
           <div className="mb-2">
             <Image
               src="/assets/images/logo.png"
@@ -2479,10 +2479,10 @@ export default function AnamneseForm() {
       </header>
 
       {/* Conteúdo principal */}
-      <main className="flex-1 max-w-xl mx-auto w-full px-2 pt-4 pb-24 text-base">
+      <main className="flex-1 max-w-xl mx-auto w-full px-3 sm:px-2 pt-4 pb-28 text-sm sm:text-base overflow-x-hidden">
         <div className="print-header" style={{ display: "none" }}>
-          <h1 className="text-xl font-bold">VITALL CHECK-UP ODONTOLOGIA</h1>
-          <h2 className="text-lg">ANAMNESE CLÍNICA</h2>
+          <h1 className="text-lg sm:text-xl font-bold leading-tight">VITALL CHECK-UP ODONTOLOGIA</h1>
+          <h2 className="text-base sm:text-lg">ANAMNESE CLÍNICA</h2>
           <p className="text-sm">Data: {new Date().toLocaleDateString("pt-BR")}</p>
         </div>
         {renderStepContent()}
@@ -2490,9 +2490,9 @@ export default function AnamneseForm() {
 
       {/* Botões fixos na parte inferior */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white py-3 print-hide">
-        <div className="max-w-xl mx-auto w-full px-2 flex justify-between">
+        <div className="max-w-xl mx-auto w-full px-3 sm:px-2 flex flex-wrap sm:flex-nowrap justify-between gap-2">
           {step > 0 && step < totalSteps ? (
-            <Button variant="outline" onClick={handlePrevious} className="min-w-[120px] text-base py-5">
+            <Button variant="outline" onClick={handlePrevious} className="min-w-0 flex-1 sm:flex-none sm:min-w-[120px] text-sm sm:text-base py-5">
               Anterior
             </Button>
           ) : (
@@ -2500,17 +2500,17 @@ export default function AnamneseForm() {
           )}
 
           {step === 0 ? (
-            <Button onClick={handleNext} className="min-w-[200px] py-5 text-lg" disabled={!formData.nome}>
+            <Button onClick={handleNext} className="min-w-0 flex-1 sm:flex-none sm:min-w-[200px] py-5 text-base sm:text-lg" disabled={!formData.nome}>
               Iniciar
             </Button>
           ) : step < totalSteps - 1 ? (
-            <Button onClick={handleNext} className="min-w-[200px] py-5 text-lg">
+            <Button onClick={handleNext} className="min-w-0 flex-1 sm:flex-none sm:min-w-[200px] py-5 text-base sm:text-lg">
               Próximo
             </Button>
           ) : step === totalSteps - 1 ? (
             <Button
               onClick={saveAnamnese}
-              className="bg-secondary hover:bg-secondary/90 text-white min-w-[200px] py-5 text-lg"
+              className="bg-secondary hover:bg-secondary/90 text-white min-w-0 flex-1 sm:flex-none sm:min-w-[200px] py-5 text-base sm:text-lg"
               disabled={isGeneratingPDF}
             >
               {isGeneratingPDF ? (

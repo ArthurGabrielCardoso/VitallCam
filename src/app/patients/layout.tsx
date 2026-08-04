@@ -158,7 +158,7 @@ function PatientsLayoutContent({
             {(temResultados || semResultados) && (
               <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 overflow-hidden">
                 {temResultados && resultados.map((p) => {
-                  const recente = pacientesRecentes.has(p.id)
+                  const recente = !buscou && pacientesRecentes.has(p.id)
                   return (
                   <Link
                     key={p.id}
@@ -181,14 +181,7 @@ function PatientsLayoutContent({
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <p className="text-sm font-semibold text-gray-800 truncate">{p.name}</p>
-                        {recente && (
-                          <span className="shrink-0 rounded-full border border-dourado-300/80 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-dourado-700">
-                            Criado recentemente
-                          </span>
-                        )}
-                      </div>
+                      <p className="text-sm font-semibold text-gray-800 truncate">{p.name}</p>
                       <div className="flex items-center gap-3 flex-wrap mt-0.5">
                         <span className="flex items-center gap-1 text-xs text-gray-400">
                           <ImageIcon className="h-3 w-3" />

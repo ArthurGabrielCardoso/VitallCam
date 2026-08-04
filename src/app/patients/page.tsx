@@ -128,7 +128,7 @@ export default function PatientsPage() {
           {temResultados && (
             <div className="w-full mt-5 border border-gray-200 rounded overflow-hidden shadow-sm bg-white p-1.5">
               {resultados.map((p) => {
-                const recente = pacientesRecentes.has(p.id)
+                const recente = !buscou && pacientesRecentes.has(p.id)
                 return (
                 <IntersectionPrefetch key={p.id} patientId={p.id}>
                   <Link
@@ -153,14 +153,7 @@ export default function PatientsPage() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <p className="text-sm font-semibold text-gray-800 truncate leading-snug">{p.name}</p>
-                        {recente && (
-                          <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dourado-300/80 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-dourado-700">
-                            Criado recentemente
-                          </span>
-                        )}
-                      </div>
+                      <p className="text-sm font-semibold text-gray-800 truncate leading-snug">{p.name}</p>
                       <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                         <span className="flex items-center gap-1 text-xs text-gray-400">
                           <ImageIcon className="h-3 w-3" />

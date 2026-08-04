@@ -18,15 +18,29 @@ export const usePatientsBroadcast = () => {
   const queryClient = useQueryClient()
 
   useEffect(() => {
+    const refreshPatients = () => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] })
+      queryClient.invalidateQueries({ queryKey: ['patient'] })
+    }
     const channel = supabase
       .channel('patients-broadcast')
-      .on('broadcast', { event: 'patients-changed' }, () => {
-        queryClient.invalidateQueries({ queryKey: ['patients'] })
-        queryClient.invalidateQueries({ queryKey: ['patient'] })
+      .on('broadcast', { event: 'patients-changed' }, refreshPatients)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'patients' }, refreshPatients)
+      .subscribe(status => {
+        if (status === 'SUBSCRIBED') refreshPatients()
       })
-      .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshPatients()
+    }
+    window.addEventListener('online', refreshPatients)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+
+    return () => {
+      window.removeEventListener('online', refreshPatients)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+      supabase.removeChannel(channel)
+    }
   }, [queryClient])
 }
 

@@ -71,6 +71,7 @@ export default function PatientPage() {
   // voltar do Salvar). Assim já abre direto na pasta.
   const [currentFolder, setCurrentFolder] = useState<string | null>(() => searchParams?.get('folder') ?? null)
   const [selectedPhotos, setSelectedPhotos] = useState<string[]>([])
+  const [selectedVideos, setSelectedVideos] = useState<string[]>([])
   const [showMoveToFolderModal, setShowMoveToFolderModal] = useState(false)
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [showComparison, setShowComparison] = useState(false)
@@ -321,7 +322,7 @@ export default function PatientPage() {
   }
 
   const handleDeleteSelectedPhotos = async () => {
-    if (selectedPhotos.length === 0) return
+    if (selectedPhotos.length + selectedVideos.length === 0) return
     setShowDeleteSelectedConfirm(true)
   }
 
@@ -331,11 +332,18 @@ export default function PatientPage() {
       for (const photoId of selectedPhotos) {
         await deletePhotoMutation.mutateAsync({ photoId, patientId })
       }
-      toast({ title: 'Sucesso!', description: `${selectedPhotos.length} foto(s) deletada(s)` })
+      const currentVideos = currentFolder ? folderVideos : unfolderedVideos
+      const videosToDelete = currentVideos.filter(video => selectedVideos.includes(video.id))
+      for (const video of videosToDelete) {
+        await deleteVideoMutation.mutateAsync(video)
+      }
+      const deletedItems = selectedPhotos.length + videosToDelete.length
+      toast({ title: 'Sucesso!', description: `${deletedItems} item(ns) excluído(s)` })
       setSelectedPhotos([])
+      setSelectedVideos([])
       setIsSelectionMode(false)
     } catch {
-      toast({ variant: 'destructive', title: 'Erro', description: 'Falha ao deletar fotos' })
+      toast({ variant: 'destructive', title: 'Erro', description: 'Falha ao excluir os itens selecionados' })
     } finally {
       setIsDeletingSelected(false)
       setShowDeleteSelectedConfirm(false)
@@ -790,6 +798,7 @@ export default function PatientPage() {
   const toggleSelectionMode = () => {
     setIsSelectionMode(!isSelectionMode)
     setSelectedPhotos([])
+    setSelectedVideos([])
   }
 
   const togglePhotoSelection = (photoId: string) => {
@@ -800,13 +809,24 @@ export default function PatientPage() {
     )
   }
 
-  const selectAllPhotos = () => {
+  const toggleVideoSelection = (videoId: string) => {
+    setSelectedVideos(prev =>
+      prev.includes(videoId)
+        ? prev.filter(id => id !== videoId)
+        : [...prev, videoId]
+    )
+  }
+
+  const selectAllMedia = () => {
     const currentPhotos = currentFolder ? sortedFolderPhotos : sortedUnfolderedPhotos
+    const currentVideos = currentFolder ? folderVideos : unfolderedVideos
     setSelectedPhotos(currentPhotos.map(photo => photo.id))
+    setSelectedVideos(currentVideos.map(video => video.id))
   }
 
   const clearSelection = () => {
     setSelectedPhotos([])
+    setSelectedVideos([])
   }
 
   const handleMoveSelectedPhotos = () => {
@@ -1144,6 +1164,7 @@ export default function PatientPage() {
 
       setShowMoveToFolderModal(false)
       setSelectedPhotos([])
+      setSelectedVideos([])
       setIsSelectionMode(false)
     } catch {
       toast({
@@ -1704,10 +1725,11 @@ export default function PatientPage() {
               {isSelectionMode && (
                 <div className="bg-teal-50 border border-teal-200 rounded p-3 mb-6 flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-semibold text-teal-800 mr-2">
-                    {selectedPhotos.length} {selectedPhotos.length === 1 ? 'foto selecionada' : 'fotos selecionadas'}
+                    {selectedPhotos.length + selectedVideos.length}{' '}
+                    {selectedPhotos.length + selectedVideos.length === 1 ? 'item selecionado' : 'itens selecionados'}
                   </span>
                   <div className="flex-1" />
-                  <button onClick={selectAllPhotos} className="h-8 px-3 rounded text-sm font-medium text-teal-700 hover:bg-teal-100 transition-colors">Selecionar todas</button>
+                  <button onClick={selectAllMedia} className="h-8 px-3 rounded text-sm font-medium text-teal-700 hover:bg-teal-100 transition-colors">Selecionar todos</button>
                   <button onClick={clearSelection} className="h-8 px-3 rounded text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors">Limpar</button>
                   <div className="w-px h-5 bg-teal-200" />
                   <button onClick={handleMoveSelectedPhotos} disabled={selectedPhotos.length === 0} className="h-8 px-3 rounded border border-teal-200 bg-white text-sm font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5">
@@ -1718,7 +1740,7 @@ export default function PatientPage() {
                     <Printer className="w-4 h-4" />
                     Imprimir
                   </button>
-                  <button onClick={handleDeleteSelectedPhotos} disabled={selectedPhotos.length === 0} className="h-8 px-3 rounded bg-red-500 hover:bg-red-600 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5">
+                  <button onClick={handleDeleteSelectedPhotos} disabled={selectedPhotos.length + selectedVideos.length === 0} className="h-8 px-3 rounded bg-red-500 hover:bg-red-600 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5">
                     <Trash2 className="w-4 h-4" />
                     Deletar
                   </button>
@@ -1869,8 +1891,13 @@ export default function PatientPage() {
                     {(currentFolder ? folderVideos : unfolderedVideos).map((video) => (
                       <div
                         key={`video-${video.id}`}
-                        onClick={() => setSelectedVideo(video)}
-                        className="w-40 h-40 shrink-0 bg-black border border-gray-200 rounded shadow-sm overflow-hidden cursor-pointer hover:shadow-md hover:border-teal-500 transition-all relative group"
+                        onClick={() => {
+                          if (isSelectionMode) toggleVideoSelection(video.id)
+                          else setSelectedVideo(video)
+                        }}
+                        className={`w-40 h-40 shrink-0 bg-black border border-gray-200 rounded shadow-sm overflow-hidden cursor-pointer hover:shadow-md hover:border-teal-500 transition-all relative group ${
+                          selectedVideos.includes(video.id) ? '!border-teal-600 ring-2 ring-teal-600 ring-offset-1' : ''
+                        }`}
                       >
                         <video
                           src={getVideoSrc(video)}
@@ -1887,18 +1914,26 @@ export default function PatientPage() {
                         <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-white text-[10px] font-semibold tabular-nums">
                           {String(Math.floor(video.duration / 60)).padStart(2, '0')}:{String(video.duration % 60).padStart(2, '0')}
                         </div>
-                        <button
-                          type="button"
-                          onClick={e => {
-                            e.stopPropagation()
-                            setConfirmDeleteVideo(video)
-                          }}
-                          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded bg-white/95 text-gray-500 shadow-sm transition-all hover:bg-red-50 hover:text-red-600"
-                          title="Excluir vídeo"
-                          aria-label="Excluir vídeo"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {isSelectionMode ? (
+                          <div className={`absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded border-2 border-white shadow-md ${
+                            selectedVideos.includes(video.id) ? 'bg-teal-600' : 'bg-white/90'
+                          }`}>
+                            {selectedVideos.includes(video.id) && <Check className="h-4 w-4 text-white" />}
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation()
+                              setConfirmDeleteVideo(video)
+                            }}
+                            className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded bg-white/95 text-gray-500 shadow-sm transition-all hover:bg-red-50 hover:text-red-600"
+                            title="Excluir vídeo"
+                            aria-label="Excluir vídeo"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     ))}
                     {!photosLoading && (currentFolder ? sortedFolderPhotos : sortedUnfolderedPhotos).map((photo, index) => (
@@ -2193,7 +2228,10 @@ export default function PatientPage() {
       {showDeleteSelectedConfirm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
           <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-2xl">
-            <h3 className="text-lg font-semibold text-black mb-2">Deletar {selectedPhotos.length} Foto(s)</h3>
+            <h3 className="text-lg font-semibold text-black mb-2">
+              Excluir {selectedPhotos.length + selectedVideos.length}{' '}
+              {selectedPhotos.length + selectedVideos.length === 1 ? 'item' : 'itens'}?
+            </h3>
             <p className="text-gray-600 mb-6">Tem certeza? Esta ação não pode ser desfeita.</p>
             <div className="flex gap-3">
               <button onClick={() => setShowDeleteSelectedConfirm(false)} className="flex-1 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-medium">Cancelar</button>
@@ -2591,6 +2629,7 @@ export default function PatientPage() {
                 onClick={() => {
                   setShowMoveToFolderModal(false)
                   setSelectedPhotos([])
+                  setSelectedVideos([])
                 }}
                 className="flex-1 bg-gray-500 hover:bg-gray-600 text-white"
               >

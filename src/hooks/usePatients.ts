@@ -6,11 +6,16 @@ import { supabase } from '@/lib/supabase'
 import { Patient } from '@/lib/types'
 
 const broadcastPatientsChanged = async () => {
-  await supabase.channel('patients-broadcast').send({
-    type: 'broadcast',
-    event: 'patients-changed',
-    payload: {},
-  })
+  try {
+    await supabase.channel('patients-broadcast').send({
+      type: 'broadcast',
+      event: 'patients-changed',
+      payload: {},
+    })
+  } catch (error) {
+    // O Postgres Changes permanece como fallback caso o broadcast falhe.
+    console.warn('Não foi possível transmitir a atualização de pacientes.', error)
+  }
 }
 
 // Escuta mudanças de pacientes via broadcast (leve, não usa WAL)
@@ -62,6 +67,34 @@ export const usePatients = () => {
 
       if (error) throw error
       return data || []
+    },
+  })
+}
+
+export const useCreatePatient = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (name: string): Promise<Patient> => {
+      const { data, error } = await supabase
+        .from('patients')
+        .insert([{ name }])
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    },
+    onSuccess: (patient) => {
+      // Atualiza os dois campos de busca imediatamente, sem esperar um refetch.
+      queryClient.setQueryData(['patients'], (old: Patient[] | undefined) => [
+        patient,
+        ...(old ?? []).filter((item) => item.id !== patient.id),
+      ])
+      queryClient.setQueryData(['patient', patient.id], patient)
+
+      // Avisa os demais dispositivos; Postgres Changes continua como fallback.
+      void broadcastPatientsChanged()
     },
   })
 }

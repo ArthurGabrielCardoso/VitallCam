@@ -98,7 +98,7 @@ function PatientsLayoutContent({
     <div className="h-screen bg-background overflow-hidden">
       <SidebarNav />
       {/* Header fixo */}
-      <header className="sticky top-0 z-20 bg-teal-800 border-b border-teal-900/40 shadow-[0_4px_12px_rgba(0,0,0,0.25)]">
+      <header className="sticky top-0 z-40 bg-teal-800 border-b border-teal-900/40 shadow-[0_4px_12px_rgba(0,0,0,0.25)]">
         <div className="relative flex items-center h-14 px-2 sm:px-4 lg:px-6">
 
           {/* Abrir sidebar */}
@@ -114,7 +114,7 @@ function PatientsLayoutContent({
           {showBackToProfile && (
             <button
               onClick={() => router.push(pathname)}
-              className="flex items-center gap-1.5 h-9 px-2 rounded hover:bg-teal-700 transition-colors shrink-0 text-white"
+              className="hidden sm:flex items-center gap-1.5 h-9 px-2 rounded hover:bg-teal-700 transition-colors shrink-0 text-white"
               title="Voltar ao perfil"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -126,7 +126,7 @@ function PatientsLayoutContent({
           {showBack && (
             <button
               onClick={() => router.push(prevPath!)}
-              className="flex items-center gap-1.5 h-9 px-2 rounded hover:bg-teal-700 transition-colors shrink-0 text-white"
+              className="hidden sm:flex items-center gap-1.5 h-9 px-2 rounded hover:bg-teal-700 transition-colors shrink-0 text-white"
               title={`Voltar para ${getRouteLabel(prevPath!)}`}
             >
               <ArrowLeft className="h-4 w-4" />

@@ -20,7 +20,7 @@ import PhotoComparison from '@/components/PhotoComparison'
 import PhotoEditor from '@/components/PhotoEditor'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, Minimize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download, ChevronRight, ChevronLeft, Mic, Film, RotateCw, Maximize2 } from 'lucide-react'
+import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, Minimize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download, ChevronRight, ChevronLeft, Mic, Film, RotateCw, Maximize2, ImageIcon } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import PhotoGridSkeleton from '@/components/PhotoGridSkeleton'
 import FolderCardSkeleton from '@/components/FolderCardSkeleton'
@@ -111,6 +111,8 @@ export default function PatientPage() {
   const profileStreamRef = useRef<MediaStream | null>(null)
   const [isUploadingProfilePhoto, setIsUploadingProfilePhoto] = useState(false)
   const [showProfileCamera, setShowProfileCamera] = useState(false)
+  const [showProfilePhotoPrompt, setShowProfilePhotoPrompt] = useState(false)
+  const [pendingProfileTab, setPendingProfileTab] = useState<string | null>(null)
   // Câmera do perfil: padrão TRASEIRA (environment) — no tablet abria frontal.
   const [profileFacing, setProfileFacing] = useState<'environment' | 'user'>('environment')
   const [printEditorPhotos, setPrintEditorPhotos] = useState<Photo[] | null>(null)
@@ -158,7 +160,13 @@ export default function PatientPage() {
     closeProfileCamera()
     setIsUploadingProfilePhoto(true)
     updatePatientMutation.mutateAsync({ patientId, profile_photo: dataUrl })
-      .then(() => toast({ title: 'Foto de perfil atualizada!' }))
+      .then(() => {
+        toast({ title: 'Foto de perfil atualizada!' })
+        if (pendingProfileTab) {
+          setActiveTab(pendingProfileTab)
+          setPendingProfileTab(null)
+        }
+      })
       .catch(() => toast({ variant: 'destructive', title: 'Erro ao salvar foto' }))
       .finally(() => setIsUploadingProfilePhoto(false))
   }
@@ -420,6 +428,10 @@ export default function PatientPage() {
         const dataUrl = e.target?.result as string
         await updatePatientMutation.mutateAsync({ patientId, profile_photo: dataUrl })
         toast({ title: 'Foto de perfil atualizada!' })
+        if (pendingProfileTab) {
+          setActiveTab(pendingProfileTab)
+          setPendingProfileTab(null)
+        }
         setIsUploadingProfilePhoto(false)
       }
       reader.onerror = () => {
@@ -431,6 +443,31 @@ export default function PatientPage() {
       toast({ variant: 'destructive', title: 'Erro ao salvar foto de perfil' })
       setIsUploadingProfilePhoto(false)
     }
+  }
+
+  const openPatientSection = (tab: string) => {
+    if (!patient?.profile_photo) {
+      setPendingProfileTab(tab)
+      setShowProfilePhotoPrompt(true)
+      return
+    }
+    setActiveTab(tab)
+  }
+
+  const continueWithoutProfilePhoto = () => {
+    if (pendingProfileTab) setActiveTab(pendingProfileTab)
+    setPendingProfileTab(null)
+    setShowProfilePhotoPrompt(false)
+  }
+
+  const captureProfilePhotoFromPrompt = async () => {
+    setShowProfilePhotoPrompt(false)
+    await openProfileCamera()
+  }
+
+  const uploadProfilePhotoFromPrompt = () => {
+    setShowProfilePhotoPrompt(false)
+    document.getElementById('profile-photo-upload')?.click()
   }
 
   const handleDownloadProfilePhoto = async () => {
@@ -1210,6 +1247,78 @@ export default function PatientPage() {
         </div>
       )}
 
+      {/* Lembrete de foto de perfil antes do primeiro atendimento */}
+      {showProfilePhotoPrompt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-teal-950/55 backdrop-blur-sm px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="profile-photo-prompt-title"
+          onClick={() => setShowProfilePhotoPrompt(false)}
+        >
+          <div
+            className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-white/30"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="h-2 bg-gradient-to-r from-teal-700 via-teal-500 to-dourado-400" />
+            <button
+              type="button"
+              onClick={() => setShowProfilePhotoPrompt(false)}
+              className="absolute right-4 top-5 flex h-9 w-9 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+              aria-label="Fechar aviso"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="px-7 pb-7 pt-8 text-center">
+              <div className="relative mx-auto mb-5 h-24 w-24">
+                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-teal-600 to-teal-800 shadow-lg shadow-teal-900/20">
+                  <User className="h-11 w-11 text-white" />
+                </div>
+                <div className="absolute -bottom-1 -right-1 flex h-10 w-10 items-center justify-center rounded-full border-4 border-white bg-gradient-to-br from-dourado-400 to-dourado-600 text-white shadow-md">
+                  <ImageIcon className="h-4 w-4" />
+                </div>
+              </div>
+
+              <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-dourado-600">Identificação do paciente</p>
+              <h2 id="profile-photo-prompt-title" className="text-2xl font-semibold text-gray-800">
+                Vamos registrar uma foto?
+              </h2>
+              <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-gray-500">
+                A foto de perfil ajuda a equipe a identificar <strong className="font-semibold text-gray-700">{patient.name}</strong> com segurança durante os atendimentos.
+              </p>
+
+              <div className="mt-7 grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={captureProfilePhotoFromPrompt}
+                  className="flex h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-teal-700 to-teal-600 px-4 text-sm font-semibold text-white shadow-md shadow-teal-700/20 transition-all hover:from-teal-800 hover:to-teal-700 hover:shadow-lg"
+                >
+                  <Camera className="h-5 w-5" />
+                  Tirar foto agora
+                </button>
+                <button
+                  type="button"
+                  onClick={uploadProfilePhotoFromPrompt}
+                  className="flex h-12 items-center justify-center gap-2 rounded-xl border border-dourado-300 bg-dourado-50 px-4 text-sm font-semibold text-dourado-700 transition-colors hover:border-dourado-400 hover:bg-dourado-100"
+                >
+                  <Upload className="h-5 w-5" />
+                  Escolher imagem
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={continueWithoutProfilePhoto}
+                className="mt-5 text-sm font-medium text-gray-400 transition-colors hover:text-teal-700"
+              >
+                Continuar sem foto por enquanto
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Conteúdo principal: overview ou seção selecionada */}
       <div className="p-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -1344,7 +1453,7 @@ export default function PatientPage() {
 
                 {/* Seção: Anamnese */}
                 <button
-                  onClick={() => setActiveTab('anamnese')}
+                  onClick={() => openPatientSection('anamnese')}
                   className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
                 >
                   <div className="flex items-center gap-4">
@@ -1364,7 +1473,7 @@ export default function PatientPage() {
 
                 {/* Seção: Câmera Intraoral */}
                 <button
-                  onClick={() => setActiveTab('photos')}
+                  onClick={() => openPatientSection('photos')}
                   className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
                 >
                   <div className="flex items-center gap-4">
@@ -1384,7 +1493,7 @@ export default function PatientPage() {
 
                 {/* Seção: Transcrições */}
                 <button
-                  onClick={() => setActiveTab('transcriptions')}
+                  onClick={() => openPatientSection('transcriptions')}
                   className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
                 >
                   <div className="flex items-center gap-4">
@@ -1403,7 +1512,7 @@ export default function PatientPage() {
 
                 {/* Seção: Notas */}
                 <button
-                  onClick={() => setActiveTab('notes')}
+                  onClick={() => openPatientSection('notes')}
                   className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
                 >
                   <div className="flex items-center gap-4">

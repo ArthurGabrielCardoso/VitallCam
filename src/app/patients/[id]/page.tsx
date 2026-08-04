@@ -10,7 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { usePatient, useUpdatePatient, useDeletePatient } from '@/hooks/usePatients'
 import { usePhotos, usePhotosBroadcast, useDeletePhoto, useUnfolderedPhotos, useMovePhotosToFolder, useBatchPhotoLoader } from '@/hooks/usePhotos'
 import { useFolders, useCreateFolder, useFolderPhotos, useDeleteFolder, useUpdateFolder } from '@/hooks/useFolders'
-import { useFolderVideos, useUnfolderedVideos, getVideoSrc, VideoRow } from '@/hooks/useVideos'
+import { useFolderVideos, useUnfolderedVideos, useDeleteVideo, getVideoSrc, VideoRow } from '@/hooks/useVideos'
 import CameraCapture from '@/components/CameraCapture'
 import CameraTransition from '@/components/CameraTransition'
 import ImageUpload from '@/components/ImageUpload'
@@ -190,10 +190,25 @@ export default function PatientPage() {
   const { data: folderPhotos = [] } = useFolderPhotos(currentFolder)
   const { data: folderVideos = [], refetch: refetchFolderVideos } = useFolderVideos(currentFolder)
   const { data: unfolderedVideos = [], refetch: refetchUnfolderedVideos } = useUnfolderedVideos(patientId)
+  const deleteVideoMutation = useDeleteVideo()
 
   // Batch-loader: pré-carrega image_data das fotos da pasta em lotes de 8 (resolve N+1 para fotos antigas base64)
   useBatchPhotoLoader(currentFolder ? folderPhotos.map(p => p.id) : [])
   const [selectedVideo, setSelectedVideo] = useState<VideoRow | null>(null)
+  const [confirmDeleteVideo, setConfirmDeleteVideo] = useState<VideoRow | null>(null)
+
+  const handleDeleteVideo = async () => {
+    if (!confirmDeleteVideo) return
+    try {
+      await deleteVideoMutation.mutateAsync(confirmDeleteVideo)
+      if (selectedVideo?.id === confirmDeleteVideo.id) setSelectedVideo(null)
+      setConfirmDeleteVideo(null)
+      toast({ title: 'Vídeo excluído com sucesso' })
+    } catch (error) {
+      console.error('Erro ao excluir vídeo:', error)
+      toast({ variant: 'destructive', title: 'Erro ao excluir vídeo' })
+    }
+  }
 
   // Função para ordenar fotos por tempo de criação (mais preciso e confiável)
   const sortPhotos = (photos: Photo[]) => {
@@ -1872,6 +1887,18 @@ export default function PatientPage() {
                         <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-white text-[10px] font-semibold tabular-nums">
                           {String(Math.floor(video.duration / 60)).padStart(2, '0')}:{String(video.duration % 60).padStart(2, '0')}
                         </div>
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation()
+                            setConfirmDeleteVideo(video)
+                          }}
+                          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded bg-white/95 text-gray-500 shadow-sm transition-all hover:bg-red-50 hover:text-red-600"
+                          title="Excluir vídeo"
+                          aria-label="Excluir vídeo"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     ))}
                     {!photosLoading && (currentFolder ? sortedFolderPhotos : sortedUnfolderedPhotos).map((photo, index) => (
@@ -2244,12 +2271,22 @@ export default function PatientPage() {
           onClick={() => setSelectedVideo(null)}
         >
           <div className="relative w-full max-w-4xl bg-black rounded overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
-            <button
-              onClick={() => setSelectedVideo(null)}
-              className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md text-white flex items-center justify-center"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <div className="absolute right-3 top-3 z-10 flex gap-2">
+              <button
+                onClick={() => setConfirmDeleteVideo(selectedVideo)}
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-red-600/85 text-white backdrop-blur-md transition-colors hover:bg-red-600"
+                title="Excluir vídeo"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setSelectedVideo(null)}
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur-md transition-colors hover:bg-white/25"
+                title="Fechar vídeo"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
             <video
               src={getVideoSrc(selectedVideo)}
               controls
@@ -2264,6 +2301,40 @@ export default function PatientPage() {
               <span>{selectedVideo.size_bytes ? `${(selectedVideo.size_bytes / 1024 / 1024).toFixed(1)} MB` : ''}</span>
               <span className="text-white/50">·</span>
               <span>{new Date(selectedVideo.created_at).toLocaleString('pt-BR')}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmação: excluir vídeo avulso ou de pasta */}
+      {confirmDeleteVideo && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-red-50 text-red-600">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-800">Excluir este vídeo?</h3>
+                <p className="text-sm text-gray-500">Esta ação não pode ser desfeita.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteVideo(null)}
+                className="h-11 flex-1 rounded-xl bg-gray-100 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-200"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteVideo}
+                disabled={deleteVideoMutation.isPending}
+                className="h-11 flex-1 rounded-xl bg-red-600 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleteVideoMutation.isPending ? 'Excluindo...' : 'Excluir vídeo'}
+              </button>
             </div>
           </div>
         </div>

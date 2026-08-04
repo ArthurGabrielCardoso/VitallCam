@@ -9,7 +9,7 @@ import { PanelLeftOpen, Search, Settings, ChevronRight, ArrowLeft, ImageIcon } f
 import Link from "next/link"
 import { usePatients, usePatientsBroadcast } from "@/hooks/usePatients"
 import type { Patient } from "@/lib/types"
-import { getLatestPatientCreatedToday, normalizePatientSearch, searchPatients } from "@/lib/patient-search"
+import { getRecentPatients, normalizePatientSearch, searchPatients } from "@/lib/patient-search"
 
 function getIniciais(nome: string) {
   return nome.split(" ").filter(Boolean).map((n) => n[0]).slice(0, 2).join("").toUpperCase()
@@ -73,7 +73,7 @@ function PatientsLayoutContent({
   const resultados = useMemo<Patient[]>(() => {
     return searchPatients(pacientes, busca, 8)
   }, [busca, pacientes])
-  const pacienteRecente = useMemo(() => getLatestPatientCreatedToday(pacientes), [pacientes])
+  const pacientesRecentes = useMemo(() => new Set(getRecentPatients(pacientes).map((p) => p.id)), [pacientes])
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -158,7 +158,7 @@ function PatientsLayoutContent({
             {(temResultados || semResultados) && (
               <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 overflow-hidden">
                 {temResultados && resultados.map((p) => {
-                  const recente = p.id === pacienteRecente?.id
+                  const recente = pacientesRecentes.has(p.id)
                   return (
                   <Link
                     key={p.id}

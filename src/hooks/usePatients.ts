@@ -22,9 +22,15 @@ export const usePatientsBroadcast = () => {
       queryClient.invalidateQueries({ queryKey: ['patients'] })
       queryClient.invalidateQueries({ queryKey: ['patient'] })
     }
-    const channel = supabase
+    const broadcastChannel = supabase
       .channel('patients-broadcast')
       .on('broadcast', { event: 'patients-changed' }, refreshPatients)
+      .subscribe(status => {
+        if (status === 'SUBSCRIBED') refreshPatients()
+      })
+
+    const postgresChannel = supabase
+      .channel(`patients-postgres:${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'patients' }, refreshPatients)
       .subscribe(status => {
         if (status === 'SUBSCRIBED') refreshPatients()
@@ -39,7 +45,8 @@ export const usePatientsBroadcast = () => {
     return () => {
       window.removeEventListener('online', refreshPatients)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
-      supabase.removeChannel(channel)
+      supabase.removeChannel(broadcastChannel)
+      supabase.removeChannel(postgresChannel)
     }
   }, [queryClient])
 }

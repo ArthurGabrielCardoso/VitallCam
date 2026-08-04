@@ -107,6 +107,7 @@ export default function LazyPhotoImage({ photo, className = '', onImageReady }: 
         <img
           src={src}
           alt=""
+          draggable={false}
           className={`w-full h-full transition-opacity duration-300 ${className}`}
           loading="lazy"
         />

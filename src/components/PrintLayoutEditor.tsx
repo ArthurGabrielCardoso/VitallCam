@@ -1508,14 +1508,13 @@ function PrintStyles() {
       .ple-editor p { margin: 0 0 3mm 0; }
 
       @media print {
-        /* Área segura pequena: evita cortes mesmo sem escolher "Margens: nenhuma". */
-        @page { size: A4; margin: 6mm; }
+        @page { size: A4; margin: 0; }
         html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
         body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         /* Garante escala 100% na impressão */
         #ple-doc-scroll { --ple-page-scale: 1 !important; }
-        .ple-page-wrap { width: 198mm !important; max-width: none !important; }
-        .ple-page-shell { width: 198mm !important; height: 285mm !important; }
+        .ple-page-wrap { width: 210mm !important; max-width: none !important; }
+        .ple-page-shell { width: 210mm !important; height: 297mm !important; }
         .ple-page-shell .ple-page { position: static !important; transform: none !important; }
         /* Como #ple-root foi portado para document.body, fica fácil isolar: */
         body > *:not(#ple-root) { display: none !important; }
@@ -1551,8 +1550,8 @@ function PrintStyles() {
         #print-document { padding: 0 !important; gap: 0 !important; display: block !important; }
         .ple-page-wrap {
           display: block !important;
-          width: 198mm !important;
-          height: 285mm !important;
+          width: 210mm !important;
+          height: 297mm !important;
           gap: 0 !important;
           margin: 0 !important;
           page-break-inside: avoid !important;
@@ -1583,10 +1582,10 @@ function PrintStyles() {
           page-break-inside: avoid !important;
           break-inside: avoid-page !important;
           margin: 0 !important;
-          width: 198mm !important;
-          height: 285mm !important;
-          min-height: 285mm !important;
-          max-height: 285mm !important;
+          width: 210mm !important;
+          height: 297mm !important;
+          min-height: 297mm !important;
+          max-height: 297mm !important;
           padding: 0 !important;
           overflow: hidden !important;
           background: #fff !important;
@@ -1594,9 +1593,9 @@ function PrintStyles() {
         .ple-frame {
           min-height: 100% !important;
           height: 100% !important;
-          padding: 4mm 5mm !important;
+          padding: 6mm 8mm !important;
         }
-        .ple-frame-text { padding: 7mm 9mm !important; }
+        .ple-frame-text { padding: 10mm 12mm !important; }
         .ple-text-wrap { display: block !important; }
         .ple-editor { display: block !important; min-height: 0 !important; }
       }

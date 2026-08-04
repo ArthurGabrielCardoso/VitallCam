@@ -1445,13 +1445,13 @@ export default function PatientPage() {
       )}
 
       {/* Conteúdo principal: overview ou seção selecionada */}
-      <div className="p-6">
+      <div className="p-3 sm:p-4 lg:p-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           {/* Tab Content: Overview */}
           <TabsContent value="overview" className="mt-0">
             <div className="grid grid-cols-1 md:grid-cols-[clamp(220px,22vw,360px)_1fr] gap-6 max-w-[96rem] mx-auto">
               {/* Coluna esquerda: foto/avatar do paciente */}
-              <div>
+              <div className="mx-auto w-full max-w-sm md:max-w-none">
                 {/* input oculto para upload — label nativo funciona em iOS/Android */}
                 <input id="profile-photo-upload" type="file" accept="image/*" className="hidden"
                   onChange={e => { const f = e.target.files?.[0]; if (f) handleProfilePhotoFile(f); e.target.value = '' }} />
@@ -1523,8 +1523,8 @@ export default function PatientPage() {
               {/* Coluna direita: identidade + seções */}
               <div className="space-y-4">
                 {/* Card de identidade */}
-                <div className="bg-white border border-gray-200 rounded shadow-sm p-6">
-                  <div className="flex items-start justify-between gap-4">
+                <div className="bg-white border border-gray-200 rounded shadow-sm p-4 sm:p-6">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       {isEditingName ? (
                         <div className="flex items-center gap-2">
@@ -1536,7 +1536,7 @@ export default function PatientPage() {
                               if (e.key === 'Enter') handleSaveEditName()
                               if (e.key === 'Escape') setIsEditingName(false)
                             }}
-                            className="flex-1 min-w-0 text-2xl font-semibold text-gray-700 border-b-2 border-teal-500 outline-none bg-transparent pb-1"
+                            className="flex-1 min-w-0 text-xl sm:text-2xl font-semibold text-gray-700 border-b-2 border-teal-500 outline-none bg-transparent pb-1"
                           />
                           <button
                             onClick={handleSaveEditName}
@@ -1554,7 +1554,7 @@ export default function PatientPage() {
                           </button>
                         </div>
                       ) : (
-                        <h1 className="text-2xl font-semibold text-gray-700 truncate">{patient.name}</h1>
+                        <h1 className="text-xl sm:text-2xl font-semibold text-gray-700 break-words sm:truncate">{patient.name}</h1>
                       )}
                       <div className="flex items-center gap-1.5 mt-2 text-sm text-gray-400">
                         <Calendar className="w-4 h-4" />
@@ -1562,7 +1562,7 @@ export default function PatientPage() {
                       </div>
                     </div>
                     {!isEditingName && (
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
                         <button
                           onClick={handleExportPatientPDF}
                           title="Exportar PDF"
@@ -1593,7 +1593,7 @@ export default function PatientPage() {
                 {/* Seção: Anamnese */}
                 <button
                   onClick={() => openPatientSection('anamnese')}
-                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
+                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-4 sm:p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
                 >
                   <div className="flex items-center gap-4">
                     <div className="h-12 w-12 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm p-2">
@@ -1613,7 +1613,7 @@ export default function PatientPage() {
                 {/* Seção: Câmera Intraoral */}
                 <button
                   onClick={() => openPatientSection('photos')}
-                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
+                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-4 sm:p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
                 >
                   <div className="flex items-center gap-4">
                     <div className="h-12 w-12 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm p-2">
@@ -1633,7 +1633,7 @@ export default function PatientPage() {
                 {/* Seção: Transcrições */}
                 <button
                   onClick={() => openPatientSection('transcriptions')}
-                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
+                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-4 sm:p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
                 >
                   <div className="flex items-center gap-4">
                     <div className="h-12 w-12 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
@@ -1652,7 +1652,7 @@ export default function PatientPage() {
                 {/* Seção: Notas */}
                 <button
                   onClick={() => openPatientSection('notes')}
-                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
+                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-4 sm:p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
                 >
                   <div className="flex items-center gap-4">
                     <div className="h-12 w-12 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
@@ -1692,11 +1692,11 @@ export default function PatientPage() {
               )}
 
               {/* Action row: Capturar + Upload + ações secundárias */}
-              <div className="flex items-center gap-3 mb-8 flex-wrap">
+              <div className="grid grid-cols-3 sm:flex items-center gap-2 sm:gap-3 mb-6 sm:mb-8">
                 {/* Capturar (gradiente teal) */}
                 <Button
                   onClick={() => setShowCamera(true)}
-                  className="!w-28 !h-28 !p-0 !rounded !text-white !flex !flex-col !items-center !justify-center !gap-2 bg-gradient-to-br from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800 border-0 shadow-md shadow-teal-600/20 transition-all"
+                  className="!w-full sm:!w-28 !h-24 sm:!h-28 !p-0 !rounded !text-white !flex !flex-col !items-center !justify-center !gap-2 bg-gradient-to-br from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800 border-0 shadow-md shadow-teal-600/20 transition-all"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src="/assets/images/camera-intraoral.svg" alt="" className="w-9 h-9 object-contain brightness-0 invert" />
@@ -1707,7 +1707,7 @@ export default function PatientPage() {
                 <ImageUpload
                   patientId={patientId}
                   onUpload={handleImageUpload}
-                  className="!w-28 !h-28 !p-0 !rounded !text-white !flex !flex-col !items-center !justify-center !gap-2 [&_svg]:!size-8 bg-gradient-to-br from-dourado-500 to-dourado-400 hover:from-dourado-600 hover:to-dourado-500 border-0 shadow-md shadow-dourado-500/20 transition-all"
+                  className="!w-full sm:!w-28 !h-24 sm:!h-28 !p-0 !rounded !text-white !flex !flex-col !items-center !justify-center !gap-2 [&_svg]:!size-8 bg-gradient-to-br from-dourado-500 to-dourado-400 hover:from-dourado-600 hover:to-dourado-500 border-0 shadow-md shadow-dourado-500/20 transition-all"
                   label="Upload"
                   iconClassName=""
                   folderId={currentFolder}
@@ -1716,14 +1716,14 @@ export default function PatientPage() {
                 {/* Extrair frames de vídeo */}
                 <Button
                   onClick={() => setShowFrameExtractor(true)}
-                  className="!w-28 !h-28 !p-0 !rounded !text-white !flex !flex-col !items-center !justify-center !gap-2 bg-gradient-to-br from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 border-0 shadow-md shadow-violet-600/20 transition-all"
+                  className="!w-full sm:!w-28 !h-24 sm:!h-28 !p-0 !rounded !text-white !flex !flex-col !items-center !justify-center !gap-2 bg-gradient-to-br from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 border-0 shadow-md shadow-violet-600/20 transition-all"
                 >
                   <Film className="w-9 h-9" />
                   <span className="text-sm font-semibold">Vídeo→Fotos</span>
                 </Button>
 
                 {/* Spacer */}
-                <div className="ml-auto flex items-center gap-2">
+                <div className="col-span-3 sm:col-span-1 sm:ml-auto flex items-center justify-end gap-2 pt-1 sm:pt-0">
                   {!currentFolder && (
                     <button
                       onClick={() => setShowCreateFolder(true)}
@@ -2080,11 +2080,11 @@ export default function PatientPage() {
                     </CardContent>
                   </Card>
                 ) : (
-                  <div className="grid grid-cols-5 gap-4">
+                  <div className="grid grid-cols-1 min-[380px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
                     {anamneses.map((anamnese, index) => (
                       <div
                         key={anamnese.id}
-                        className="aspect-square bg-gradient-to-br from-green-50 to-teal-50 rounded-lg overflow-hidden cursor-pointer hover:shadow-lg transition-all hover:scale-105 border border-gray-200 hover:border-primary"
+                        className="min-h-40 sm:aspect-square bg-gradient-to-br from-green-50 to-teal-50 rounded-lg overflow-hidden cursor-pointer hover:shadow-lg transition-all sm:hover:scale-105 border border-gray-200 hover:border-primary"
                         onClick={() => setSelectedAnamnese(anamnese)}
                       >
                         <div className="h-full flex flex-col p-4">
@@ -2153,11 +2153,11 @@ export default function PatientPage() {
                     </CardContent>
                   </Card>
                 ) : (
-                  <div className="grid grid-cols-5 gap-4">
+                  <div className="grid grid-cols-1 min-[380px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
                     {transcriptions.map((transcription, index) => (
                       <div
                         key={transcription.id}
-                        className="aspect-square bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg overflow-hidden cursor-pointer hover:shadow-lg transition-all hover:scale-105 border border-gray-200 hover:border-primary"
+                        className="min-h-40 sm:aspect-square bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg overflow-hidden cursor-pointer hover:shadow-lg transition-all sm:hover:scale-105 border border-gray-200 hover:border-primary"
                         onClick={() => setSelectedTranscription(transcription)}
                       >
                         <div className="h-full flex flex-col p-4">

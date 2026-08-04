@@ -446,7 +446,10 @@ export default function PatientPage() {
   }
 
   const openPatientSection = (tab: string) => {
-    if (!patient?.profile_photo) {
+    const promptSeenInSession = typeof window !== 'undefined'
+      && sessionStorage.getItem(`profile-photo-prompt:${patientId}`) === 'seen'
+
+    if (!patient?.profile_photo && !promptSeenInSession) {
       setPendingProfileTab(tab)
       setShowProfilePhotoPrompt(true)
       return
@@ -455,6 +458,7 @@ export default function PatientPage() {
   }
 
   const continueWithoutProfilePhoto = () => {
+    sessionStorage.setItem(`profile-photo-prompt:${patientId}`, 'seen')
     if (pendingProfileTab) setActiveTab(pendingProfileTab)
     setPendingProfileTab(null)
     setShowProfilePhotoPrompt(false)

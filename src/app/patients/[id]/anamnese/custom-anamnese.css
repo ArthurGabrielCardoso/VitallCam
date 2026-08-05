@@ -43,7 +43,7 @@
 
 /* Caixa de seleção usada nas respostas do formulário */
 .custom-choice-square {
-  border-color: #d4d4d4;
+  border-color: #c89d68;
   background: #ffffff;
   transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }

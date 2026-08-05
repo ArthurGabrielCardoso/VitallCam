@@ -86,12 +86,12 @@ export default function AnamneseFormPage() {
     return selected ? { id: selected.id, name: selected.name, description: selected.description, questions: selected.questions } : null
   }, [savedSnapshot, selectedTemplateId, templates])
 
-  const visibleQuestions = useMemo(
-    () => activeTemplate?.questions.filter((question) => isQuestionVisible(question, answers)) || [],
-    [activeTemplate, answers],
-  )
-  const splitAt = Math.ceil(visibleQuestions.length / 2)
-  const currentQuestions = step === 1 ? visibleQuestions.slice(0, splitAt) : visibleQuestions.slice(splitAt)
+  const allQuestions = activeTemplate?.questions || []
+  const splitAt = Math.ceil(allQuestions.length / 2)
+  const firstPageQuestions = allQuestions.slice(0, splitAt).filter((question) => isQuestionVisible(question, answers))
+  const secondPageQuestions = allQuestions.slice(splitAt).filter((question) => isQuestionVisible(question, answers))
+  const visibleQuestions = [...firstPageQuestions, ...secondPageQuestions]
+  const currentQuestions = step === 1 ? firstPageQuestions : secondPageQuestions
   const firstName = patientName.trim().split(/\s+/)[0] || 'Paciente'
   const displayName = firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase()
   const progress = ((step + 1) / TOTAL_STEPS) * 100
@@ -166,8 +166,8 @@ export default function AnamneseFormPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-white">
-      <div className="w-full h-3 bg-gray-200"><div className="progress-bar h-full" style={{ width: `${progress}%` }} /></div>
+    <div className="min-h-screen flex flex-col bg-white pt-3">
+      <div className="fixed inset-x-0 top-0 z-50 h-3 bg-gray-200"><div className="progress-bar h-full" style={{ width: `${progress}%` }} /></div>
       <header className="w-full bg-white py-3">
         <div className="max-w-xl mx-auto w-full px-3 sm:px-2">
           <Image src="/assets/images/logo.png" alt="Vitall Check-UP Odontologia" width={150} height={75} className="object-contain mx-auto" priority />
@@ -200,7 +200,7 @@ export default function AnamneseFormPage() {
                 <QuestionField
                   key={question.id}
                   question={question}
-                  index={visibleQuestions.findIndex((item) => item.id === question.id)}
+                  index={allQuestions.findIndex((item) => item.id === question.id)}
                   value={answers[question.id]}
                   answers={answers}
                   errors={errors}

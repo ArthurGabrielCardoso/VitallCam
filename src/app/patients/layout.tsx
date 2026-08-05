@@ -36,6 +36,7 @@ function PatientsLayoutContent({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
+  const isAnamnesePath = /^\/patients\/[^/]+\/anamnese$/.test(pathname)
   const router = useRouter()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
@@ -92,6 +93,11 @@ function PatientsLayoutContent({
 
   if (!isClient) {
     return <div className="min-h-screen bg-background">{children}</div>
+  }
+
+  // O preenchimento da anamnese é uma experiência focada e ocupa a tela inteira.
+  if (isAnamnesePath) {
+    return <div className="h-screen overflow-y-auto bg-white">{children}</div>
   }
 
   return (

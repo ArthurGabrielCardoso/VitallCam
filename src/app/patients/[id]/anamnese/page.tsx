@@ -166,7 +166,7 @@ export default function AnamneseFormPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-white pt-3">
+    <div className="min-h-full flex flex-col bg-white pt-3">
       <div className="fixed inset-x-0 top-0 z-50 h-3 bg-gray-200"><div className="progress-bar h-full" style={{ width: `${progress}%` }} /></div>
       <header className="w-full bg-white py-3">
         <div className="max-w-xl mx-auto w-full px-3 sm:px-2">
@@ -235,7 +235,7 @@ export default function AnamneseFormPage() {
         )}
       </main>
 
-      <footer className="fixed bottom-0 left-0 right-0 bg-white py-3 border-t print-hide">
+      <footer className="fixed bottom-0 left-0 right-0 z-[110] bg-white py-3 border-t shadow-[0_-4px_12px_rgba(0,0,0,0.06)] print-hide">
         <div className="max-w-xl mx-auto w-full px-3 sm:px-2 flex justify-between gap-2">
           {step > 0 ? <Button variant="outline" onClick={previousStep} className="min-w-0 flex-1 sm:flex-none sm:min-w-[120px] py-5">Anterior</Button> : <div />}
           {step < 3 ? (
@@ -294,10 +294,17 @@ function QuestionField({ question, index, value, answers, errors, onChange, onFo
 
 function Choice({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled?: boolean; onChange: () => void }) {
   return (
-    <label className={`flex cursor-pointer items-center gap-3 text-lg ${disabled ? 'cursor-not-allowed opacity-45' : ''}`}>
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={onChange} className="sr-only" />
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      disabled={disabled}
+      onPointerDown={(event) => event.preventDefault()}
+      onClick={onChange}
+      className={`flex items-center gap-3 text-left text-lg ${disabled ? 'cursor-not-allowed opacity-45' : 'cursor-pointer'}`}
+    >
       <span aria-hidden="true" className={`custom-choice-square flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 ${checked ? 'is-checked' : ''}`}>{checked && <span className="text-sm font-bold leading-none text-white">✓</span>}</span>
       <span>{label}</span>
-    </label>
+    </button>
   )
 }

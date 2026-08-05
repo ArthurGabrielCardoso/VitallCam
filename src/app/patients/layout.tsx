@@ -97,7 +97,7 @@ function PatientsLayoutContent({
 
   // O preenchimento da anamnese é uma experiência focada e ocupa a tela inteira.
   if (isAnamnesePath) {
-    return <div className="h-screen overflow-y-auto bg-white">{children}</div>
+    return <div className="fixed inset-0 z-[100] overflow-y-auto overscroll-contain bg-white">{children}</div>
   }
 
   return (

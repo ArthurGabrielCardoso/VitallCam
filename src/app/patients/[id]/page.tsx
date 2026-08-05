@@ -20,7 +20,7 @@ import PhotoComparison from '@/components/PhotoComparison'
 import PhotoEditor from '@/components/PhotoEditor'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, Minimize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download, ChevronRight, ChevronLeft, Mic, Film, RotateCw, Maximize2, ImageIcon } from 'lucide-react'
+import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, Minimize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download, ChevronRight, ChevronLeft, Mic, Film, RotateCw, Maximize2, ImageIcon, Settings2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import PhotoGridSkeleton from '@/components/PhotoGridSkeleton'
 import FolderCardSkeleton from '@/components/FolderCardSkeleton'
@@ -2043,20 +2043,27 @@ export default function PatientPage() {
           <TabsContent value="anamnese" className="mt-0">
             {selectedAnamnese ? (
               <div>
-                <Button
-                  onClick={() => setSelectedAnamnese(null)}
-                  variant="outline"
-                  className="mb-4"
-                >
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Voltar para lista
-                </Button>
+                <div className="mb-4 flex flex-wrap gap-2">
+                  <Button onClick={() => setSelectedAnamnese(null)} variant="outline">
+                    <ArrowLeft className="w-4 h-4 mr-2" />Voltar para lista
+                  </Button>
+                  <Button onClick={() => router.push(`/patients/${patientId}/anamnese?anamneseId=${selectedAnamnese.id}`)} variant="outline">
+                    <Edit className="w-4 h-4 mr-2" />Editar respostas
+                  </Button>
+                </div>
                 <AnamneseDocument anamnese={selectedAnamnese} />
               </div>
             ) : (
               <div className="space-y-4">
                 {/* Botão para criar nova anamnese */}
-                <div className="flex justify-end mb-4">
+                <div className="flex flex-col justify-end gap-2 mb-4 min-[420px]:flex-row">
+                  <Button
+                    variant="outline"
+                    onClick={() => router.push('/patients/configuracoes/anamneses')}
+                  >
+                    <Settings2 className="w-4 h-4 mr-2" />
+                    Gerenciar modelos
+                  </Button>
                   <Button
                     onClick={() => router.push(`/patients/${patientId}/anamnese`)}
                     className="bg-primary hover:bg-primary/90 text-white"

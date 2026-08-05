@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Calendar, FileText, Download } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import { formatAnamneseAnswer, type AnamneseTemplateSnapshot } from '@/lib/anamnese-templates'
 
 interface AnamneseDocumentProps {
   anamnese: Anamnese
@@ -135,16 +136,12 @@ const QUESTION_ORDER: { key: string; label: string; subKeys?: { key: string; lab
   { key: 'comoConheceuOpcao', label: 'Como nos conheceu' },
 ]
 
-const formatValue = (value: string) => {
-  if (value === 'sim') return 'Sim'
-  if (value === 'nao') return 'Não'
-  return value.charAt(0).toUpperCase() + value.slice(1)
-}
-
 export default function AnamneseDocument({ anamnese }: AnamneseDocumentProps) {
   const printRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
   const dados = anamnese.dados_saude as Record<string, any>
+  const snapshot = anamnese.template_snapshot as unknown as AnamneseTemplateSnapshot | null
+  const dynamicQuestions = snapshot?.questions?.length ? snapshot.questions : null
 
   const handleDownloadPDF = async () => {
     try {
@@ -220,7 +217,15 @@ export default function AnamneseDocument({ anamnese }: AnamneseDocumentProps) {
       doc.text('INFORMAÇÕES DE SAÚDE', margin, y)
       y += 8
 
-      for (const question of QUESTION_ORDER) {
+      const pdfQuestions = dynamicQuestions
+        ? dynamicQuestions.map((question, index) => ({
+            key: question.id,
+            label: `${index + 1}. ${question.label}`,
+            subKeys: question.followUps?.map((followUp) => ({ key: followUp.id, label: followUp.label, when: followUp.when })),
+          }))
+        : QUESTION_ORDER
+
+      for (const question of pdfQuestions) {
         const answer = dados[question.key]
         if (!answer) continue
 
@@ -232,11 +237,15 @@ export default function AnamneseDocument({ anamnese }: AnamneseDocumentProps) {
         y += labelLines.length * 5
 
         doc.setFont('helvetica', 'normal')
-        doc.text(`Resposta: ${formatValue(answer)}`, margin + 4, y)
+        const answerLines = doc.splitTextToSize(`Resposta: ${formatAnamneseAnswer(answer)}`, contentW - 4)
+        doc.text(answerLines, margin + 4, y)
+        y += (answerLines.length - 1) * 5
         y += 6
 
-        if (question.subKeys && answer === 'sim') {
+        if (question.subKeys) {
           for (const sub of question.subKeys) {
+            const selected = Array.isArray(answer) ? answer : [answer]
+            if ('when' in sub && sub.when && !selected.includes(sub.when)) continue
             const subVal = dados[sub.key]
             if (!subVal) continue
             checkNewPage(6)
@@ -306,6 +315,9 @@ export default function AnamneseDocument({ anamnese }: AnamneseDocumentProps) {
                 year: 'numeric',
               })}
             </span>
+            {(anamnese.template_name || snapshot?.name) && (
+              <span className="mt-1 block text-xs font-medium text-teal-700">Modelo: {anamnese.template_name || snapshot?.name}</span>
+            )}
           </div>
         </div>
         <Button onClick={handleDownloadPDF} className="bg-primary hover:bg-primary/90 text-white flex items-center gap-2">
@@ -352,17 +364,26 @@ export default function AnamneseDocument({ anamnese }: AnamneseDocumentProps) {
               Informações de Saúde
             </h3>
             <div className="space-y-4">
-              {QUESTION_ORDER.map((question) => {
+              {(dynamicQuestions
+                ? dynamicQuestions.map((question, index) => ({
+                    key: question.id,
+                    label: `${index + 1}. ${question.label}`,
+                    subKeys: question.followUps?.map((followUp) => ({ key: followUp.id, label: followUp.label, when: followUp.when })),
+                  }))
+                : QUESTION_ORDER
+              ).map((question) => {
                 const answer = dados[question.key]
                 if (!answer) return null
                 return (
                   <div key={question.key} className="border-b border-gray-100 pb-3 last:border-0">
                     <p className="font-semibold text-gray-800 text-sm">{question.label}</p>
                     <p className="text-gray-700 text-sm mt-1 pl-2">
-                      <span className="font-medium">Resposta:</span> {formatValue(answer)}
+                      <span className="font-medium">Resposta:</span> {formatAnamneseAnswer(answer)}
                     </p>
-                    {question.subKeys && answer === 'sim' &&
+                    {question.subKeys &&
                       question.subKeys.map((sub) => {
+                        const selected = Array.isArray(answer) ? answer : [answer]
+                        if ('when' in sub && sub.when && !selected.includes(sub.when)) return null
                         const subVal = dados[sub.key]
                         if (!subVal) return null
                         return (

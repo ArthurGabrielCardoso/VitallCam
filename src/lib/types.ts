@@ -149,6 +149,9 @@ export interface Database {
           instagram?: string
           dados_saude: Record<string, any>
           assinatura?: string
+          template_id?: string | null
+          template_name?: string | null
+          template_snapshot?: Record<string, any> | null
           created_at: string
           updated_at: string
         }
@@ -163,6 +166,9 @@ export interface Database {
           instagram?: string
           dados_saude: Record<string, any>
           assinatura?: string
+          template_id?: string | null
+          template_name?: string | null
+          template_snapshot?: Record<string, any> | null
           created_at?: string
           updated_at?: string
         }
@@ -177,7 +183,40 @@ export interface Database {
           instagram?: string
           dados_saude?: Record<string, any>
           assinatura?: string
+          template_id?: string | null
+          template_name?: string | null
+          template_snapshot?: Record<string, any> | null
           created_at?: string
+          updated_at?: string
+        }
+      }
+      anamnese_templates: {
+        Row: {
+          id: string
+          name: string
+          description?: string | null
+          questions: import('./anamnese-templates').AnamneseQuestion[]
+          is_default: boolean
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          description?: string | null
+          questions: import('./anamnese-templates').AnamneseQuestion[]
+          is_default?: boolean
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          name?: string
+          description?: string | null
+          questions?: import('./anamnese-templates').AnamneseQuestion[]
+          is_default?: boolean
+          is_active?: boolean
           updated_at?: string
         }
       }
@@ -191,6 +230,7 @@ export type Folder = Database['public']['Tables']['folders']['Row']
 export type Transcription = Database['public']['Tables']['transcriptions']['Row']
 export type TranscriptionSegment = Database['public']['Tables']['transcription_segments']['Row']
 export type Anamnese = Database['public']['Tables']['anamneses']['Row']
+export type AnamneseTemplate = Database['public']['Tables']['anamnese_templates']['Row']
 export type NewPatient = Database['public']['Tables']['patients']['Insert']
 export type NewPhoto = Database['public']['Tables']['photos']['Insert']
 export type NewFolder = Database['public']['Tables']['folders']['Insert']

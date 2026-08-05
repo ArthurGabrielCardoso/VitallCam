@@ -40,6 +40,23 @@
   box-shadow: 0 0 0 3px rgba(29, 185, 179, 0.1);
 }
 
+/* Caixa de seleção usada nas respostas do formulário */
+.custom-choice-square {
+  border-color: #d4d4d4;
+  background: #ffffff;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+label:hover .custom-choice-square {
+  border-color: #1db9b3;
+}
+
+.custom-choice-square.is-checked {
+  border-color: #1db9b3;
+  background-color: #1db9b3;
+  box-shadow: 0 0 0 3px rgba(29, 185, 179, 0.12);
+}
+
 /* Destaque de erro */
 .error-highlight {
   border-color: #ef4444 !important;

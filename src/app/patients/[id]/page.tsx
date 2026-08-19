@@ -20,7 +20,7 @@ import PhotoComparison from '@/components/PhotoComparison'
 import PhotoEditor from '@/components/PhotoEditor'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, Minimize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download, ChevronRight, ChevronLeft, Mic, Film, RotateCw, Maximize2, ImageIcon, Settings2 } from 'lucide-react'
+import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, Minimize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download, ChevronRight, ChevronLeft, FileSignature, Film, RotateCw, Maximize2, ImageIcon, Settings2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import PhotoGridSkeleton from '@/components/PhotoGridSkeleton'
 import FolderCardSkeleton from '@/components/FolderCardSkeleton'
@@ -28,13 +28,13 @@ import LazyPhotoImage from '@/components/LazyPhotoImage'
 import BeforeAfterSlider from '@/components/BeforeAfterSlider'
 import AIProcessingLoader from '@/components/AIProcessingLoader'
 import { transformSmileWithGemini } from '@/lib/gemini-smile'
-import TranscriptionViewer from '@/components/TranscriptionViewer'
-import TranscriptionDocument from '@/components/TranscriptionDocument'
+import ContractLibrary from '@/components/ContractLibrary'
+import { CONTRACT_TEMPLATES } from '@/lib/contracts'
 import AnamneseDocument from '@/components/AnamneseDocument'
 import PrintLayoutEditor from '@/components/PrintLayoutEditor'
 import VideoFrameExtractor from '@/components/VideoFrameExtractor'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
-import { Transcription, Anamnese } from '@/lib/types'
+import { Anamnese } from '@/lib/types'
 import { deleteMediaFromR2, uploadMediaToR2 } from '@/lib/r2-client'
 
 export default function PatientPage() {
@@ -93,9 +93,6 @@ export default function PatientPage() {
   const [isProcessingAI, setIsProcessingAI] = useState(false)
   const [aiEnhancedImage, setAiEnhancedImage] = useState<string | null>(null)
   const [showAIComparison, setShowAIComparison] = useState(false)
-  const [showTranscriptions, setShowTranscriptions] = useState(false)
-  const [transcriptions, setTranscriptions] = useState<Transcription[]>([])
-  const [selectedTranscription, setSelectedTranscription] = useState<Transcription | null>(null)
   const [anamneses, setAnamneses] = useState<Anamnese[]>([])
   const [selectedAnamnese, setSelectedAnamnese] = useState<Anamnese | null>(null)
   const activeTab = searchParams.get('tab') || 'overview'
@@ -1204,28 +1201,12 @@ export default function PatientPage() {
     }
   }
 
-  // Carregar transcrições e anamneses
+  // Carregar anamneses
   useEffect(() => {
     if (patientId) {
-      loadTranscriptions()
       loadAnamneses()
     }
   }, [patientId])
-
-  const loadTranscriptions = async () => {
-    try {
-      const { data, error } = await db
-        .from('transcriptions')
-        .select('*')
-        .eq('patient_id', patientId)
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
-      setTranscriptions(data || [])
-    } catch (error) {
-      console.error('Error loading transcriptions:', error)
-    }
-  }
 
   const loadAnamneses = async () => {
     try {
@@ -1627,19 +1608,19 @@ export default function PatientPage() {
                   </div>
                 </button>
 
-                {/* Seção: Transcrições */}
+                {/* Seção: Contratos */}
                 <button
-                  onClick={() => openPatientSection('transcriptions')}
+                  onClick={() => openPatientSection('contracts')}
                   className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-4 sm:p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
                 >
                   <div className="flex items-center gap-4">
                     <div className="h-12 w-12 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
-                      <Mic className="w-6 h-6 text-white" />
+                      <FileSignature className="w-6 h-6 text-white" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-base font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">Transcrições</h3>
+                      <h3 className="text-base font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">Contratos</h3>
                       <p className="text-sm text-gray-400 mt-0.5">
-                        {transcriptions.length} {transcriptions.length === 1 ? 'transcrição salva' : 'transcrições salvas'}
+                        {CONTRACT_TEMPLATES.length} modelos para preencher e imprimir
                       </p>
                     </div>
                     <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-teal-600 transition-colors" />
@@ -2130,93 +2111,11 @@ export default function PatientPage() {
             )}
           </TabsContent>
 
-          {/* Tab Content: Transcrições */}
-          <TabsContent value="transcriptions" className="mt-0">
-            {selectedTranscription ? (
-              <div>
-                <Button
-                  onClick={() => setSelectedTranscription(null)}
-                  variant="outline"
-                  className="mb-4"
-                >
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Voltar para lista
-                </Button>
-                <TranscriptionDocument transcription={selectedTranscription} />
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {transcriptions.length === 0 ? (
-                  <Card>
-                    <CardContent className="py-12 text-center">
-                      <FileText className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-                      <p className="text-gray-600">Nenhuma transcrição encontrada</p>
-                      <p className="text-sm text-gray-500 mt-2">
-                        Use o botão flutuante no canto inferior direito para criar uma transcrição
-                      </p>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <div className="grid grid-cols-1 min-[380px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-                    {transcriptions.map((transcription, index) => (
-                      <div
-                        key={transcription.id}
-                        className="min-h-40 sm:aspect-square bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg overflow-hidden cursor-pointer hover:shadow-lg transition-all sm:hover:scale-105 border border-gray-200 hover:border-primary"
-                        onClick={() => setSelectedTranscription(transcription)}
-                      >
-                        <div className="h-full flex flex-col p-4">
-                          {/* Ícone e número */}
-                          <div className="flex items-center justify-between mb-2">
-                            <FileText className="w-6 h-6 text-primary" />
-                            <span className="text-xs font-bold text-gray-400">#{index + 1}</span>
-                          </div>
-
-                          {/* Preview do texto */}
-                          <div className="flex-1 mb-2">
-                            <p className="text-xs text-gray-700 line-clamp-4">
-                              {transcription.text || 'Transcrição vazia'}
-                            </p>
-                          </div>
-
-                          {/* Footer com data e status */}
-                          <div className="mt-auto space-y-1">
-                            <div className="flex items-center gap-1 text-xs text-gray-500">
-                              <Calendar className="w-3 h-3" />
-                              {new Date(transcription.created_at).toLocaleDateString('pt-BR', {
-                                day: '2-digit',
-                                month: '2-digit'
-                              })}
-                            </div>
-                            {transcription.duration_seconds && (
-                              <div className="flex items-center gap-1 text-xs text-gray-500">
-                                <Clock className="w-3 h-3" />
-                                {Math.floor(transcription.duration_seconds / 60)}:
-                                {(transcription.duration_seconds % 60).toString().padStart(2, '0')}
-                              </div>
-                            )}
-                            <span
-                              className={`inline-block text-xs px-2 py-0.5 rounded-full ${
-                                transcription.status === 'active'
-                                  ? 'bg-green-100 text-green-700'
-                                  : transcription.status === 'completed'
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-red-100 text-red-700'
-                              }`}
-                            >
-                              {transcription.status === 'active'
-                                ? 'Ativa'
-                                : transcription.status === 'completed'
-                                ? 'Concluída'
-                                : 'Erro'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+          {/* Tab Content: Contratos */}
+          <TabsContent value="contracts" className="mt-0">
+            <div className="max-w-6xl mx-auto">
+              <ContractLibrary patientName={patient.name} scope={patientId} />
+            </div>
           </TabsContent>
 
           {/* Tab Content: Notas */}

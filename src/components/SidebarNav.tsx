@@ -9,6 +9,7 @@ import {
   Home,
   Camera,
   PlayCircle,
+  FileSignature,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -21,15 +22,25 @@ type NavItem = {
 }
 
 const navigation: NavItem[] = [
-  { name: "Pacientes", href: "/patients",       icon: UserRound  },
-  { name: "Mídia",     href: "/patients/media", icon: PlayCircle },
-  { name: "Câmera",    href: "/camera-debug",   icon: Camera     },
+  { name: "Pacientes", href: "/patients",           icon: UserRound     },
+  { name: "Contratos", href: "/patients/contratos", icon: FileSignature },
+  { name: "Mídia",     href: "/patients/media",     icon: PlayCircle    },
+  { name: "Câmera",    href: "/camera-debug",       icon: Camera        },
 ]
 
 export function SidebarNav() {
   const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState("")
+
+  // "/patients" é prefixo das demais rotas — vence sempre o item mais
+  // específico, senão dois itens acenderiam ao mesmo tempo.
+  const activeHref = useMemo(() => {
+    const matches = navigation
+      .filter(item => pathname === item.href || pathname?.startsWith(item.href + "/"))
+      .sort((a, b) => b.href.length - a.href.length)
+    return matches[0]?.href ?? null
+  }, [pathname])
 
   const visibleNavigation = useMemo(() => {
     if (!search.trim()) return navigation
@@ -115,8 +126,7 @@ export function SidebarNav() {
           <nav className="flex-1 p-3 space-y-1 overflow-y-hidden">
             {visibleNavigation.length > 0 ? (
               visibleNavigation.map((item) => {
-                const isActive =
-                  pathname === item.href || pathname?.startsWith(item.href + "/")
+                const isActive = item.href === activeHref
                 const Icon = item.icon
 
                 return (

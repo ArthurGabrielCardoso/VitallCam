@@ -20,7 +20,7 @@ import PhotoComparison from '@/components/PhotoComparison'
 import PhotoEditor from '@/components/PhotoEditor'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, Minimize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, NotebookPen, Download, ChevronRight, ChevronLeft, FileSignature, Film, RotateCw, Maximize2, ImageIcon, Settings2 } from 'lucide-react'
+import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, Minimize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, ScanLine, Download, ChevronRight, ChevronLeft, FileSignature, Film, RotateCw, Maximize2, ImageIcon, Settings2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import PhotoGridSkeleton from '@/components/PhotoGridSkeleton'
 import FolderCardSkeleton from '@/components/FolderCardSkeleton'
@@ -29,6 +29,7 @@ import BeforeAfterSlider from '@/components/BeforeAfterSlider'
 import AIProcessingLoader from '@/components/AIProcessingLoader'
 import { transformSmileWithGemini } from '@/lib/gemini-smile'
 import ContractLibrary from '@/components/ContractLibrary'
+import RadiografiasPanel from '@/components/RadiografiasPanel'
 import { CONTRACT_TEMPLATES } from '@/lib/contracts'
 import AnamneseDocument from '@/components/AnamneseDocument'
 import PrintLayoutEditor from '@/components/PrintLayoutEditor'
@@ -189,8 +190,6 @@ export default function PatientPage() {
   const [confirmDeletePhotoId, setConfirmDeletePhotoId] = useState<string | null>(null)
   const [showDeleteSelectedConfirm, setShowDeleteSelectedConfirm] = useState(false)
   const [isDeletingSelected, setIsDeletingSelected] = useState(false)
-  const [notes, setNotes] = useState('')
-  const [notesSaved, setNotesSaved] = useState(false)
   const { toast } = useToast()
 
   // Hook para fotos da pasta atual
@@ -314,19 +313,6 @@ export default function PatientPage() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [selectedPhoto, currentFolder, sortedFolderPhotos, sortedUnfolderedPhotos, isFullscreen, selectPhotoWithData])
 
-  // Carregar notas do localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem(`patient_notes_${patientId}`)
-    if (saved) setNotes(saved)
-  }, [patientId])
-
-  const handleSaveNotes = () => {
-    localStorage.setItem(`patient_notes_${patientId}`, notes)
-    setNotesSaved(true)
-    setTimeout(() => setNotesSaved(false), 2000)
-    toast({ title: 'Notas salvas!' })
-  }
-
   const handleDeleteSelectedPhotos = async () => {
     if (selectedPhotos.length + selectedVideos.length === 0) return
     setShowDeleteSelectedConfirm(true)
@@ -382,7 +368,8 @@ export default function PatientPage() {
       doc.line(margin, y, pageW - margin, y)
       y += 10
 
-      // Notas
+      // Notas de pacientes antigos: a aba foi substituída por Radiografias, mas
+      // quem já escreveu nota continua vendo no PDF em vez de perder o texto.
       const savedNotes = localStorage.getItem(`patient_notes_${patientId}`)
       if (savedNotes) {
         checkPage(20)
@@ -1627,19 +1614,19 @@ export default function PatientPage() {
                   </div>
                 </button>
 
-                {/* Seção: Notas */}
+                {/* Seção: Radiografias */}
                 <button
-                  onClick={() => openPatientSection('notes')}
+                  onClick={() => openPatientSection('radiografias')}
                   className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-4 sm:p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
                 >
                   <div className="flex items-center gap-4">
                     <div className="h-12 w-12 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
-                      <NotebookPen className="w-6 h-6 text-white" />
+                      <ScanLine className="w-6 h-6 text-white" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-base font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">Notas</h3>
+                      <h3 className="text-base font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">Radiografias</h3>
                       <p className="text-sm text-gray-400 mt-0.5">
-                        Anotações rápidas sobre o paciente
+                        Exames e tomografias enviados pela radiologia
                       </p>
                     </div>
                     <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-teal-600 transition-colors" />
@@ -2118,22 +2105,10 @@ export default function PatientPage() {
             </div>
           </TabsContent>
 
-          {/* Tab Content: Notas */}
-          <TabsContent value="notes" className="mt-0">
-            <div className="space-y-4 max-w-2xl">
-              <p className="text-sm text-gray-500">Anotações rápidas sobre o paciente. Salvas localmente neste dispositivo.</p>
-              <textarea
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                placeholder="Escreva observações, lembretes ou informações importantes sobre este paciente..."
-                className="w-full h-64 p-4 border-2 border-gray-200 rounded-xl text-gray-800 resize-none focus:outline-none focus:border-primary transition-colors text-sm"
-              />
-              <button
-                onClick={handleSaveNotes}
-                className={`px-6 py-2 rounded-lg text-white font-medium transition-colors ${notesSaved ? 'bg-green-500' : 'bg-primary hover:bg-primary/90'}`}
-              >
-                {notesSaved ? '✓ Salvo!' : 'Salvar Notas'}
-              </button>
+          {/* Tab Content: Radiografias */}
+          <TabsContent value="radiografias" className="mt-0">
+            <div className="max-w-6xl mx-auto">
+              <RadiografiasPanel patientName={patient?.name} />
             </div>
           </TabsContent>
         </Tabs>

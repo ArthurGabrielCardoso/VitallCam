@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { FileSignature, Search, ClipboardList, ChevronRight } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { FileSignature, Search, ClipboardList, ChevronRight, ChevronLeft } from 'lucide-react'
 import {
   CONTRACT_GROUPS, ContractGroup, ContractTemplate, GROUP_LABELS,
   contractFullTitle, searchContracts,
@@ -20,11 +20,43 @@ const GROUP_ICON: Record<ContractGroup, typeof FileSignature> = {
   'orientacoes-odontologicas': ClipboardList,
 }
 
+function Setas({ onScroll }: { onScroll: (dir: 'left' | 'right') => void }) {
+  return (
+    <div className="flex items-center gap-1 shrink-0">
+      <button
+        onClick={() => onScroll('left')}
+        title="Anterior"
+        className="h-8 w-8 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+      >
+        <ChevronLeft className="w-4 h-4" />
+      </button>
+      <button
+        onClick={() => onScroll('right')}
+        title="Próximo"
+        className="h-8 w-8 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+      >
+        <ChevronRight className="w-4 h-4" />
+      </button>
+    </div>
+  )
+}
+
 export default function ContractLibrary({ patientName, scope = 'geral' }: ContractLibraryProps) {
   const [query, setQuery] = useState('')
   const [openTemplate, setOpenTemplate] = useState<ContractTemplate | null>(null)
 
   const results = useMemo(() => searchContracts(query), [query])
+
+  // Uma trilha por grupo; o ref é criado sob demanda porque os grupos visíveis
+  // mudam conforme a busca filtra.
+  const trilhas = useRef<Record<string, HTMLDivElement | null>>({})
+  const trilhaRef = (group: string) => (el: HTMLDivElement | null) => { trilhas.current[group] = el }
+  const scrollTrilha = (group: string, dir: 'left' | 'right') => {
+    const el = trilhas.current[group]
+    if (!el) return
+    const passo = el.clientWidth * 0.8
+    el.scrollBy({ left: dir === 'left' ? -passo : passo, behavior: 'smooth' })
+  }
 
   const byGroup = useMemo(() => {
     return CONTRACT_GROUPS.map(group => ({
@@ -55,19 +87,26 @@ export default function ContractLibrary({ patientName, scope = 'geral' }: Contra
         const Icon = GROUP_ICON[group]
         return (
           <section key={group}>
-            <div className="flex items-center gap-2 mb-3">
-              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                {GROUP_LABELS[group]}
-              </h2>
-              <span className="text-[11px] px-2 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200">
-                {items.length}
-              </span>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  {GROUP_LABELS[group]}
+                </h2>
+                <span className="text-[11px] px-2 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200">
+                  {items.length}
+                </span>
+              </div>
+              <Setas onScroll={dir => scrollTrilha(group, dir)} />
             </div>
             {/* Trilha horizontal: os títulos das orientações são longos e numa
                 grade eles quebravam em alturas diferentes, deixando a lista
                 irregular. Em linha, cada card tem a mesma largura e a leitura
-                acompanha o grupo. */}
-            <div className="ctr-rail flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory">
+                acompanha o grupo. A navegação é pelas setas do cabeçalho — a
+                barra fica escondida, como nos carrosséis da câmera. */}
+            <div
+              ref={trilhaRef(group)}
+              className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory scroll-smooth [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+            >
               {items.map(template => (
                 <button
                   key={template.id}
@@ -104,20 +143,6 @@ export default function ContractLibrary({ patientName, scope = 'geral' }: Contra
           onClose={() => setOpenTemplate(null)}
         />
       )}
-
-      <style jsx global>{`
-        /* Barra discreta: sem ela o navegador ou some com a barra (e ninguém
-           descobre que dá pra rolar) ou desenha a barra cinza padrão, que
-           destoa dos cards. */
-        .ctr-rail::-webkit-scrollbar { height: 6px; }
-        .ctr-rail::-webkit-scrollbar-track { background: transparent; }
-        .ctr-rail::-webkit-scrollbar-thumb {
-          background: #d1d5db;
-          border-radius: 999px;
-        }
-        .ctr-rail::-webkit-scrollbar-thumb:hover { background: #0f766e; }
-        .ctr-rail { scrollbar-width: thin; scrollbar-color: #d1d5db transparent; }
-      `}</style>
     </div>
   )
 }

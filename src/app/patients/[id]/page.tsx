@@ -73,6 +73,7 @@ export default function PatientPage() {
   // voltar do Salvar). Assim já abre direto na pasta.
   const [currentFolder, setCurrentFolder] = useState<string | null>(() => searchParams?.get('folder') ?? null)
   const [selectedPhotos, setSelectedPhotos] = useState<string[]>([])
+  const [isZippingPhotos, setIsZippingPhotos] = useState(false)
   const [selectedVideos, setSelectedVideos] = useState<string[]>([])
   const [showMoveToFolderModal, setShowMoveToFolderModal] = useState(false)
   const [isSelectionMode, setIsSelectionMode] = useState(false)
@@ -1032,6 +1033,71 @@ export default function PatientPage() {
   }
 
   // Carrega URL ou dataUrl, redimensiona pro maior lado <= maxEdge e devolve dataUrl JPEG
+  /**
+   * Baixa as fotos selecionadas num único .zip.
+   *
+   * Um <a download> por foto faria o navegador bloquear a partir da segunda
+   * ("permitir vários downloads?"), e 30 arquivos soltos na pasta de downloads
+   * não ajudam ninguém.
+   */
+  const handleDownloadSelectedPhotos = async () => {
+    if (selectedPhotos.length === 0) return
+
+    const fotos = selectedPhotos
+      .map(id => photos.find(p => p.id === id))
+      .filter((p): p is NonNullable<typeof p> => !!p?.image_data)
+
+    if (fotos.length === 0) {
+      toast({ variant: 'destructive', title: 'Nada para baixar' })
+      return
+    }
+
+    setIsZippingPhotos(true)
+    try {
+      const JSZip = (await import('jszip')).default
+      const zip = new JSZip()
+      let falhas = 0
+
+      await Promise.all(fotos.map(async (foto, i) => {
+        try {
+          const r = await fetch(foto.image_data as string)
+          if (!r.ok) throw new Error(String(r.status))
+          const data = foto.created_at ? new Date(foto.created_at).toISOString().split('T')[0] : 'sem-data'
+          const ordem = String(i + 1).padStart(2, '0')
+          zip.file(`${ordem}_${data}_${foto.id.slice(0, 8)}.jpg`, await r.blob())
+        } catch {
+          falhas++
+        }
+      }))
+
+      if (falhas === fotos.length) {
+        toast({ variant: 'destructive', title: 'Erro', description: 'Não foi possível baixar as fotos.' })
+        return
+      }
+
+      const blob = await zip.generateAsync({ type: 'blob' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `fotos_${(patient?.name || 'paciente').replace(/[^\w]+/g, '-').toLowerCase()}_${new Date().toISOString().split('T')[0]}.zip`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+
+      toast({
+        title: 'Download iniciado',
+        description: falhas
+          ? `${fotos.length - falhas} de ${fotos.length} fotos. ${falhas} falharam.`
+          : `${fotos.length} ${fotos.length === 1 ? 'foto' : 'fotos'} no zip.`,
+      })
+    } catch {
+      toast({ variant: 'destructive', title: 'Erro', description: 'Falha ao gerar o arquivo.' })
+    } finally {
+      setIsZippingPhotos(false)
+    }
+  }
+
   const toDownscaledDataUrl = (src: string, maxEdge = 1024): Promise<string> =>
     new Promise((resolve, reject) => {
       const img = new Image()
@@ -1595,25 +1661,6 @@ export default function PatientPage() {
                   </div>
                 </button>
 
-                {/* Seção: Contratos */}
-                <button
-                  onClick={() => openPatientSection('contracts')}
-                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-4 sm:p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="h-12 w-12 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
-                      <FileSignature className="w-6 h-6 text-white" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-base font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">Contratos</h3>
-                      <p className="text-sm text-gray-400 mt-0.5">
-                        {CONTRACT_TEMPLATES.length} modelos para preencher e imprimir
-                      </p>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-teal-600 transition-colors" />
-                  </div>
-                </button>
-
                 {/* Seção: Radiografias */}
                 <button
                   onClick={() => openPatientSection('radiografias')}
@@ -1627,6 +1674,25 @@ export default function PatientPage() {
                       <h3 className="text-base font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">Radiografias</h3>
                       <p className="text-sm text-gray-400 mt-0.5">
                         Exames e tomografias enviados pela radiologia
+                      </p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-teal-600 transition-colors" />
+                  </div>
+                </button>
+
+                {/* Seção: Contratos */}
+                <button
+                  onClick={() => openPatientSection('contracts')}
+                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-4 sm:p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
+                      <FileSignature className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">Contratos</h3>
+                      <p className="text-sm text-gray-400 mt-0.5">
+                        {CONTRACT_TEMPLATES.length} modelos para preencher e imprimir
                       </p>
                     </div>
                     <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-teal-600 transition-colors" />
@@ -1732,6 +1798,10 @@ export default function PatientPage() {
                   <button onClick={handleMoveSelectedPhotos} disabled={selectedPhotos.length === 0} className="h-8 px-3 rounded border border-teal-200 bg-white text-sm font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5">
                     <Folder className="w-4 h-4" />
                     Mover
+                  </button>
+                  <button onClick={handleDownloadSelectedPhotos} disabled={selectedPhotos.length === 0 || isZippingPhotos} className="h-8 px-3 rounded border border-teal-200 bg-white text-sm font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5">
+                    <Download className="w-4 h-4" />
+                    {isZippingPhotos ? 'Compactando...' : 'Baixar'}
                   </button>
                   <button onClick={handlePrintSelected} disabled={selectedPhotos.length === 0} className="h-8 px-3 rounded border border-dourado-400 bg-white text-sm font-medium text-dourado-600 hover:bg-dourado-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5">
                     <Printer className="w-4 h-4" />

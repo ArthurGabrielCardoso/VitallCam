@@ -14,12 +14,15 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
   const nome = req.nextUrl.searchParams.get('nome')?.trim()
   const busca = req.nextUrl.searchParams.get('busca')?.trim()
+  const todas = req.nextUrl.searchParams.get('todas')?.trim()
 
   const qs = nome
     ? `?nome=${encodeURIComponent(nome)}`
     : busca
       ? `?busca=${encodeURIComponent(busca)}`
-      : ''
+      : todas === '1'
+        ? '?todas=1'
+        : ''
 
   return chamarPonte(`/api/radiografias${qs}`)
 }

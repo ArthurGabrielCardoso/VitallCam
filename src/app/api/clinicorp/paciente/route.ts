@@ -9,8 +9,10 @@
  *   CLINICORP_BRIDGE_URL  base do VitallWhatsApp, ex.: https://seu-app.up.railway.app
  *   CLINICORP_BRIDGE_KEY  mesmo valor do API_SECRET de lá
  *
- * GET ?nome=arthur  → { pacientes: [{ id, nome, telefone, ativo }] }
- * GET ?id=123       → { paciente: { id, nome, cpf, telefone, email, nascimento } }
+ * GET ?nome=arthur       → { pacientes: [{ id, nome, telefone, ativo }] }
+ * GET ?id=123            → { paciente: {...ficha completa} }
+ * GET ?auto=Nome+Completo → match automático; devolve a ficha só se for
+ *                           inequívoco, senão { paciente: null, candidatos }
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -30,14 +32,17 @@ export async function GET(req: NextRequest) {
 
   const nome = req.nextUrl.searchParams.get('nome')?.trim()
   const id = req.nextUrl.searchParams.get('id')?.trim()
+  const auto = req.nextUrl.searchParams.get('auto')?.trim()
+
+  if (!id && !auto && (!nome || nome.length < 2)) {
+    return NextResponse.json({ error: 'informe "nome" (2+ caracteres), "id" ou "auto"' }, { status: 400 })
+  }
 
   const path = id
     ? `/api/pacientes/${encodeURIComponent(id)}`
-    : `/api/pacientes/busca?nome=${encodeURIComponent(nome ?? '')}`
-
-  if (!id && (!nome || nome.length < 2)) {
-    return NextResponse.json({ error: 'informe "nome" (2+ caracteres) ou "id"' }, { status: 400 })
-  }
+    : auto
+      ? `/api/pacientes/auto?nome=${encodeURIComponent(auto)}`
+      : `/api/pacientes/busca?nome=${encodeURIComponent(nome ?? '')}`
 
   try {
     const upstream = await fetch(`${base.replace(/\/$/, '')}${path}`, {

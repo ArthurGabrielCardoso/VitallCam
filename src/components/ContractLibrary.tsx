@@ -63,12 +63,16 @@ export default function ContractLibrary({ patientName, scope = 'geral' }: Contra
                 {items.length}
               </span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            {/* Trilha horizontal: os títulos das orientações são longos e numa
+                grade eles quebravam em alturas diferentes, deixando a lista
+                irregular. Em linha, cada card tem a mesma largura e a leitura
+                acompanha o grupo. */}
+            <div className="ctr-rail flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory">
               {items.map(template => (
                 <button
                   key={template.id}
                   onClick={() => setOpenTemplate(template)}
-                  className="text-left bg-white border border-gray-200 rounded shadow-sm p-4 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
+                  className="snap-start shrink-0 w-72 text-left bg-white border border-gray-200 rounded shadow-sm p-4 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
                 >
                   <div className="flex items-start gap-3">
                     <div className="h-10 w-10 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
@@ -100,6 +104,20 @@ export default function ContractLibrary({ patientName, scope = 'geral' }: Contra
           onClose={() => setOpenTemplate(null)}
         />
       )}
+
+      <style jsx global>{`
+        /* Barra discreta: sem ela o navegador ou some com a barra (e ninguém
+           descobre que dá pra rolar) ou desenha a barra cinza padrão, que
+           destoa dos cards. */
+        .ctr-rail::-webkit-scrollbar { height: 6px; }
+        .ctr-rail::-webkit-scrollbar-track { background: transparent; }
+        .ctr-rail::-webkit-scrollbar-thumb {
+          background: #d1d5db;
+          border-radius: 999px;
+        }
+        .ctr-rail::-webkit-scrollbar-thumb:hover { background: #0f766e; }
+        .ctr-rail { scrollbar-width: thin; scrollbar-color: #d1d5db transparent; }
+      `}</style>
     </div>
   )
 }

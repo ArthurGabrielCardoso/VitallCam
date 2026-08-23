@@ -852,16 +852,28 @@ export default function ContractEditor({ template, patientName, scope = 'geral',
             <ClinicorpFill
               nomeInicial={values.paciente || patientName || ''}
               onFill={dados => {
+                // Cadastro incompleto é a regra no Clinicorp, então só sobrescreve
+                // o que veio preenchido — o resto fica como o usuário digitou.
+                const mapa: Array<[string, string | null]> = [
+                  ['paciente', dados.nome],
+                  ['cpf', dados.cpf],
+                  ['rg', dados.rg],
+                  ['endereco', dados.endereco],
+                  ['cidade', dados.cidade],
+                  ['cep', dados.cep],
+                ]
+                const vindos = mapa.filter(([, v]) => v)
                 setValues(prev => ({
                   ...prev,
-                  ...(dados.nome ? { paciente: dados.nome } : {}),
-                  ...(dados.cpf ? { cpf: dados.cpf } : {}),
+                  ...Object.fromEntries(vindos as Array<[string, string]>),
                 }))
+
+                const faltando = mapa.filter(([, v]) => !v).map(([k]) => LABEL_CURTO[k] ?? k)
                 toast({
-                  title: 'Dados preenchidos',
-                  description: dados.cpf
-                    ? 'Nome e CPF vieram do Clinicorp. RG, endereço e CEP não existem lá.'
-                    : 'Nome preenchido. Este paciente não tem CPF cadastrado no Clinicorp.',
+                  title: `${vindos.length} ${vindos.length === 1 ? 'campo preenchido' : 'campos preenchidos'}`,
+                  description: faltando.length
+                    ? `Em branco no cadastro do Clinicorp: ${faltando.join(', ')}.`
+                    : 'Todo o cadastro veio do Clinicorp.',
                 })
               }}
             />
@@ -1072,13 +1084,27 @@ function FmtBtn({
   )
 }
 
+const LABEL_CURTO: Record<string, string> = {
+  paciente: 'nome', cpf: 'CPF', rg: 'RG',
+  endereco: 'endereço', cidade: 'cidade', cep: 'CEP',
+}
+
 interface PacienteResumo { id: number; nome: string; telefone: string | null; ativo: boolean }
-interface PacienteDetalhe { nome: string; cpf: string | null }
+interface PacienteDetalhe {
+  nome: string
+  cpf: string | null
+  rg: string | null
+  endereco: string | null
+  cidade: string | null
+  cep: string | null
+}
 
 /**
- * Busca o paciente no Clinicorp e preenche o que existe por lá.
- * O cadastro do Clinicorp só tem nome e CPF do que este documento pede —
- * RG, endereço e CEP não são expostos por nenhuma das APIs deles.
+ * Traz a ficha do paciente do Clinicorp (nome, CPF, RG, endereço, cidade, CEP).
+ *
+ * Quando o documento já é de um paciente conhecido, tenta o match sozinho ao
+ * abrir — mesma política da conciliação bancária, e só preenche se for
+ * inequívoco. A busca manual continua ali pro resto dos casos.
  */
 function ClinicorpFill({
   nomeInicial, onFill,
@@ -1091,8 +1117,42 @@ function ClinicorpFill({
   const [demorando, setDemorando] = useState(false)
   const [resultados, setResultados] = useState<PacienteResumo[] | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  const [auto, setAuto] = useState<'idle' | 'tentando' | 'ok' | 'falhou'>('idle')
+  const jaTentou = useRef(false)
 
   useEffect(() => { setTermo(nomeInicial) }, [nomeInicial])
+
+  // Match automático ao abrir. Roda uma vez só: se o usuário corrigir algo à
+  // mão, uma segunda tentativa sobrescreveria o que ele acabou de digitar.
+  useEffect(() => {
+    const nome = nomeInicial.trim()
+    if (jaTentou.current || nome.length < 3) return
+    jaTentou.current = true
+
+    let cancelado = false
+    setAuto('tentando')
+    ;(async () => {
+      try {
+        const r = await fetch(`/api/clinicorp/paciente?auto=${encodeURIComponent(nome)}`)
+        const body = await r.json()
+        if (cancelado) return
+        if (r.ok && body.paciente) {
+          onFill(body.paciente)
+          setAuto('ok')
+        } else {
+          // Ambíguo: já deixa os candidatos na tela pra escolher com um clique.
+          if (Array.isArray(body.candidatos) && body.candidatos.length) {
+            setResultados(body.candidatos)
+          }
+          setAuto('falhou')
+        }
+      } catch {
+        if (!cancelado) setAuto('falhou')
+      }
+    })()
+    return () => { cancelado = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nomeInicial])
 
   // A primeira consulta depois de um tempo parado paga o 2FA do Clinicorp
   // (código por e-mail, ~1 min). Sem aviso a tela parece travada.
@@ -1126,7 +1186,15 @@ function ClinicorpFill({
       const r = await fetch(`/api/clinicorp/paciente?id=${p.id}`)
       const body = await r.json()
       if (!r.ok) { setErro(body?.detalhe || body?.error || 'Não foi possível carregar o cadastro.'); return }
-      onFill({ nome: body.paciente?.nome || p.nome, cpf: body.paciente?.cpf ?? null })
+      const d = body.paciente ?? {}
+      onFill({
+        nome: d.nome || p.nome,
+        cpf: d.cpf ?? null,
+        rg: d.rg ?? null,
+        endereco: d.endereco ?? null,
+        cidade: d.cidade ?? null,
+        cep: d.cep ?? null,
+      })
       setResultados(null)
     } catch {
       setErro('Falha ao carregar o cadastro.')
@@ -1140,7 +1208,28 @@ function ClinicorpFill({
       <div className="flex items-center gap-1.5 mb-2">
         <Search className="w-3.5 h-3.5 text-teal-700" />
         <span className="text-xs font-semibold text-teal-900">Puxar do Clinicorp</span>
+        {auto === 'tentando' && (
+          <span className="ml-auto text-[10px] text-teal-700/80">procurando...</span>
+        )}
+        {auto === 'ok' && (
+          <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-green-700">
+            <Check className="w-3 h-3" /> preenchido automaticamente
+          </span>
+        )}
       </div>
+
+      {auto === 'ok' && (
+        <p className="mb-2 text-[10px] text-teal-800/70 leading-snug">
+          O nome bateu com um único paciente. Confira os dados — dá para editar
+          qualquer campo à mão.
+        </p>
+      )}
+
+      {auto === 'falhou' && resultados && resultados.length > 0 && (
+        <p className="mb-2 text-[11px] text-amber-700 leading-snug">
+          Mais de um paciente com nome parecido. Escolha qual é:
+        </p>
+      )}
       <div className="flex gap-1.5">
         <input
           value={termo}
@@ -1186,7 +1275,8 @@ function ClinicorpFill({
       )}
 
       <p className="mt-2 text-[10px] text-teal-800/70 leading-snug">
-        Preenche nome e CPF. RG, endereço e CEP não existem no cadastro do Clinicorp.
+        Traz nome, CPF, RG, endereço, cidade e CEP — o que estiver preenchido no
+        cadastro do Clinicorp.
       </p>
     </div>
   )

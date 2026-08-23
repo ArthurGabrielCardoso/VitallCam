@@ -1,9 +1,15 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
-import { FileSignature, Search, ClipboardList, ChevronRight, ChevronLeft } from 'lucide-react'
 import {
-  CONTRACT_GROUPS, ContractGroup, ContractTemplate, GROUP_LABELS,
+  FileSignature, Search, ClipboardList, ChevronRight, ChevronLeft, FileCheck2, Trash2,
+} from 'lucide-react'
+import {
+  useContratosEmitidos, useRegistrarContrato, useApagarContrato, type ContratoEmitido,
+} from '@/hooks/useContratos'
+import { useToast } from '@/hooks/use-toast'
+import {
+  CONTRACT_GROUPS, CONTRACT_TEMPLATES, ContractGroup, ContractTemplate, GROUP_LABELS,
   contractFullTitle, searchContracts,
 } from '@/lib/contracts'
 import ContractEditor from '@/components/ContractEditor'
@@ -13,11 +19,31 @@ interface ContractLibraryProps {
   patientName?: string
   /** Escopo do rascunho salvo localmente (id do paciente, ou "geral") */
   scope?: string
+  /** Id do paciente. Sem ele não há histórico — a biblioteca geral não tem dono. */
+  patientId?: string
 }
 
 const GROUP_ICON: Record<ContractGroup, typeof FileSignature> = {
   'termos-odontologicos': FileSignature,
   'orientacoes-odontologicas': ClipboardList,
+}
+
+/** "hoje 14:32" / "ontem" / "18/08/2026" — o recente é o que importa na lista. */
+function fmtQuando(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const hoje = new Date()
+  const dia = (x: Date) => `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`
+  const ontem = new Date(hoje); ontem.setDate(hoje.getDate() - 1)
+  const hm = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  if (dia(d) === dia(hoje)) return `hoje ${hm}`
+  if (dia(d) === dia(ontem)) return `ontem ${hm}`
+  return d.toLocaleDateString('pt-BR')
+}
+
+function primeiroNome(nome: string): string {
+  const partes = nome.replace(/^(Dra?\.)\s*/i, '').split(/\s+/)
+  return partes.slice(0, 2).join(' ')
 }
 
 function Setas({ onScroll }: { onScroll: (dir: 'left' | 'right') => void }) {
@@ -41,9 +67,24 @@ function Setas({ onScroll }: { onScroll: (dir: 'left' | 'right') => void }) {
   )
 }
 
-export default function ContractLibrary({ patientName, scope = 'geral' }: ContractLibraryProps) {
+export default function ContractLibrary({ patientName, scope = 'geral', patientId }: ContractLibraryProps) {
   const [query, setQuery] = useState('')
   const [openTemplate, setOpenTemplate] = useState<ContractTemplate | null>(null)
+  const [reabrindo, setReabrindo] = useState<ContratoEmitido | null>(null)
+
+  const { toast } = useToast()
+  const { data: emitidos = [] } = useContratosEmitidos(patientId ?? null)
+  const registrar = useRegistrarContrato()
+  const apagar = useApagarContrato()
+
+  const abrirEmitido = (c: ContratoEmitido) => {
+    const tpl = CONTRACT_TEMPLATES.find(t => t.id === c.template_id)
+    if (!tpl) return
+    setReabrindo(c)
+    setOpenTemplate(tpl)
+  }
+
+  const fecharEditor = () => { setOpenTemplate(null); setReabrindo(null) }
 
   const results = useMemo(() => searchContracts(query), [query])
 
@@ -67,6 +108,56 @@ export default function ContractLibrary({ patientName, scope = 'geral' }: Contra
 
   return (
     <div className="space-y-6">
+      {emitidos.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                Contratos feitos
+              </h2>
+              <span className="text-[11px] px-2 py-0.5 rounded bg-dourado-500/15 text-dourado-600 border border-dourado-400/40">
+                {emitidos.length}
+              </span>
+            </div>
+            <Setas onScroll={dir => scrollTrilha('__emitidos', dir)} />
+          </div>
+          <div
+            ref={trilhaRef('__emitidos')}
+            className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory scroll-smooth [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+          >
+            {emitidos.map(c => (
+              <div
+                key={c.id}
+                className="snap-start shrink-0 w-72 relative bg-white border border-dourado-400/50 rounded shadow-sm hover:border-dourado-500 hover:shadow-md transition-all group"
+              >
+                <button onClick={() => abrirEmitido(c)} className="w-full text-left p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="h-10 w-10 rounded bg-gradient-to-br from-dourado-500 to-dourado-600 flex items-center justify-center shrink-0 shadow-sm">
+                      <FileCheck2 className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0 pr-5">
+                      <p className="text-[11px] text-gray-400 truncate">{c.eyebrow || 'Documento'}</p>
+                      <h3 className="text-sm font-semibold text-gray-800 leading-snug">{c.titulo}</h3>
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        {fmtQuando(c.created_at)}
+                        {c.profissional ? ` · ${primeiroNome(c.profissional)}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => patientId && apagar.mutate({ id: c.id, patientId })}
+                  title="Remover do histórico"
+                  className="absolute top-2 right-2 h-6 w-6 rounded flex items-center justify-center text-gray-300 hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
         <input
@@ -140,7 +231,35 @@ export default function ContractLibrary({ patientName, scope = 'geral' }: Contra
           template={openTemplate}
           patientName={patientName}
           scope={scope}
-          onClose={() => setOpenTemplate(null)}
+          valoresIniciais={reabrindo?.valores}
+          onEmitir={valores => {
+            // Sem paciente (biblioteca geral) não há histórico pra gravar.
+            // Reabrir um emitido também não regrava: seria duplicata.
+            if (!patientId || reabrindo) return
+            registrar.mutate({
+              patient_id: patientId,
+              template_id: openTemplate.id,
+              titulo: contractFullTitle(openTemplate),
+              eyebrow: openTemplate.eyebrow ?? null,
+              grupo: openTemplate.group,
+              profissional: valores.profissional ?? null,
+              valores,
+            }, {
+              // Falha silenciosa aqui seria pior que o erro: a pessoa imprime,
+              // assina, e o documento nunca aparece no histórico.
+              onError: (err: unknown) => {
+                const msg = err instanceof Error ? err.message : String(err)
+                toast({
+                  variant: 'destructive',
+                  title: 'Contrato impresso, mas não registrado',
+                  description: /contratos_emitidos/.test(msg)
+                    ? 'A tabela contratos_emitidos ainda não existe no banco. Rode a migration.'
+                    : msg,
+                })
+              },
+            })
+          }}
+          onClose={fecharEditor}
         />
       )}
     </div>

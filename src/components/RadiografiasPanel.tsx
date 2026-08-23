@@ -159,9 +159,12 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
     carregar(nome.length >= 3 ? `?nome=${encodeURIComponent(nome)}` : '')
   }
 
-  // Agrupado só faz sentido com volume; os poucos exames de um paciente ficam
-  // melhor numa grade simples.
-  const agrupado = modo !== 'paciente'
+  // Sempre em faixas, inclusive na ficha do paciente: a leitura clínica é
+  // cronológica ("o que foi feito quando"), e uma grade solta perde isso.
+  // Na ficha o agrupamento é sempre por data — separar por letra não diz nada
+  // quando todos os exames são da mesma pessoa.
+  const agrupado = true
+  const criterio: Agrupamento = modo === 'paciente' ? 'tempo' : agrupar
 
   const grupos = useMemo(() => {
     if (!agrupado) return []
@@ -171,15 +174,15 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
     // "Agosto de 2026" na hora de ordenar.
     const mapa = new Map<string, { rotulo: string; itens: ExameResumo[] }>()
     for (const e of exames) {
-      const chave = agrupar === 'letra' ? inicial(e.paciente) : ((e.data || '').slice(0, 7) || '0000-00')
-      const rotulo = agrupar === 'letra' ? chave : periodo(e.data)
+      const chave = criterio === 'letra' ? inicial(e.paciente) : ((e.data || '').slice(0, 7) || '0000-00')
+      const rotulo = criterio === 'letra' ? chave : periodo(e.data)
       const atual = mapa.get(chave)
       if (atual) atual.itens.push(e)
       else mapa.set(chave, { rotulo, itens: [e] })
     }
 
     const entradas = Array.from(mapa.entries())
-    if (agrupar === 'letra') {
+    if (criterio === 'letra') {
       entradas.sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
       for (const [, g] of entradas) g.itens.sort((a, b) => a.paciente.localeCompare(b.paciente, 'pt-BR'))
     } else {
@@ -188,7 +191,7 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
       for (const [, g] of entradas) g.itens.sort((a, b) => (b.data || '').localeCompare(a.data || ''))
     }
     return entradas
-  }, [exames, agrupar, agrupado])
+  }, [exames, criterio, agrupado])
 
   if (selId != null) {
     return <Detalhe id={selId} onVoltar={() => setSelId(null)} />
@@ -239,7 +242,7 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
       </div>
 
       {/* Alternar agrupamento — só aparece quando há volume pra agrupar. */}
-      {agrupado && !carregando && exames.length > 0 && (
+      {modo !== 'paciente' && !carregando && exames.length > 0 && (
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-gray-400 uppercase tracking-wider font-semibold">Agrupar por</span>
           <div className="inline-flex rounded border border-gray-200 overflow-hidden">
@@ -283,11 +286,6 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
             </p>
           )}
         </div>
-      )}
-
-      {/* Paciente: poucos exames, grade simples. */}
-      {!carregando && !agrupado && exames.length > 0 && (
-        <Grade exames={exames} onAbrir={setSelId} />
       )}
 
       {/* Busca / todas: uma trilha horizontal por faixa. */}

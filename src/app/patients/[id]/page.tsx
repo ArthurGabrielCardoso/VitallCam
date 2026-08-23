@@ -1034,6 +1034,53 @@ export default function PatientPage() {
 
   // Carrega URL ou dataUrl, redimensiona pro maior lado <= maxEdge e devolve dataUrl JPEG
   /**
+   * Traz o `image_data` das fotos selecionadas.
+   *
+   * A listagem busca só id/pasta/data ("resposta leve", ver usePhotos), então o
+   * objeto que está em memória NÃO tem a imagem. Quem for usar o conteúdo
+   * precisa hidratar antes: cache do React Query primeiro, e um único SELECT
+   * para o que faltar.
+   */
+  const carregarImagens = async (ids: string[]): Promise<Photo[]> => {
+    const currentPhotos = currentFolder ? sortedFolderPhotos : sortedUnfolderedPhotos
+    const disponiveis = [...photos, ...currentPhotos]
+
+    const base = ids
+      .map(id => disponiveis.find(p => p.id === id))
+      .filter((p): p is Photo => Boolean(p))
+
+    const enriched: Photo[] = base.map(p => {
+      if (p.image_data) return p
+      const cached = queryClient.getQueryData<string>(['photo-data', p.id])
+      return cached ? { ...p, image_data: cached } : p
+    })
+
+    const faltando = enriched.filter(p => !p.image_data).map(p => p.id)
+    if (faltando.length > 0) {
+      const { data, error } = await supabase
+        .from('photos')
+        .select('id, image_data')
+        .in('id', faltando)
+      if (error) throw error
+      const mapa = new Map<string, string>(
+        (data || [])
+          .filter((r: any) => r.image_data)
+          .map((r: any) => [r.id as string, r.image_data as string]),
+      )
+      for (let i = 0; i < enriched.length; i++) {
+        if (enriched[i].image_data) continue
+        const achado = mapa.get(enriched[i].id)
+        if (achado) {
+          enriched[i] = { ...enriched[i], image_data: achado }
+          queryClient.setQueryData(['photo-data', enriched[i].id], achado)
+        }
+      }
+    }
+
+    return enriched.filter(p => p.image_data)
+  }
+
+  /**
    * Baixa as fotos selecionadas num único .zip.
    *
    * Um <a download> por foto faria o navegador bloquear a partir da segunda
@@ -1043,17 +1090,18 @@ export default function PatientPage() {
   const handleDownloadSelectedPhotos = async () => {
     if (selectedPhotos.length === 0) return
 
-    const fotos = selectedPhotos
-      .map(id => photos.find(p => p.id === id))
-      .filter((p): p is NonNullable<typeof p> => !!p?.image_data)
-
-    if (fotos.length === 0) {
-      toast({ variant: 'destructive', title: 'Nada para baixar' })
-      return
-    }
-
     setIsZippingPhotos(true)
     try {
+      const fotos = await carregarImagens(selectedPhotos)
+      if (fotos.length === 0) {
+        toast({
+          variant: 'destructive',
+          title: 'Nada para baixar',
+          description: 'Não foi possível carregar as imagens selecionadas.',
+        })
+        return
+      }
+
       const JSZip = (await import('jszip')).default
       const zip = new JSZip()
       let falhas = 0
@@ -2171,7 +2219,7 @@ export default function PatientPage() {
           {/* Tab Content: Contratos */}
           <TabsContent value="contracts" className="mt-0">
             <div className="max-w-6xl mx-auto">
-              <ContractLibrary patientName={patient.name} scope={patientId} />
+              <ContractLibrary patientName={patient.name} scope={patientId} patientId={patientId} />
             </div>
           </TabsContent>
 

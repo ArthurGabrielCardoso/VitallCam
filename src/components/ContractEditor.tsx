@@ -1,6 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { PADRAO_CLINICA, PROFISSIONAIS } from '@/lib/contracts/clinica'
+import SeletorDentes from '@/components/SeletorDentes'
 import { createPortal } from 'react-dom'
 import {
   X, Printer, PanelLeftOpen, PanelLeftClose, FileSignature, Eraser, Check,
@@ -19,6 +21,10 @@ interface ContractEditorProps {
   patientName?: string
   /** Chave de rascunho — normalmente o id do paciente */
   scope?: string
+  /** Valores de um contrato já emitido, para reabrir igual ao que foi assinado. */
+  valoresIniciais?: Record<string, string>
+  /** Chamado ao imprimir — é quando a clínica considera o contrato feito. */
+  onEmitir?: (valores: Record<string, string>) => void
   onClose: () => void
 }
 
@@ -255,7 +261,9 @@ function splitListBlock(el: HTMLElement, maxH: number): [string, string] | null 
 
 // ---------------------------------------------------------------------------
 
-export default function ContractEditor({ template, patientName, scope = 'geral', onClose }: ContractEditorProps) {
+export default function ContractEditor({
+  template, patientName, scope = 'geral', valoresIniciais, onEmitir, onClose,
+}: ContractEditorProps) {
   const { toast } = useToast()
   const [portalReady, setPortalReady] = useState(false)
   const [asideOpen, setAsideOpen] = useState(true)
@@ -321,9 +329,13 @@ export default function ContractEditor({ template, patientName, scope = 'geral',
       mes: today.toLocaleDateString('pt-BR', { month: 'long' }),
       ano: String(today.getFullYear()),
     }
+    // PADRAO_CLINICA vem antes do que está salvo: se a pessoa editou o endereço
+    // uma vez, a escolha dela continua valendo.
     const clinic = readJson<Values>(CLINIC_STORAGE_KEY) ?? {}
     const draft = readJson<Values>(draftKey(template.id, scope)) ?? {}
-    const merged: Values = { ...base, ...clinic, ...draft }
+    // valoresIniciais (contrato já emitido) vence tudo: reabrir tem que mostrar
+    // exatamente o que foi assinado, não o rascunho que ficou depois.
+    const merged: Values = { ...base, ...PADRAO_CLINICA, ...clinic, ...draft, ...(valoresIniciais ?? {}) }
     const patientField = template.fields.find(fl => fl.fromPatient === 'name')
     if (patientField && patientName && !merged[patientField.id]) {
       merged[patientField.id] = patientName
@@ -714,6 +726,12 @@ export default function ContractEditor({ template, patientName, scope = 'geral',
     const previousTitle = document.title
     const patient = values[template.fields.find(fl => fl.fromPatient === 'name')?.id ?? ''] || ''
     document.title = `${contractFullTitle(template)}${patient ? ` — ${patient}` : ''}`.replace(/[<>&]/g, '')
+
+    // Registra antes de abrir o diálogo: se a pessoa cancelar a impressão o
+    // contrato fica na lista mesmo assim, o que é preferível ao contrário —
+    // documento assinado que não aparece no histórico é o erro que dói.
+    onEmitir?.(values)
+
     setTimeout(() => {
       window.print()
       setTimeout(() => { document.title = previousTitle }, 100)
@@ -1426,7 +1444,32 @@ function FieldGroup({
       <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{title}</h3>
       {hint && <p className="text-[11px] text-gray-400 mb-3">{hint}</p>}
       <div className="space-y-3">
-        {fields.map(field => (
+        {fields.map(field => {
+          // Profissional: escolher da lista preenche o CRO junto. Digitar o CRO
+          // à mão num termo de consentimento é onde o erro passa despercebido.
+          if (field.id === 'profissional') {
+            return (
+              <label key={field.id} className="block">
+                <span className="block text-xs font-medium text-gray-600 mb-1">{field.label}</span>
+                <select
+                  value={PROFISSIONAIS.some(pr => pr.nome === values[field.id]) ? values[field.id] : ''}
+                  onChange={e => {
+                    const escolhido = PROFISSIONAIS.find(pr => pr.nome === e.target.value)
+                    onChange(field.id, e.target.value)
+                    if (escolhido) onChange('cro', escolhido.cro)
+                  }}
+                  className="w-full h-10 px-3 rounded border border-gray-200 text-sm text-gray-800 bg-white focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/30 transition-colors"
+                >
+                  <option value="">Selecione o profissional...</option>
+                  {PROFISSIONAIS.map(pr => (
+                    <option key={pr.cro} value={pr.nome}>{pr.nome} — CRO {pr.cro}</option>
+                  ))}
+                </select>
+              </label>
+            )
+          }
+
+          return (
           <label key={field.id} className="block">
             <span className="block text-xs font-medium text-gray-600 mb-1">{field.label}</span>
             {field.multiline ? (
@@ -1448,8 +1491,17 @@ function FieldGroup({
                 className="w-full h-10 px-3 rounded border border-gray-200 text-sm text-gray-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/30 transition-colors"
               />
             )}
+            {field.id === 'dentes' && (
+              <div className="mt-2">
+                <SeletorDentes
+                  valor={values[field.id] ?? ''}
+                  onChange={v => onChange(field.id, v)}
+                />
+              </div>
+            )}
           </label>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

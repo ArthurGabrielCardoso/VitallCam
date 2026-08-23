@@ -87,12 +87,15 @@ function periodo(iso: string | null): string {
 }
 
 export default function RadiografiasPanel({ patientName }: { patientName?: string }) {
+  // Sem paciente é a página avulsa da sidebar: abre já em "todas", agrupado por
+  // período. Na ficha do paciente o modo inicial é o dele.
+  const semPaciente = !(patientName || '').trim()
   const [exames, setExames] = useState<ExameResumo[]>([])
   const [aproximados, setAproximados] = useState<ExameResumo[]>([])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
-  const [modo, setModo] = useState<Modo>('paciente')
+  const [modo, setModo] = useState<Modo>(semPaciente ? 'todas' : 'paciente')
   const [agrupar, setAgrupar] = useState<Agrupamento>('tempo')
   const [selId, setSelId] = useState<number | null>(null)
 
@@ -122,6 +125,7 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
     if (q.length === 0) {
       // Campo limpo: volta pro modo anterior sem esperar o debounce.
       if (modo === 'busca') {
+        if (semPaciente) { setModo('todas'); carregar('?todas=1'); return }
         setModo('paciente')
         const nome = (patientName || '').trim()
         carregar(nome.length >= 3 ? `?nome=${encodeURIComponent(nome)}` : '')
@@ -138,10 +142,11 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busca])
 
-  // Carga inicial: os exames deste paciente (match de nome no backend).
+  // Carga inicial.
   useEffect(() => {
-    if (modo !== 'paciente') return
     const nome = (patientName || '').trim()
+    if (semPaciente) { carregar('?todas=1'); return }
+    if (modo !== 'paciente') return
     carregar(nome.length >= 3 ? `?nome=${encodeURIComponent(nome)}` : '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientName])
@@ -219,7 +224,7 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
           )}
         </div>
 
-        <button
+        {!semPaciente && <button
           onClick={verTodas}
           className={`h-10 px-3 rounded border text-xs font-semibold transition-colors flex items-center gap-1.5 shrink-0 ${
             modo === 'todas'
@@ -229,9 +234,9 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
         >
           <LayoutList className="w-3.5 h-3.5" />
           Todas as radiografias
-        </button>
+        </button>}
 
-        {modo !== 'paciente' && (
+        {modo !== 'paciente' && !semPaciente && (
           <button
             onClick={voltarAoPaciente}
             className="h-10 px-3 rounded border border-gray-200 bg-white text-xs font-medium text-gray-600 hover:border-teal-400 hover:text-teal-700 transition-colors shrink-0"

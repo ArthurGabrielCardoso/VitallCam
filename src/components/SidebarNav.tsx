@@ -7,9 +7,9 @@ import {
   Search,
   Settings,
   Home,
-  Camera,
   PlayCircle,
   FileSignature,
+  ScanLine,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -22,10 +22,11 @@ type NavItem = {
 }
 
 const navigation: NavItem[] = [
-  { name: "Pacientes", href: "/patients",           icon: UserRound     },
-  { name: "Contratos", href: "/patients/contratos", icon: FileSignature },
-  { name: "Mídia",     href: "/patients/media",     icon: PlayCircle    },
-  { name: "Câmera",    href: "/camera-debug",       icon: Camera        },
+  { name: "Início",       href: "/",                       icon: Home          },
+  { name: "Pacientes",    href: "/patients",               icon: UserRound     },
+  { name: "Radiografias", href: "/patients/radiografias",  icon: ScanLine      },
+  { name: "Contratos",    href: "/patients/contratos",     icon: FileSignature },
+  { name: "Mídia",        href: "/patients/media",         icon: PlayCircle    },
 ]
 
 export function SidebarNav() {

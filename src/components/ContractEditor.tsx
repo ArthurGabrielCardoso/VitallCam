@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { PADRAO_CLINICA, PROFISSIONAIS } from '@/lib/contracts/clinica'
-import SeletorDentes from '@/components/SeletorDentes'
+import CampoPopover, { type CampoAlvo } from '@/components/CampoPopover'
 import { createPortal } from 'react-dom'
 import {
-  X, Printer, PanelLeftOpen, PanelLeftClose, FileSignature, Eraser, Check,
+  X, Printer, FileSignature, Eraser, Check,
   Bold, Italic, Underline as UnderlineIcon, AlignLeft, AlignCenter, AlignJustify, RotateCcw,
   List, ListOrdered, Image as ImageIcon, ImageOff, FilePlus, Trash2, ArrowUp, ArrowDown, ChevronDown, Heading, Search,
 } from 'lucide-react'
@@ -266,11 +266,10 @@ export default function ContractEditor({
 }: ContractEditorProps) {
   const { toast } = useToast()
   const [portalReady, setPortalReady] = useState(false)
-  const [asideOpen, setAsideOpen] = useState(true)
+  const [campoAberto, setCampoAberto] = useState<CampoAlvo | null>(null)
+  const [painelClinicorp, setPainelClinicorp] = useState(false)
   const [isDesktop, setIsDesktop] = useState(true)
   const [animState, setAnimState] = useState<'enter' | 'open' | 'close'>('enter')
-  const [savedFlash, setSavedFlash] = useState(false)
-  const inputRefs = useRef<Record<string, HTMLInputElement | HTMLTextAreaElement | null>>({})
 
   // Fluxo contínuo: as quebras do template são ignoradas, quem manda é a medição.
   const blocks = useMemo(() => template.pages.flatMap(pg => pg.blocks), [template])
@@ -380,7 +379,7 @@ export default function ContractEditor({
     const ro = new ResizeObserver(apply)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [portalReady, asideOpen])
+  }, [portalReady])
 
   // --- Paginação -----------------------------------------------------------
   const repaginate = useCallback(() => {
@@ -519,17 +518,6 @@ export default function ContractEditor({
   }
 
   const setValue = (id: string, v: string) => setValues(prev => ({ ...prev, [id]: v }))
-
-  const focusField = (id: string) => {
-    if (!isDesktop) setAsideOpen(true)
-    setTimeout(() => {
-      const el = inputRefs.current[id]
-      if (el) {
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-        el.focus()
-      }
-    }, isDesktop ? 0 : 250)
-  }
 
   const clearAll = () => {
     const keep = new Set(template.fields.filter(fl => fl.clinic).map(fl => fl.id))
@@ -719,7 +707,15 @@ export default function ContractEditor({
 
   const handleDocClick = (e: React.MouseEvent) => {
     const target = (e.target as HTMLElement).closest<HTMLElement>('[data-f]')
-    if (target?.dataset.f) focusField(target.dataset.f)
+    if (target?.dataset.f) {
+      const r = target.getBoundingClientRect()
+      const campo = template.fields.find(fl => fl.id === target.dataset.f)
+      setCampoAberto({
+        id: target.dataset.f,
+        label: campo?.label ?? target.dataset.f,
+        rect: { top: r.top, left: r.left, bottom: r.bottom, width: r.width },
+      })
+    }
   }
 
   const handlePrint = () => {
@@ -737,11 +733,6 @@ export default function ContractEditor({
       setTimeout(() => { document.title = previousTitle }, 100)
     }, 50)
   }
-
-  const grouped = useMemo(() => ({
-    clinic: template.fields.filter(fl => fl.clinic),
-    rest: template.fields.filter(fl => !fl.clinic),
-  }), [template])
 
   if (!portalReady) return null
 
@@ -820,6 +811,20 @@ export default function ContractEditor({
             <Eraser className="w-4 h-4" />
             <span className="hidden lg:inline">Limpar</span>
           </button>
+          {hasFields && (
+            <button
+              onClick={() => setPainelClinicorp(v => !v)}
+              title="Puxar dados do paciente no Clinicorp"
+              className={`h-9 px-3 rounded border text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                painelClinicorp
+                  ? 'border-teal-500 bg-teal-50 text-teal-700'
+                  : 'border-gray-200 bg-white text-gray-600 hover:border-teal-400 hover:text-teal-700'
+              }`}
+            >
+              <Search className="w-4 h-4" />
+              <span className="hidden sm:inline">Clinicorp</span>
+            </button>
+          )}
           <button
             onClick={handlePrint}
             className="h-9 px-3 sm:px-4 rounded bg-gradient-to-br from-dourado-500 to-dourado-400 hover:from-dourado-600 hover:to-dourado-500 text-white text-xs sm:text-sm font-semibold shadow-md shadow-dourado-500/20 transition-all flex items-center gap-1.5"
@@ -832,92 +837,7 @@ export default function ContractEditor({
 
       {/* Corpo */}
       <div className="flex-1 flex min-h-0 print:block relative">
-        {hasFields && asideOpen && !isDesktop && (
-          <div className="absolute inset-0 bg-black/40 z-30 print:hidden" onClick={() => setAsideOpen(false)} />
-        )}
-        {hasFields && !asideOpen && (
-          <button
-            onClick={() => setAsideOpen(true)}
-            className="absolute top-3 left-3 z-30 h-10 w-10 rounded bg-white border border-gray-200 shadow-md text-gray-700 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors flex items-center justify-center print:hidden"
-            title="Abrir campos"
-          >
-            <PanelLeftOpen className="w-5 h-5" />
-          </button>
-        )}
 
-        {hasFields && <aside
-          className={`shrink-0 bg-white border-r border-gray-200 flex flex-col print:hidden ctr-aside ${
-            isDesktop
-              ? (asideOpen ? 'w-[360px] lg:w-[400px]' : 'hidden')
-              : `absolute top-0 left-0 bottom-0 z-40 w-[92vw] max-w-[440px] shadow-2xl transition-transform duration-300 ${asideOpen ? 'translate-x-0' : '-translate-x-full'}`
-          }`}
-        >
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
-            <div className="min-w-0">
-              <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Preenchimento</div>
-              <div className="text-sm font-semibold text-gray-800 truncate">Dados do documento</div>
-            </div>
-            <button
-              onClick={() => setAsideOpen(false)}
-              className="ml-auto h-9 w-9 rounded border border-gray-200 bg-white text-gray-600 hover:text-teal-700 hover:border-teal-500 hover:bg-teal-50 transition-colors flex items-center justify-center shrink-0"
-              title="Fechar painel"
-            >
-              <PanelLeftClose className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
-            <ClinicorpFill
-              nomeInicial={values.paciente || patientName || ''}
-              onFill={dados => {
-                // Cadastro incompleto é a regra no Clinicorp, então só sobrescreve
-                // o que veio preenchido — o resto fica como o usuário digitou.
-                const mapa: Array<[string, string | null]> = [
-                  ['paciente', dados.nome],
-                  ['cpf', dados.cpf],
-                  ['rg', dados.rg],
-                  ['endereco', dados.endereco],
-                  ['cidade', dados.cidade],
-                  ['cep', dados.cep],
-                ]
-                const vindos = mapa.filter(([, v]) => v)
-                setValues(prev => ({
-                  ...prev,
-                  ...Object.fromEntries(vindos as Array<[string, string]>),
-                }))
-
-                const faltando = mapa.filter(([, v]) => !v).map(([k]) => LABEL_CURTO[k] ?? k)
-                toast({
-                  title: `${vindos.length} ${vindos.length === 1 ? 'campo preenchido' : 'campos preenchidos'}`,
-                  description: faltando.length
-                    ? `Em branco no cadastro do Clinicorp: ${faltando.join(', ')}.`
-                    : 'Todo o cadastro veio do Clinicorp.',
-                })
-              }}
-            />
-            <FieldGroup title="Documento" fields={grouped.rest} values={values} onChange={setValue} inputRefs={inputRefs} />
-            <FieldGroup
-              title="Dados da clínica"
-              hint="Salvos neste dispositivo e reaproveitados nos próximos documentos."
-              fields={grouped.clinic}
-              values={values}
-              onChange={setValue}
-              inputRefs={inputRefs}
-            />
-            <p className="text-[11px] text-gray-400 leading-relaxed">
-              Dica: o texto do documento também pode ser editado direto na folha — clique nele e use
-              os botões de negrito e itálico na barra superior.
-            </p>
-            <button
-              onClick={() => { setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1600) }}
-              className={`w-full h-10 rounded text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
-                savedFlash ? 'bg-green-600 text-white' : 'bg-teal-700 text-white hover:bg-teal-800'
-              }`}
-            >
-              {savedFlash ? <><Check className="w-4 h-4" /> Rascunho salvo</> : 'Salvar rascunho'}
-            </button>
-          </div>
-        </aside>}
 
         {/* Documento */}
         <main className="flex-1 min-w-0 flex flex-col print:block ctr-main">
@@ -986,6 +906,53 @@ export default function ContractEditor({
           </div>
         </main>
       </div>
+
+      {painelClinicorp && (
+        <div className="fixed top-16 right-4 z-[60] w-80 print:hidden">
+          <ClinicorpFill
+            nomeInicial={values.paciente || patientName || ''}
+            onFill={dados => {
+              const mapa: Array<[string, string | null]> = [
+                ['paciente', dados.nome],
+                ['cpf', dados.cpf],
+                ['rg', dados.rg],
+                ['endereco', dados.endereco],
+                ['cidade', dados.cidade],
+                ['cep', dados.cep],
+              ]
+              const vindos = mapa.filter(([, v]) => v)
+              setValues(prev => ({
+                ...prev,
+                ...Object.fromEntries(vindos as Array<[string, string]>),
+              }))
+              const faltando = mapa.filter(([, v]) => !v).map(([k]) => LABEL_CURTO[k] ?? k)
+              toast({
+                title: `${vindos.length} ${vindos.length === 1 ? 'campo preenchido' : 'campos preenchidos'}`,
+                description: faltando.length
+                  ? `Em branco no cadastro do Clinicorp: ${faltando.join(', ')}.`
+                  : 'Todo o cadastro veio do Clinicorp.',
+              })
+            }}
+          />
+        </div>
+      )}
+
+      {campoAberto && (
+        <CampoPopover
+          alvo={campoAberto}
+          valor={values[campoAberto.id] ?? ''}
+          onChange={v => {
+            setValue(campoAberto.id, v)
+            // Escolher o profissional preenche o CRO junto: digitar CRO à mão
+            // num termo de consentimento é onde o erro passa despercebido.
+            if (campoAberto.id === 'profissional') {
+              const escolhido = PROFISSIONAIS.find(pr => pr.nome === v)
+              if (escolhido) setValue('cro', escolhido.cro)
+            }
+          }}
+          onFechar={() => setCampoAberto(null)}
+        />
+      )}
 
       {/* Área invisível usada só para medir e cortar os blocos */}
       <div id="ctr-measure-host" aria-hidden="true" />
@@ -1425,85 +1392,6 @@ function EditableText({
       suppressContentEditableWarning
       onBlur={(e: React.FocusEvent<HTMLElement>) => onCommit(e.currentTarget.textContent ?? '')}
     />
-  )
-}
-
-function FieldGroup({
-  title, hint, fields, values, onChange, inputRefs,
-}: {
-  title: string
-  hint?: string
-  fields: ContractField[]
-  values: Values
-  onChange: (id: string, v: string) => void
-  inputRefs: React.MutableRefObject<Record<string, HTMLInputElement | HTMLTextAreaElement | null>>
-}) {
-  if (fields.length === 0) return null
-  return (
-    <div>
-      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{title}</h3>
-      {hint && <p className="text-[11px] text-gray-400 mb-3">{hint}</p>}
-      <div className="space-y-3">
-        {fields.map(field => {
-          // Profissional: escolher da lista preenche o CRO junto. Digitar o CRO
-          // à mão num termo de consentimento é onde o erro passa despercebido.
-          if (field.id === 'profissional') {
-            return (
-              <label key={field.id} className="block">
-                <span className="block text-xs font-medium text-gray-600 mb-1">{field.label}</span>
-                <select
-                  value={PROFISSIONAIS.some(pr => pr.nome === values[field.id]) ? values[field.id] : ''}
-                  onChange={e => {
-                    const escolhido = PROFISSIONAIS.find(pr => pr.nome === e.target.value)
-                    onChange(field.id, e.target.value)
-                    if (escolhido) onChange('cro', escolhido.cro)
-                  }}
-                  className="w-full h-10 px-3 rounded border border-gray-200 text-sm text-gray-800 bg-white focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/30 transition-colors"
-                >
-                  <option value="">Selecione o profissional...</option>
-                  {PROFISSIONAIS.map(pr => (
-                    <option key={pr.cro} value={pr.nome}>{pr.nome} — CRO {pr.cro}</option>
-                  ))}
-                </select>
-              </label>
-            )
-          }
-
-          return (
-          <label key={field.id} className="block">
-            <span className="block text-xs font-medium text-gray-600 mb-1">{field.label}</span>
-            {field.multiline ? (
-              <textarea
-                ref={el => { inputRefs.current[field.id] = el }}
-                value={values[field.id] ?? ''}
-                onChange={e => onChange(field.id, e.target.value)}
-                placeholder={field.placeholder}
-                rows={2}
-                className="w-full px-3 py-2 rounded border border-gray-200 text-sm text-gray-800 resize-y focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/30 transition-colors"
-              />
-            ) : (
-              <input
-                ref={el => { inputRefs.current[field.id] = el }}
-                type="text"
-                value={values[field.id] ?? ''}
-                onChange={e => onChange(field.id, e.target.value)}
-                placeholder={field.placeholder}
-                className="w-full h-10 px-3 rounded border border-gray-200 text-sm text-gray-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/30 transition-colors"
-              />
-            )}
-            {field.id === 'dentes' && (
-              <div className="mt-2">
-                <SeletorDentes
-                  valor={values[field.id] ?? ''}
-                  onChange={v => onChange(field.id, v)}
-                />
-              </div>
-            )}
-          </label>
-          )
-        })}
-      </div>
-    </div>
   )
 }
 

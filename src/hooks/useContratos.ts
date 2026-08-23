@@ -30,10 +30,21 @@ export const useContratosEmitidos = (patientId: string | null) => {
         .select('*')
         .eq('patient_id', patientId)
         .order('created_at', { ascending: false })
-      if (error) throw error
+      if (error) {
+        // Tabela ausente (migration não rodada): não é erro de rede, repetir não
+        // resolve. Devolve vazio pra UI simplesmente não mostrar o histórico.
+        if (error.code === 'PGRST205' || /contratos_emitidos/.test(error.message || '')) {
+          console.warn('[Contratos] tabela contratos_emitidos ainda não existe — rode a migration.')
+          return []
+        }
+        throw error
+      }
       return (data || []) as ContratoEmitido[]
     },
     enabled: !!patientId,
+    // Sem isso o 404 da tabela ausente vira uma cascata de tentativas no console.
+    retry: false,
+    staleTime: 30_000,
   })
 }
 

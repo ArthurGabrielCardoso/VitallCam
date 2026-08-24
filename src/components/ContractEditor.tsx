@@ -23,8 +23,14 @@ interface ContractEditorProps {
   scope?: string
   /** Valores de um contrato já emitido, para reabrir igual ao que foi assinado. */
   valoresIniciais?: Record<string, string>
+  /**
+   * Id de um contrato já emitido. Reabrir precisa manter o mesmo número que
+   * saiu impresso no rodapé — senão o papel na mão deixa de bater com o
+   * registro. Ausente, o editor gera um novo.
+   */
+  contratoId?: string
   /** Chamado ao imprimir — é quando a clínica considera o contrato feito. */
-  onEmitir?: (valores: Record<string, string>) => void
+  onEmitir?: (valores: Record<string, string>, contratoId: string) => void
   onClose: () => void
 }
 
@@ -262,9 +268,15 @@ function splitListBlock(el: HTMLElement, maxH: number): [string, string] | null 
 // ---------------------------------------------------------------------------
 
 export default function ContractEditor({
-  template, patientName, scope = 'geral', valoresIniciais, onEmitir, onClose,
+  template, patientName, scope = 'geral', valoresIniciais, contratoId, onEmitir, onClose,
 }: ContractEditorProps) {
   const { toast } = useToast()
+
+  // Gerado aqui, e não pelo banco, para que o rodapé já saia numerado sem
+  // esperar a rede: a impressão não pode ficar bloqueada num insert.
+  const [docId] = useState(() => contratoId ?? crypto.randomUUID())
+  const docRef = docId.slice(0, 8)
+
   const [portalReady, setPortalReady] = useState(false)
   const [campoAberto, setCampoAberto] = useState<CampoAlvo | null>(null)
   const [painelClinicorp, setPainelClinicorp] = useState(false)
@@ -726,7 +738,7 @@ export default function ContractEditor({
     // Registra antes de abrir o diálogo: se a pessoa cancelar a impressão o
     // contrato fica na lista mesmo assim, o que é preferível ao contrário —
     // documento assinado que não aparece no histórico é o erro que dói.
-    onEmitir?.(values)
+    onEmitir?.(values, docId)
 
     setTimeout(() => {
       window.print()
@@ -897,6 +909,13 @@ export default function ContractEditor({
                           ))}
                         </div>
                         <span className="ctr-footbar" aria-hidden="true" />
+                        {/* Numeração impressa: num contrato de 4 páginas
+                            escaneado, é o que denuncia a folha que sumiu. O id
+                            curto ao lado reencontra o registro a partir do
+                            papel na mão. */}
+                        <span className="ctr-docref" aria-hidden="true">
+                          página {pi + 1} de {pages.length} · {docRef}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1496,6 +1515,19 @@ function ContractStyles() {
         right: 18%;
         height: 5mm;
         background: var(--ctr-teal);
+      }
+      /* Absoluto dentro do .ctr-frame (relative na tela e na impressão), no
+         canto livre à direita da barra — assim não entra no flex e o
+         BOX_H_PX da paginação continua valendo sem ajuste. */
+      .ctr-docref {
+        position: absolute;
+        bottom: 1.5mm;
+        right: 2mm;
+        font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+        font-size: 6.5pt;
+        letter-spacing: 0.3px;
+        color: #9ca3af;
+        user-select: none;
       }
 
       .ctr-head { text-align: center; margin-bottom: 9mm; }

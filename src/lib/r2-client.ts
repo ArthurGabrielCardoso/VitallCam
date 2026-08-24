@@ -1,4 +1,4 @@
-export type R2MediaType = 'photo' | 'profile' | 'video'
+export type R2MediaType = 'photo' | 'profile' | 'video' | 'contrato'
 
 interface UploadMediaOptions {
   patientId: string

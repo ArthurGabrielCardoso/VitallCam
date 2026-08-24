@@ -13,6 +13,11 @@ import {
   contractFullTitle, searchContracts,
 } from '@/lib/contracts'
 import ContractEditor from '@/components/ContractEditor'
+import ViaAssinadaAcoes from '@/components/ViaAssinadaAcoes'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 interface ContractLibraryProps {
   /** Nome do paciente para pré-preencher o documento */
@@ -71,6 +76,7 @@ export default function ContractLibrary({ patientName, scope = 'geral', patientI
   const [query, setQuery] = useState('')
   const [openTemplate, setOpenTemplate] = useState<ContractTemplate | null>(null)
   const [reabrindo, setReabrindo] = useState<ContratoEmitido | null>(null)
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState<ContratoEmitido | null>(null)
 
   const { toast } = useToast()
   const { data: emitidos = [] } = useContratosEmitidos(patientId ?? null)
@@ -130,7 +136,7 @@ export default function ContractLibrary({ patientName, scope = 'geral', patientI
                 key={c.id}
                 className="snap-start shrink-0 w-72 relative bg-white border border-dourado-400/50 rounded shadow-sm hover:border-dourado-500 hover:shadow-md transition-all group"
               >
-                <button onClick={() => abrirEmitido(c)} className="w-full text-left p-4">
+                <button onClick={() => abrirEmitido(c)} className="w-full text-left p-4 pb-2">
                   <div className="flex items-start gap-3">
                     <div className="h-10 w-10 rounded bg-gradient-to-br from-dourado-500 to-dourado-600 flex items-center justify-center shrink-0 shadow-sm">
                       <FileCheck2 className="w-5 h-5 text-white" />
@@ -145,8 +151,16 @@ export default function ContractLibrary({ patientName, scope = 'geral', patientI
                     </div>
                   </div>
                 </button>
+                {patientId && <ViaAssinadaAcoes contrato={c} patientId={patientId} />}
                 <button
-                  onClick={() => patientId && apagar.mutate({ id: c.id, patientId })}
+                  onClick={() => {
+                    if (!patientId) return
+                    // Contrato sem via anexada é só um registro: sai na hora.
+                    // Com a via, some junto o único documento assinado que a
+                    // clínica tem em digital — aí pergunta antes.
+                    if (c.via_assinada_key) setConfirmandoExclusao(c)
+                    else apagar.mutate({ id: c.id, patientId })
+                  }}
                   title="Remover do histórico"
                   className="absolute top-2 right-2 h-6 w-6 rounded flex items-center justify-center text-gray-300 hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
                 >
@@ -232,11 +246,14 @@ export default function ContractLibrary({ patientName, scope = 'geral', patientI
           patientName={patientName}
           scope={scope}
           valoresIniciais={reabrindo?.valores}
-          onEmitir={valores => {
+          contratoId={reabrindo?.id}
+          onEmitir={(valores, contratoId) => {
             // Sem paciente (biblioteca geral) não há histórico pra gravar.
-            // Reabrir um emitido também não regrava: seria duplicata.
+            // Reabrir um emitido é pra conferir o que foi assinado: reimprimir
+            // dali não mexe no registro.
             if (!patientId || reabrindo) return
             registrar.mutate({
+              id: contratoId,
               patient_id: patientId,
               template_id: openTemplate.id,
               titulo: contractFullTitle(openTemplate),
@@ -262,6 +279,36 @@ export default function ContractLibrary({ patientName, scope = 'geral', patientI
           onClose={fecharEditor}
         />
       )}
+
+      <AlertDialog
+        open={!!confirmandoExclusao}
+        onOpenChange={aberto => { if (!aberto) setConfirmandoExclusao(null) }}
+      >
+        <AlertDialogContent className="bg-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-black">Remover contrato assinado</AlertDialogTitle>
+            <AlertDialogDescription className="text-black">
+              &quot;{confirmandoExclusao?.titulo}&quot; tem a via assinada anexada, e ela
+              será apagada junto. A via em papel continua guardada no arquivo da
+              clínica, mas a cópia digital não tem como voltar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="text-black">Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmandoExclusao && patientId) {
+                  apagar.mutate({ id: confirmandoExclusao.id, patientId })
+                }
+                setConfirmandoExclusao(null)
+              }}
+              className="bg-destructive hover:bg-destructive/90 text-white"
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

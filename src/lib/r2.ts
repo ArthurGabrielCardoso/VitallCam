@@ -47,7 +47,7 @@ export function getR2Client() {
 }
 
 export function isValidR2Key(key: string) {
-  return /^patients\/[0-9a-f-]{36}\/(photos|videos|profile)\/[a-zA-Z0-9._-]+$/.test(key)
+  return /^patients\/[0-9a-f-]{36}\/(photos|videos|profile|contratos)\/[a-zA-Z0-9._-]+$/.test(key)
     && !key.includes('..')
 }
 

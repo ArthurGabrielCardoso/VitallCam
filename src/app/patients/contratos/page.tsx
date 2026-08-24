@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import ContractLibrary from '@/components/ContractLibrary'
+import ContratosPendentes from '@/components/ContratosPendentes'
 
 export default function ContratosPage() {
   const router = useRouter()
@@ -25,6 +26,8 @@ export default function ContratosPage() {
             </p>
           </div>
         </div>
+
+        <ContratosPendentes />
 
         <ContractLibrary />
       </div>

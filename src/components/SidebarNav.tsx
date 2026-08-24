@@ -22,7 +22,7 @@ type NavItem = {
 }
 
 const navigation: NavItem[] = [
-  { name: "Início",       href: "/",                       icon: Home          },
+  { name: "Início",       href: "/patients",               icon: Home          },
   { name: "Pacientes",    href: "/patients",               icon: UserRound     },
   { name: "Radiografias", href: "/patients/radiografias",  icon: ScanLine      },
   { name: "Contratos",    href: "/patients/contratos",     icon: FileSignature },
@@ -35,12 +35,15 @@ export function SidebarNav() {
   const [search, setSearch] = useState("")
 
   // "/patients" é prefixo das demais rotas — vence sempre o item mais
-  // específico, senão dois itens acenderiam ao mesmo tempo.
+  // específico, senão dois itens acenderiam ao mesmo tempo. Início e Pacientes
+  // apontam para o mesmo lugar, então o empate é desfeito pelo último da lista:
+  // em /patients quem acende é "Pacientes", que é o nome do que está na tela.
   const activeHref = useMemo(() => {
     const matches = navigation
-      .filter(item => pathname === item.href || pathname?.startsWith(item.href + "/"))
-      .sort((a, b) => b.href.length - a.href.length)
-    return matches[0]?.href ?? null
+      .map((item, ordem) => ({ item, ordem }))
+      .filter(({ item }) => pathname === item.href || pathname?.startsWith(item.href + "/"))
+      .sort((a, b) => b.item.href.length - a.item.href.length || b.ordem - a.ordem)
+    return matches[0]?.item.href ?? null
   }, [pathname])
 
   const visibleNavigation = useMemo(() => {

@@ -10,6 +10,7 @@ const mediaFolders = {
   photo: 'photos',
   profile: 'profile',
   video: 'videos',
+  contrato: 'contratos',
 } as const
 
 const contentTypeExtensions: Record<string, string> = {
@@ -21,6 +22,19 @@ const contentTypeExtensions: Record<string, string> = {
   'video/mp4': 'mp4',
   'video/webm': 'webm',
   'video/quicktime': 'mov',
+  'application/pdf': 'pdf',
+}
+
+/**
+ * A via assinada é sempre PDF: o upload monta um arquivo só, mesmo quando a
+ * multifuncional entrega uma imagem por página. Restringir aqui evita que uma
+ * folha solta em JPG entre como se fosse o contrato inteiro.
+ */
+const allowedContentTypes: Record<keyof typeof mediaFolders, (contentType: string) => boolean> = {
+  photo: ct => ct.startsWith('image/'),
+  profile: ct => ct.startsWith('image/'),
+  video: ct => ct.startsWith('video/'),
+  contrato: ct => ct === 'application/pdf',
 }
 
 export async function POST(request: Request) {
@@ -32,9 +46,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Paciente inválido' }, { status: 400 })
     }
 
-    const folder = mediaFolders[mediaType as keyof typeof mediaFolders]
+    const kind = mediaType as keyof typeof mediaFolders
+    const folder = mediaFolders[kind]
     const extension = contentTypeExtensions[contentType]
-    if (!folder || !extension) {
+    if (!folder || !extension || !allowedContentTypes[kind](contentType)) {
       return NextResponse.json({ error: 'Tipo de arquivo não permitido' }, { status: 400 })
     }
 

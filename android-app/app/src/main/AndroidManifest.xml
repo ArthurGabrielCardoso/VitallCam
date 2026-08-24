@@ -62,6 +62,18 @@
             android:screenOrientation="landscape"
             android:theme="@style/Theme.AppCompat.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!--
+          Scanner de documentos: retrato, porque todo contrato que sai da
+          impressora da clinica e A4 em pe. configChanges pra girar o tablet
+          nao recriar a Activity e perder as paginas ja confirmadas.
+        -->
+        <activity
+            android:name=".DocumentScanActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
     </application>
 
 </manifest>

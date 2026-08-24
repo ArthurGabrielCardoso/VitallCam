@@ -215,6 +215,61 @@ class MainActivity : AppCompatActivity() {
             }
             pendingPermissionRequest = null
         }
+
+        if (requestCode == SCAN_PERMISSION_CODE) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                abrirScannerDocumento()
+            } else {
+                // Negou: o JS precisa saber, senao o botao fica girando.
+                val callback = pendingJsCallback ?: "window.__onDocumentScan"
+                pendingJsCallback = null
+                webView.evaluateJavascript(
+                    "if(typeof $callback==='function'){$callback([],'sem-permissao');}",
+                    null,
+                )
+            }
+        }
+    }
+
+    /**
+     * O scanner so faz sentido com a camera concedida. Pedir na hora do uso —
+     * e nao na abertura do app — evita a caixa de permissao aparecer pra quem
+     * so veio ver a ficha do paciente.
+     */
+    private fun pedirCameraEAbrirScanner() {
+        val concedida = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.CAMERA,
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (concedida) {
+            abrirScannerDocumento()
+        } else {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.CAMERA),
+                SCAN_PERMISSION_CODE,
+            )
+        }
+    }
+
+    private fun abrirScannerDocumento() {
+        val aberto = runCatching {
+            startActivityForResult(
+                Intent(this, DocumentScanActivity::class.java),
+                DocumentScanActivity.REQUEST_CODE,
+            )
+        }.isSuccess
+
+        if (!aberto) {
+            // Avisa o JS pra ele nao ficar esperando pagina que nunca vem.
+            val callback = pendingJsCallback ?: "window.__onDocumentScan"
+            pendingJsCallback = null
+            webView.evaluateJavascript(
+                "if(typeof $callback==='function'){$callback([],'sem-camera');}",
+                null,
+            )
+            Toast.makeText(this, getString(R.string.scan_sem_camera), Toast.LENGTH_LONG).show()
+        }
     }
 
     @Deprecated("Deprecated in Java")
@@ -235,13 +290,18 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (requestCode == IntraoralCaptureActivity.REQUEST_CODE
-            || requestCode == UsbCameraActivity.REQUEST_CODE) {
+            || requestCode == UsbCameraActivity.REQUEST_CODE
+            || requestCode == DocumentScanActivity.REQUEST_CODE) {
             val callback = pendingJsCallback ?: "window.__onIntraoralCapture"
             pendingJsCallback = null
 
-            val extraKey = if (requestCode == IntraoralCaptureActivity.REQUEST_CODE)
-                IntraoralCaptureActivity.EXTRA_IMAGE_PATHS
-            else UsbCameraActivity.EXTRA_IMAGE_PATHS
+            // As tres Activities gravam em cacheDir/captures e devolvem o mesmo
+            // extra, entao o caminho de volta pro WebView e um so.
+            val extraKey = when (requestCode) {
+                IntraoralCaptureActivity.REQUEST_CODE -> IntraoralCaptureActivity.EXTRA_IMAGE_PATHS
+                DocumentScanActivity.REQUEST_CODE -> DocumentScanActivity.EXTRA_IMAGE_PATHS
+                else -> UsbCameraActivity.EXTRA_IMAGE_PATHS
+            }
 
             if (resultCode == Activity.RESULT_OK && data != null) {
                 val paths = data.getStringArrayExtra(extraKey) ?: emptyArray()
@@ -418,6 +478,21 @@ class MainActivity : AppCompatActivity() {
         fun openIntraoralCamera() = openIntraoralCamera(null)
 
         /**
+         * Abre o scanner de documentos (camera traseira do tablet). Devolve as
+         * paginas pelo mesmo callback das capturas intraorais — a ponte ja sabe
+         * converter caminho de arquivo em URL servida ao WebView.
+         */
+        @JavascriptInterface
+        fun escanearDocumento(jsCallbackName: String?) {
+            pendingJsCallback = if (jsCallbackName.isNullOrBlank())
+                "window.__onDocumentScan" else jsCallbackName
+            runOnUiThread { pedirCameraEAbrirScanner() }
+        }
+
+        @JavascriptInterface
+        fun escanearDocumento() = escanearDocumento(null)
+
+        /**
          * Espelha o notebook da clinica pra ver/planejar a tomografia na cadeira.
          *
          * O exame vem da Cedor em .bpt, formato fechado da BioParts que so o
@@ -530,6 +605,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val CAMERA_PERMISSION_CODE = 1001
         private const val FILE_CHOOSER_CODE = 1002
+        private const val SCAN_PERMISSION_CODE = 1003
 
         // Pacote do RustDesk (o cliente Flutter oficial). Tambem declarado em
         // <queries> no manifest, senao o Android 11+ esconde o app de nos.

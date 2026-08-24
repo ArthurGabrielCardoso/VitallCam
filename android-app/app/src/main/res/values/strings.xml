@@ -20,4 +20,9 @@
       isto o toque em "Anexar" nao daria nem erro, so silencio.
     -->
     <string name="sem_gerenciador_arquivos">Nenhum app de arquivos encontrado para escolher o documento.</string>
+
+    <string name="scan_falha_captura">Nao foi possivel usar a foto. Tente de novo.</string>
+    <string name="scan_falha_processar">Nao foi possivel processar a pagina. Tente de novo.</string>
+    <string name="scan_sem_opencv">Nao foi possivel iniciar o scanner neste aparelho. Anexe o PDF da multifuncional.</string>
+    <string name="scan_sem_camera">Este aparelho nao tem camera para escanear.</string>
 </resources>

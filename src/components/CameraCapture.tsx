@@ -47,8 +47,11 @@ declare global {
       openAlbumUrl?: (path: string) => void
       /** Espelha o notebook da clinica (DentalSlice). "ok" | "sem-app" */
       abrirDentalSlice?: () => string
+      /** Abre o scanner de documentos (camera traseira). Usado nos contratos. */
+      escanearDocumento?: (callbackName?: string) => void
     }
     __onIntraoralCapture?: (dataUrls: string[], error: string | null) => void
+    __onDocumentScan?: (urls: string[], error: string | null) => void
     __onIntraoralPhoto?: (dataUrl: string, id: string, capturedAt: number) => void
     __onIntraoralFrame?: (dataUrl: string | null, error: string | null) => void
     __onIntraoralVideo?: (dataUrl: string | null, error: string | null) => void

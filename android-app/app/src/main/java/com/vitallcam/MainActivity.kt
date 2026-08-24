@@ -10,11 +10,13 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -42,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var assetLoader: WebViewAssetLoader
     private var pendingPermissionRequest: PermissionRequest? = null
     private var pendingJsCallback: String? = null
+    private var pendingFileChooser: ValueCallback<Array<Uri>>? = null
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -142,6 +145,49 @@ class MainActivity : AppCompatActivity() {
                     )
                 }
             }
+
+            // Um WebView nao abre seletor de arquivo por conta propria: sem
+            // isto, tocar num <input type="file"> nao faz absolutamente nada —
+            // sem erro, sem aviso, so um toque que parece nao registrar. Mesma
+            // armadilha do DownloadListener acima. E o que faz "Anexar" a via
+            // assinada do contrato (e o upload de fotos) funcionar na box.
+            override fun onShowFileChooser(
+                view: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: WebChromeClient.FileChooserParams?,
+            ): Boolean {
+                if (filePathCallback == null) return false
+
+                // Uma escolha pendente por vez: se sobrou outra, encerra ela
+                // com null. Callback largado sem resposta deixa o campo de
+                // arquivo morto ate a pagina recarregar.
+                pendingFileChooser?.onReceiveValue(null)
+                pendingFileChooser = filePathCallback
+
+                // createIntent() ja respeita o accept e o multiple declarados
+                // no HTML — nao vale remontar isso na mao.
+                val intent = fileChooserParams?.createIntent()
+                if (intent == null) {
+                    pendingFileChooser = null
+                    filePathCallback.onReceiveValue(null)
+                    return false
+                }
+
+                return try {
+                    this@MainActivity.startActivityForResult(intent, FILE_CHOOSER_CODE)
+                    true
+                } catch (e: Exception) {
+                    // Box recem-formatada pode nao ter gerenciador de arquivos.
+                    pendingFileChooser = null
+                    filePathCallback.onReceiveValue(null)
+                    Toast.makeText(
+                        this@MainActivity,
+                        this@MainActivity.getString(R.string.sem_gerenciador_arquivos),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    false
+                }
+            }
         }
 
         // Se voltamos da câmera via openAlbumUrl (recreate), abre direto a URL
@@ -175,6 +221,19 @@ class MainActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         slog("onActivityResult req=$requestCode res=$resultCode (OK=${Activity.RESULT_OK})")
+
+        if (requestCode == FILE_CHOOSER_CODE) {
+            val callback = pendingFileChooser
+            pendingFileChooser = null
+            // parseResult cobre os dois casos (um arquivo ou varios) e devolve
+            // null no cancelamento — que precisa chegar ao WebView, senao o
+            // campo de arquivo nao aceita um segundo toque.
+            callback?.onReceiveValue(
+                WebChromeClient.FileChooserParams.parseResult(resultCode, data)
+            )
+            return
+        }
+
         if (requestCode == IntraoralCaptureActivity.REQUEST_CODE
             || requestCode == UsbCameraActivity.REQUEST_CODE) {
             val callback = pendingJsCallback ?: "window.__onIntraoralCapture"
@@ -470,6 +529,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val CAMERA_PERMISSION_CODE = 1001
+        private const val FILE_CHOOSER_CODE = 1002
 
         // Pacote do RustDesk (o cliente Flutter oficial). Tambem declarado em
         // <queries> no manifest, senao o Android 11+ esconde o app de nos.

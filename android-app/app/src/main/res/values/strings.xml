@@ -14,4 +14,10 @@
       botao para de funcionar. Reserve o IP por MAC no DHCP do roteador.
     -->
     <string name="notebook_dentalslice_host">192.168.15.127</string>
+
+    <!--
+      Box recem-formatada pode nao ter nenhum app de arquivos instalado. Sem
+      isto o toque em "Anexar" nao daria nem erro, so silencio.
+    -->
+    <string name="sem_gerenciador_arquivos">Nenhum app de arquivos encontrado para escolher o documento.</string>
 </resources>

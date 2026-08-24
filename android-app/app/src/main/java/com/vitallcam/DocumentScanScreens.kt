@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,7 +23,6 @@ import androidx.compose.material.Icon
 import androidx.compose.material.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Undo
@@ -94,16 +92,6 @@ fun TelaCamera(
             },
         )
 
-        // Guia de enquadramento em retrato: todo contrato que sai da impressora
-        // da clinica e A4 em pe, e mirar sem referencia rende foto torta.
-        Box(
-            Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth(0.84f)
-                .fillMaxHeight(0.66f)
-                .border(1.5.dp, Realce.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
-        )
-
         Row(
             Modifier.align(Alignment.TopStart).padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -113,7 +101,10 @@ fun TelaCamera(
                 text = if (paginas.isEmpty()) {
                     "Enquadre o documento"
                 } else {
-                    "${paginas.size} ${if (paginas.size == 1) "pagina" else "paginas"}"
+                    // Deixa explicito que o disparo soma pagina em vez de
+                    // substituir a anterior — sem isso ninguem descobre que da
+                    // pra escanear um contrato de 4 folhas de uma vez.
+                    "${paginas.size} ${if (paginas.size == 1) "pagina" else "paginas"} · fotografe a proxima"
                 },
                 color = Color.White,
                 fontSize = 15.sp,
@@ -165,14 +156,14 @@ fun TelaAjuste(
     ocupado: Boolean,
     numeroDaPagina: Int,
     onRefazer: () -> Unit,
-    onConfirmar: (List<PointF>, Boolean) -> Unit,
+    onConfirmar: (List<PointF>, DocumentCv.Filtro) -> Unit,
 ) {
     val bitmap = captura.bitmap
     // Converter a cada recomposicao copiaria uma imagem de milhoes de pixels a
     // cada arrasto de canto.
     val imagem = remember(captura) { bitmap.asImageBitmap() }
     var cantos by remember(captura) { mutableStateOf(captura.cantos) }
-    var realcar by remember(captura) { mutableStateOf(true) }
+    var filtro by remember(captura) { mutableStateOf(DocumentCv.Filtro.COR) }
     // Qual canto o dedo agarrou. Precisa sobreviver de onDragStart ate onDrag,
     // por isso e estado lembrado e nao variavel do bloco do gesto.
     val arrastando = remember(captura) { mutableStateOf(-1) }
@@ -258,35 +249,51 @@ fun TelaAjuste(
         ) {
             BotaoCircular(Icons.Filled.Refresh, "Refazer a foto", onRefazer)
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable { realcar = !realcar }
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.AutoFixHigh,
-                    contentDescription = "Alternar realce",
-                    tint = if (realcar) Realce else Color.White.copy(alpha = 0.45f),
-                    modifier = Modifier.size(24.dp),
-                )
-                Text(
-                    text = if (realcar) "Realce ligado" else "Sem realce",
-                    color = Color.White.copy(alpha = 0.85f),
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FILTROS.forEach { (valor, rotulo) ->
+                    Chip(rotulo, valor == filtro) { filtro = valor }
+                }
             }
 
             BotaoCircular(
                 icone = Icons.Filled.Check,
                 descricao = "Confirmar pagina",
-                onClique = { onConfirmar(cantos, realcar) },
+                onClique = { onConfirmar(cantos, filtro) },
                 fundo = if (ocupado) Teal700 else Teal600,
                 habilitado = !ocupado,
             )
         }
+    }
+}
+
+/**
+ * Cor primeiro, e como padrao, porque num contrato assinado a caneta azul
+ * precisa continuar azul: preto-e-branco pode transformar traco claro em nada,
+ * e a assinatura e a unica coisa que o documento existe pra provar.
+ */
+private val FILTROS = listOf(
+    DocumentCv.Filtro.COR to "Cor",
+    DocumentCv.Filtro.CINZA to "Cinza",
+    DocumentCv.Filtro.PRETO_BRANCO to "P&B",
+    DocumentCv.Filtro.ORIGINAL to "Original",
+)
+
+@Composable
+private fun Chip(rotulo: String, ativo: Boolean, onClique: () -> Unit) {
+    Box(
+        Modifier
+            .padding(end = 6.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (ativo) Teal600 else Color.White.copy(alpha = 0.12f))
+            .clickable(onClick = onClique)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+    ) {
+        Text(
+            rotulo,
+            color = if (ativo) Color.White else Color.White.copy(alpha = 0.75f),
+            fontSize = 12.sp,
+            fontWeight = if (ativo) FontWeight.SemiBold else FontWeight.Normal,
+        )
     }
 }
 

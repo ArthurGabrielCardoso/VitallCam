@@ -93,7 +93,7 @@ class DocumentScanActivity : ComponentActivity() {
                         ocupado = ocupado,
                         numeroDaPagina = paginas.size + 1,
                         onRefazer = { descartarAjuste() },
-                        onConfirmar = { cantos, realcar -> confirmarPagina(ajuste, cantos, realcar) },
+                        onConfirmar = { cantos, filtro -> confirmarPagina(ajuste, cantos, filtro) },
                     )
                 }
             }
@@ -152,13 +152,13 @@ class DocumentScanActivity : ComponentActivity() {
         }.start()
     }
 
-    private fun confirmarPagina(captura: Captura, cantos: List<PointF>, realcar: Boolean) {
+    private fun confirmarPagina(captura: Captura, cantos: List<PointF>, filtro: DocumentCv.Filtro) {
         if (ocupado) return
         ocupado = true
 
         Thread {
             val arquivo = runCatching {
-                val endireitado = DocumentCv.endireitar(captura.bitmap, cantos, realcar)
+                val endireitado = DocumentCv.endireitar(captura.bitmap, cantos, filtro)
                 // O endireitado nao vai pra tela nenhuma, entao reciclar aqui e
                 // seguro e livra alguns MB antes da proxima pagina.
                 salvarPagina(endireitado).also { endireitado.recycle() }

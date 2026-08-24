@@ -65,6 +65,20 @@ class MainActivity : AppCompatActivity() {
 
         webView.addJavascriptInterface(VitallCamBridge(), "VitallCam")
 
+        // Um WebView nao baixa arquivo por conta propria: sem DownloadListener o
+        // link do APK do RustDesk (Configuracoes > Downloads) simplesmente nao
+        // faz nada — sem erro, sem aviso, so um toque que parece nao registrar.
+        // Entrega pro navegador do sistema, que sabe baixar e chamar o
+        // instalador.
+        webView.setDownloadListener { url, _, _, _, _ ->
+            val aberto = runCatching {
+                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+            }.isSuccess
+            if (!aberto) {
+                Toast.makeText(this, "Nenhum navegador para baixar este arquivo", Toast.LENGTH_LONG).show()
+            }
+        }
+
         // Asset loader: serve cacheDir/captures/* via
         // https://appassets.androidplatform.net/captures/<arquivo>
         // Permite o JS fazer fetch() das fotos/vídeos sem passar pelo
@@ -344,6 +358,32 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun openIntraoralCamera() = openIntraoralCamera(null)
 
+        /**
+         * Espelha o notebook da clinica pra ver/planejar a tomografia na cadeira.
+         *
+         * O exame vem da Cedor em .bpt, formato fechado da BioParts que so o
+         * DentalSlice abre — e o DentalSlice e .exe Win32, que esta box
+         * (ARM/Android) nao roda. Entao em vez de abrir o arquivo aqui,
+         * mostramos a tela de quem consegue abrir.
+         *
+         * Devolve "ok" | "sem-app" em vez de falhar calado: RustDesk ausente e o
+         * caso comum numa box recem-formatada, e o web precisa saber a diferenca
+         * pra dizer o que fazer.
+         */
+        @JavascriptInterface
+        fun abrirDentalSlice(): String {
+            val host = getString(R.string.notebook_dentalslice_host)
+            // O esquema rustdesk:// ja conecta no destino. Se a versao instalada
+            // nao atender, abrir o app na tela de conexao ainda poupa sair do
+            // VitallCam a mao.
+            val direto = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("rustdesk://connection/new/$host"))
+            val naTelaDeConexao = packageManager.getLaunchIntentForPackage(RUSTDESK_PACKAGE)
+            for (intent in listOfNotNull(direto, naTelaDeConexao)) {
+                if (runCatching { startActivity(intent) }.isSuccess) return "ok"
+            }
+            return "sem-app"
+        }
+
         // ---- Stubs no-op pra compatibilidade com versões web em cache que
         // ainda chamam estes métodos do fluxo antigo (live preview overlay).
         // Nada acontece; em breve a web simplificada não chama mais. ----
@@ -430,6 +470,10 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val CAMERA_PERMISSION_CODE = 1001
+
+        // Pacote do RustDesk (o cliente Flutter oficial). Tambem declarado em
+        // <queries> no manifest, senao o Android 11+ esconde o app de nos.
+        private const val RUSTDESK_PACKAGE = "com.carriez.flutter_hbb"
         // Log de diagnóstico do MainActivity pro servidor. false em produção.
         private const val DEBUG_MAIN = false
 

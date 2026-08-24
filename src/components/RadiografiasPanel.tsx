@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ScanLine, Search, Loader2, ExternalLink, ImageOff, ArrowLeft, Calendar,
-  ChevronLeft, ChevronRight, LayoutList, ArrowDownAZ, Clock, X,
+  ChevronLeft, ChevronRight, LayoutList, ArrowDownAZ, Clock, X, MonitorSmartphone,
 } from 'lucide-react'
 
 /**
@@ -436,6 +436,25 @@ function Detalhe({ id, onVoltar }: { id: number; onVoltar: () => void }) {
   const [data, setData] = useState<ExameDetalhe | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
+  const [nativo, setNativo] = useState(false)
+  const [erroEspelho, setErroEspelho] = useState<string | null>(null)
+
+  // Em efeito, e nao no valor inicial do estado: `window` nao existe na
+  // renderizacao do servidor, e um valor diferente ali quebraria a hidratacao.
+  useEffect(() => {
+    setNativo(!!window.VitallCam?.abrirDentalSlice && !!window.VitallCam?.isNative?.())
+  }, [])
+
+  /**
+   * Espelha o notebook onde o DentalSlice roda. O .bpt da Cedor e formato
+   * fechado da BioParts e o DentalSlice e .exe Win32 — nada disso abre nesta
+   * box, entao mostramos a tela de quem consegue abrir.
+   */
+  const espelharNotebook = () => {
+    setErroEspelho(null)
+    if (window.VitallCam?.abrirDentalSlice?.() === 'ok') return
+    setErroEspelho('RustDesk não encontrado nesta TV box. Instale em Configurações → Downloads.')
+  }
 
   useEffect(() => {
     let vivo = true
@@ -504,16 +523,35 @@ function Detalhe({ id, onVoltar }: { id: number; onVoltar: () => void }) {
           <div>
             <p className="font-semibold text-gray-800">Documentação no iDoc / RadioMemory</p>
             <p className="text-sm text-gray-500 mt-1.5 leading-relaxed">
-              As imagens deste exame ficam no portal do iDoc. O botão abaixo abre direto,
-              sem precisar de login.
+              {nativo
+                ? 'A tomografia abre no DentalSlice, que roda no notebook da clínica. O botão espelha a tela aqui — o mouse desta TV comanda o notebook.'
+                : 'As imagens deste exame ficam no portal do iDoc. O botão abaixo abre direto, sem precisar de login.'}
             </p>
           </div>
+
+          {/* Só na TV box. No computador não há o que espelhar: quem está ali já
+              tem o DentalSlice na frente. */}
+          {nativo && (
+            <button
+              onClick={espelharNotebook}
+              className="inline-flex items-center gap-2 bg-teal-700 hover:bg-teal-800 text-white font-semibold text-sm px-5 py-2.5 rounded transition-colors"
+            >
+              Abrir no DentalSlice <MonitorSmartphone className="w-4 h-4" />
+            </button>
+          )}
+
+          {erroEspelho && <p className="text-sm text-amber-700">{erroEspelho}</p>}
+
           {data.accessUrl ? (
             <a
               href={data.accessUrl} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-2 bg-teal-700 hover:bg-teal-800 text-white font-semibold text-sm px-5 py-2.5 rounded transition-colors"
+              // Na box o DentalSlice é a ação principal e o portal vira apoio;
+              // no computador o portal continua sendo o botão de destaque.
+              className={nativo
+                ? 'text-xs font-semibold text-gray-500 hover:text-teal-700 inline-flex items-center gap-1 transition-colors'
+                : 'inline-flex items-center gap-2 bg-teal-700 hover:bg-teal-800 text-white font-semibold text-sm px-5 py-2.5 rounded transition-colors'}
             >
-              Abrir documentação <ExternalLink className="w-4 h-4" />
+              Abrir documentação <ExternalLink className={nativo ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
             </a>
           ) : (
             <p className="text-sm text-gray-400">Link de acesso indisponível.</p>

@@ -11,6 +11,19 @@
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.usb.host" android:required="true" />
 
+    <!--
+      A partir do Android 11 um app so "enxerga" outro se declarar aqui. Sem
+      isto getLaunchIntentForPackage devolve null e o botao "Abrir no
+      DentalSlice" cairia no caso de erro mesmo com o RustDesk instalado.
+    -->
+    <queries>
+        <package android:name="com.carriez.flutter_hbb" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="rustdesk" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

@@ -45,6 +45,8 @@ declare global {
       setIntraoralPreviewVisible?: (visible: boolean) => void
       deleteCaptureFile?: (filename: string) => void
       openAlbumUrl?: (path: string) => void
+      /** Espelha o notebook da clinica (DentalSlice). "ok" | "sem-app" */
+      abrirDentalSlice?: () => string
     }
     __onIntraoralCapture?: (dataUrls: string[], error: string | null) => void
     __onIntraoralPhoto?: (dataUrl: string, id: string, capturedAt: number) => void

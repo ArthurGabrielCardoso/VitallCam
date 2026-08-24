@@ -3,4 +3,15 @@
     <string name="app_name">VitallCam</string>
     <!-- Substitua pela URL real do seu Vercel antes de compilar -->
     <string name="app_url">https://vitallcam.vercel.app</string>
+
+    <!--
+      Notebook da clinica onde o DentalSlice roda, pro botao "Abrir no
+      DentalSlice" espelhar a tela na cadeira. IP e nao ID do RustDesk porque a
+      conexao e direta na LAN (Seguranca > "Enable direct IP access", porta
+      21118 por padrao) — nada de tomografia passando por relay de terceiros.
+
+      Depende de IP estavel: se o roteador entregar outro numero pro notebook, o
+      botao para de funcionar. Reserve o IP por MAC no DHCP do roteador.
+    -->
+    <string name="notebook_dentalslice_host">192.168.15.127</string>
 </resources>

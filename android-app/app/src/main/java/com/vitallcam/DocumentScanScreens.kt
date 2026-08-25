@@ -1,5 +1,6 @@
 package com.vitallcam
 
+import android.graphics.Bitmap
 import android.graphics.PointF
 import androidx.camera.core.ImageCapture
 import androidx.camera.view.PreviewView
@@ -23,10 +24,10 @@ import androidx.compose.material.Icon
 import androidx.compose.material.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +55,8 @@ import com.vitallcam.ui.theme.Teal700
 import java.io.File
 import kotlin.math.max
 import kotlin.math.min
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Telas do scanner de documentos, nas cores do VitallCam — mesma abordagem do
@@ -65,6 +68,13 @@ private val Realce = Dourado400
 
 /** Raio, em pixels, dentro do qual um toque agarra um canto. */
 private const val RAIO_DE_AGARRE = 170f
+
+/**
+ * Lado maior da previa. Filtrar a folha em resolucao cheia leva segundos, e
+ * trocar de filtro precisa responder na hora; a 1200 px da pra julgar se o
+ * papel clareou sem comer a assinatura, que e o que se esta decidindo ali.
+ */
+private const val LADO_PREVIA = 1200
 
 // --- Camera -----------------------------------------------------------------
 
@@ -148,7 +158,7 @@ fun TelaCamera(
     }
 }
 
-// --- Ajuste dos cantos ------------------------------------------------------
+// --- Resultado e recorte ----------------------------------------------------
 
 @Composable
 fun TelaAjuste(
@@ -158,15 +168,62 @@ fun TelaAjuste(
     onRefazer: () -> Unit,
     onConfirmar: (List<PointF>, DocumentCv.Filtro) -> Unit,
 ) {
-    val bitmap = captura.bitmap
-    // Converter a cada recomposicao copiaria uma imagem de milhoes de pixels a
-    // cada arrasto de canto.
-    val imagem = remember(captura) { bitmap.asImageBitmap() }
     var cantos by remember(captura) { mutableStateOf(captura.cantos) }
     var filtro by remember(captura) { mutableStateOf(DocumentCv.Filtro.COR) }
-    // Qual canto o dedo agarrou. Precisa sobreviver de onDragStart ate onDrag,
-    // por isso e estado lembrado e nao variavel do bloco do gesto.
-    val arrastando = remember(captura) { mutableStateOf(-1) }
+    // Abre direto no resultado: a deteccao ja rodou no disparo, entao o recorte
+    // chega pronto. Mexer nos cantos vira excecao, nao pedagio de toda pagina.
+    var recortando by remember(captura) { mutableStateOf(false) }
+
+    if (recortando) {
+        TelaRecorte(
+            captura = captura,
+            cantos = cantos,
+            onCantos = { cantos = it },
+            onPronto = { recortando = false },
+        )
+    } else {
+        TelaResultado(
+            captura = captura,
+            cantos = cantos,
+            filtro = filtro,
+            ocupado = ocupado,
+            numeroDaPagina = numeroDaPagina,
+            onFiltro = { filtro = it },
+            onRecortar = { recortando = true },
+            onRefazer = onRefazer,
+            onAdicionar = { onConfirmar(cantos, filtro) },
+        )
+    }
+}
+
+/** Mostra a pagina como ela vai ficar, e troca de filtro mostrando o efeito. */
+@Composable
+private fun TelaResultado(
+    captura: DocumentScanActivity.Captura,
+    cantos: List<PointF>,
+    filtro: DocumentCv.Filtro,
+    ocupado: Boolean,
+    numeroDaPagina: Int,
+    onFiltro: (DocumentCv.Filtro) -> Unit,
+    onRecortar: () -> Unit,
+    onRefazer: () -> Unit,
+    onAdicionar: () -> Unit,
+) {
+    var previa by remember(captura) { mutableStateOf<Bitmap?>(null) }
+    var calculando by remember(captura) { mutableStateOf(true) }
+
+    // Recalcula so quando o recorte ou o filtro mudam, e fora da thread de UI:
+    // o warp mais o filtro travariam a tela por um instante visivel.
+    LaunchedEffect(captura, cantos, filtro) {
+        calculando = true
+        val gerada = withContext(Dispatchers.Default) {
+            runCatching {
+                DocumentCv.endireitar(captura.bitmap, cantos, filtro, LADO_PREVIA)
+            }.getOrNull()
+        }
+        previa = gerada
+        calculando = false
+    }
 
     Column(Modifier.fillMaxSize().background(FundoEscuro)) {
         Row(
@@ -180,18 +237,84 @@ fun TelaAjuste(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = if (captura.detectou) "  ·  bordas encontradas" else "  ·  ajuste os cantos",
+                text = if (captura.detectou) "  ·  recorte automatico" else "  ·  confira o recorte",
                 color = if (captura.detectou) Realce else Color.White.copy(alpha = 0.6f),
                 fontSize = 13.sp,
             )
         }
 
         Box(
-            Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = 12.dp),
+            Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center,
         ) {
+            val atual = previa
+            if (atual != null) {
+                Image(
+                    bitmap = atual.asImageBitmap(),
+                    contentDescription = "Previa da pagina",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                )
+            }
+            if (calculando) {
+                Text("Preparando...", color = Color.White.copy(alpha = 0.75f), fontSize = 13.sp)
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FILTROS.forEach { (valor, rotulo) ->
+                Chip(rotulo, valor == filtro) { onFiltro(valor) }
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BotaoCircular(Icons.Filled.Refresh, "Refazer a foto", onRefazer)
+            BotaoContornado("Ajustar recorte", onRecortar)
+            BotaoTexto(
+                rotulo = "Adicionar pagina",
+                onClique = onAdicionar,
+                // So depois da previa: adicionar sem ter visto o resultado e
+                // exatamente o que essa tela existe pra evitar.
+                habilitado = !ocupado && previa != null,
+            )
+        }
+    }
+}
+
+/** Editor dos quatro cantos, aberto so quando o recorte automatico erra. */
+@Composable
+private fun TelaRecorte(
+    captura: DocumentScanActivity.Captura,
+    cantos: List<PointF>,
+    onCantos: (List<PointF>) -> Unit,
+    onPronto: () -> Unit,
+) {
+    val bitmap = captura.bitmap
+    // Converter a cada recomposicao copiaria uma imagem de milhoes de pixels a
+    // cada arrasto de canto.
+    val imagem = remember(captura) { bitmap.asImageBitmap() }
+    // Qual canto o dedo agarrou. Precisa sobreviver de onDragStart ate onDrag,
+    // por isso e estado lembrado e nao variavel do bloco do gesto.
+    val arrastando = remember(captura) { mutableStateOf(-1) }
+
+    Column(Modifier.fillMaxSize().background(FundoEscuro)) {
+        Text(
+            text = "Arraste os cantos ate as bordas da folha",
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(16.dp),
+        )
+
+        Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp)) {
             Image(
                 bitmap = imagem,
                 contentDescription = "Documento capturado",
@@ -216,7 +339,7 @@ fun TelaAjuste(
                             mudanca.consume()
                             val ajuste = calcularAjuste(size.width, size.height, bitmap.width, bitmap.height)
                             val novo = paraBitmap(mudanca.position, ajuste, bitmap.width, bitmap.height)
-                            cantos = cantos.toMutableList().also { it[indice] = novo }
+                            onCantos(cantos.toMutableList().also { it[indice] = novo })
                         }
                     },
             ) {
@@ -244,24 +367,10 @@ fun TelaAjuste(
 
         Row(
             Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BotaoCircular(Icons.Filled.Refresh, "Refazer a foto", onRefazer)
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                FILTROS.forEach { (valor, rotulo) ->
-                    Chip(rotulo, valor == filtro) { filtro = valor }
-                }
-            }
-
-            BotaoCircular(
-                icone = Icons.Filled.Check,
-                descricao = "Confirmar pagina",
-                onClique = { onConfirmar(cantos, filtro) },
-                fundo = if (ocupado) Teal700 else Teal600,
-                habilitado = !ocupado,
-            )
+            BotaoTexto("Pronto", onPronto)
         }
     }
 }
@@ -277,25 +386,6 @@ private val FILTROS = listOf(
     DocumentCv.Filtro.PRETO_BRANCO to "P&B",
     DocumentCv.Filtro.ORIGINAL to "Original",
 )
-
-@Composable
-private fun Chip(rotulo: String, ativo: Boolean, onClique: () -> Unit) {
-    Box(
-        Modifier
-            .padding(end = 6.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (ativo) Teal600 else Color.White.copy(alpha = 0.12f))
-            .clickable(onClick = onClique)
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-    ) {
-        Text(
-            rotulo,
-            color = if (ativo) Color.White else Color.White.copy(alpha = 0.75f),
-            fontSize = 12.sp,
-            fontWeight = if (ativo) FontWeight.SemiBold else FontWeight.Normal,
-        )
-    }
-}
 
 // --- Geometria --------------------------------------------------------------
 
@@ -373,14 +463,51 @@ private fun BotaoCircular(
 }
 
 @Composable
-private fun BotaoTexto(rotulo: String, onClique: () -> Unit) {
+private fun BotaoTexto(rotulo: String, onClique: () -> Unit, habilitado: Boolean = true) {
     Box(
         Modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(Teal600)
-            .clickable(onClick = onClique)
+            .background(if (habilitado) Teal600 else Teal700)
+            .clickable(enabled = habilitado, onClick = onClique)
             .padding(horizontal = 18.dp, vertical = 12.dp),
     ) {
-        Text(rotulo, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            rotulo,
+            color = if (habilitado) Color.White else Color.White.copy(alpha = 0.5f),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun BotaoContornado(rotulo: String, onClique: () -> Unit) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+            .clickable(onClick = onClique)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+    ) {
+        Text(rotulo, color = Color.White.copy(alpha = 0.9f), fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun Chip(rotulo: String, ativo: Boolean, onClique: () -> Unit) {
+    Box(
+        Modifier
+            .padding(horizontal = 3.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (ativo) Teal600 else Color.White.copy(alpha = 0.12f))
+            .clickable(onClick = onClique)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+    ) {
+        Text(
+            rotulo,
+            color = if (ativo) Color.White else Color.White.copy(alpha = 0.75f),
+            fontSize = 12.sp,
+            fontWeight = if (ativo) FontWeight.SemiBold else FontWeight.Normal,
+        )
     }
 }

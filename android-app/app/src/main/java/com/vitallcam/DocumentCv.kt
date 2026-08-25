@@ -139,8 +139,17 @@ object DocumentCv {
     /**
      * Endireita o recorte definido pelos quatro cantos e aplica o filtro.
      * Devolve um bitmap novo; o de entrada continua intacto.
+     *
+     * `ladoMaximo` limita a saida, em pixels. Serve pra previa: filtrar a folha
+     * em resolucao cheia leva segundos, e trocar de filtro precisa responder na
+     * hora. Zero (o padrao) processa no tamanho real, que e o que vai pro PDF.
      */
-    fun endireitar(bitmap: Bitmap, cantos: List<PointF>, filtro: Filtro): Bitmap {
+    fun endireitar(
+        bitmap: Bitmap,
+        cantos: List<PointF>,
+        filtro: Filtro,
+        ladoMaximo: Int = 0,
+    ): Bitmap {
         val ordenados = ordenarCantos(cantos)
         val se = ordenados[0]
         val sd = ordenados[1]
@@ -149,8 +158,16 @@ object DocumentCv {
 
         // O resultado ganha o tamanho do maior lado de cada par oposto: assim
         // nenhum trecho do documento e comprimido, no maximo sobra resolucao.
-        val w = max(1.0, max(distancia(se, sd), distancia(ie, id)).toDouble())
-        val h = max(1.0, max(distancia(se, ie), distancia(sd, id)).toDouble())
+        var w = max(1.0, max(distancia(se, sd), distancia(ie, id)).toDouble())
+        var h = max(1.0, max(distancia(se, ie), distancia(sd, id)).toDouble())
+
+        if (ladoMaximo > 0) {
+            val reducao = ladoMaximo / max(w, h)
+            if (reducao < 1.0) {
+                w = max(1.0, w * reducao)
+                h = max(1.0, h * reducao)
+            }
+        }
 
         val origem = Mat()
         Utils.bitmapToMat(bitmap, origem)

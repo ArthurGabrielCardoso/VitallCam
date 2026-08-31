@@ -53,6 +53,22 @@ class EtiquetaNiimbot(private val context: Context) {
     private var canal: BluetoothGattCharacteristic? = null
     private var mtu = 23
 
+    /**
+     * Trilha do ultimo trabalho, em uma linha por passo.
+     *
+     * Impressora nao tem tela e o tablet fica na clinica: sem isto, "no app nao
+     * imprime" e tudo o que da para saber. Uma linha por passo diz exatamente
+     * onde parou — achar a impressora, conectar, listar servicos, escrever.
+     */
+    private val trilha = StringBuilder()
+
+    private fun anotar(passo: String) {
+        if (trilha.length < 4000) trilha.append(passo).append('\n')
+    }
+
+    /** O que aconteceu no ultimo trabalho, para o app mandar ao diagnostico. */
+    fun diagnostico(): String = trilha.toString()
+
     /** Eventos de conexao/escrita, na ordem em que o Android os entrega. */
     private data class Evento(val tipo: String, val ok: Boolean)
     private val eventos = ArrayBlockingQueue<Evento>(64)
@@ -162,6 +178,7 @@ class EtiquetaNiimbot(private val context: Context) {
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
         scanner.startScan(null, ajustes, varredura)
+        anotar("varrendo o ar")
         val achada = runCatching { achados.poll(SEGUNDOS_VARREDURA, TimeUnit.SECONDS) }.getOrNull()
         runCatching { scanner.stopScan(varredura) }
         achada?.let { lembrar(it) }
@@ -226,17 +243,22 @@ class EtiquetaNiimbot(private val context: Context) {
         if (canal != null && gatt != null) return ""
 
         val impedimento = impedimento()
-        if (impedimento.isNotEmpty()) return impedimento
+        if (impedimento.isNotEmpty()) {
+            anotar("impedimento: $impedimento")
+            return impedimento
+        }
 
         val device = encontrar()
             ?: return "Nao achei a impressora. Ligue a Niimbot, deixe perto do tablet e confira se ela nao esta conectada no app da Niimbot."
 
         eventos.clear()
+        anotar("achou ${device.name ?: "sem nome"} ${device.address}")
         val g = device.connectGatt(context, false, retorno, BluetoothDevice.TRANSPORT_LE)
             ?: return "Nao consegui abrir a conexao com a impressora."
         gatt = g
 
         if (!esperar("conectado", 15_000)) {
+            anotar("nao conectou em 15s")
             // MAC salvo de uma impressora que nao esta mais ali: esquecer aqui
             // faz a proxima tentativa varrer em vez de insistir no aparelho errado.
             desconectar()
@@ -253,8 +275,10 @@ class EtiquetaNiimbot(private val context: Context) {
         // seguimos nos 23 bytes padrao, so mais devagar.
         g.requestMtu(247)
         esperar("mtu", 3_000)
+        anotar("conectado, mtu=$mtu")
 
         if (!g.discoverServices() || !esperar("servicos", 15_000)) {
+            anotar("nao listou servicos")
             desconectar()
             return "A impressora conectou mas nao listou os servicos."
         }
@@ -262,6 +286,7 @@ class EtiquetaNiimbot(private val context: Context) {
         val caracteristica = g.getService(SERVICO)?.getCharacteristic(CARACTERISTICA)
             ?: procurarCanalSerial(g)
             ?: run {
+                anotar("servicos sem canal: " + g.services.orEmpty().joinToString { it.uuid.toString() })
                 desconectar()
                 return "Este modelo nao expos o canal de impressao esperado."
             }
@@ -281,6 +306,7 @@ class EtiquetaNiimbot(private val context: Context) {
         }
 
         canal = caracteristica
+        anotar("canal ${caracteristica.uuid} props=${caracteristica.properties}")
         return ""
     }
 
@@ -407,8 +433,13 @@ class EtiquetaNiimbot(private val context: Context) {
         variante: Int,
         progresso: (Int) -> Unit,
     ): String {
+        trilha.setLength(0)
+        anotar("imprimir linhas=${linhas.size} largura=$largura copias=$copias variante=$variante")
         if (linhas.isEmpty()) return "Etiqueta vazia."
-        if (permissoesFaltando().isNotEmpty()) return "Falta a permissao de Bluetooth."
+        if (permissoesFaltando().isNotEmpty()) {
+            anotar("permissoes faltando: " + permissoesFaltando().joinToString())
+            return "Falta a permissao de Bluetooth."
+        }
 
         // A conexao fica de pe entre as impressoes justamente para o segundo
         // lote sair no toque — mas a impressora encerra a sessao por conta
@@ -419,8 +450,11 @@ class EtiquetaNiimbot(private val context: Context) {
         val primeira = enviarTrabalho(linhas, largura, copias, densidade, repetirPagina, variante, progresso)
         if (primeira.isEmpty() || !reconectavel(primeira)) return primeira
 
+        anotar("primeira tentativa falhou ($primeira) — reconectando")
         desconectar()
-        return enviarTrabalho(linhas, largura, copias, densidade, repetirPagina, variante, progresso)
+        val segunda = enviarTrabalho(linhas, largura, copias, densidade, repetirPagina, variante, progresso)
+        anotar(if (segunda.isEmpty()) "ok na segunda" else "falhou de novo: $segunda")
+        return segunda
     }
 
     /**
@@ -489,6 +523,13 @@ class EtiquetaNiimbot(private val context: Context) {
                 comando(QUANTIDADE, byteArrayOf((copias shr 8).toByte(), copias.toByte()), QUANTIDADE + 1)
             }
 
+            // As linhas vao em lote: o canal e um fluxo de bytes, entao varios
+            // pacotes numa escrita so chegam iguais e custam uma ida e volta em
+            // vez de uma por linha. Uma etiqueta de 400 linhas cai de centenas
+            // de idas e voltas para algumas dezenas.
+            val lote = java.io.ByteArrayOutputStream()
+            val limiteLote = ((mtu - 3).coerceIn(20, 512)) * 4
+
             for (y in linhas.indices) {
                 val linha = linhas[y]
                 // Cabecalho: numero da linha, tres contadores de pontos pretos
@@ -498,12 +539,23 @@ class EtiquetaNiimbot(private val context: Context) {
                 corpo[1] = y.toByte()
                 corpo[5] = 1
                 System.arraycopy(linha, 0, corpo, 6, linha.size)
-                if (!escrever(pacote(IMPRIMIR_LINHA, corpo))) {
-                    desconectar()
-                    return "A conexao caiu no meio da impressao. Tente de novo."
+                lote.write(pacote(IMPRIMIR_LINHA, corpo))
+
+                if (lote.size() >= limiteLote) {
+                    if (!escrever(lote.toByteArray())) {
+                        anotar("caiu na linha $y")
+                        desconectar()
+                        return "A conexao caiu no meio da impressao. Tente de novo."
+                    }
+                    lote.reset()
                 }
                 enviadas++
-                if (enviadas % 16 == 0) progresso(enviadas * 100 / totalLinhas)
+                if (enviadas % 32 == 0) progresso(enviadas * 100 / totalLinhas)
+            }
+            if (lote.size() > 0 && !escrever(lote.toByteArray())) {
+                anotar("caiu no fim das linhas")
+                desconectar()
+                return "A conexao caiu no meio da impressao. Tente de novo."
             }
 
             comando(FIM_PAGINA, byteArrayOf(1), FIM_PAGINA + 1)

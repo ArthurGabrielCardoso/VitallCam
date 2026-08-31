@@ -27,13 +27,24 @@ export interface FormatoEtiqueta {
   larguraMm: number
   /** Margem branca em pontos, para a etiqueta não sair cortada. */
   margem: number
+  /**
+   * Quanto do comprimento a marca pode ocupar, em porcentagem. É a régua entre
+   * logo e texto: o que a marca toma, o texto devolve encolhendo a fonte — e o
+   * texto é o que a Vigilância lê, então o limite fica na tela, não no código.
+   */
+  logoPorcento?: number
 }
 
 /**
  * Rolo padrão da clínica. A D110 aceita etiqueta de até 15 mm de largura, mas a
  * cabeça só cobre 12 mm: imprimir mais largo que isso não corta, some.
  */
-export const FORMATO_PADRAO: FormatoEtiqueta = { comprimentoMm: 50, larguraMm: 12, margem: 6 }
+export const FORMATO_PADRAO: FormatoEtiqueta = {
+  comprimentoMm: 50,
+  larguraMm: 12,
+  margem: 6,
+  logoPorcento: 34,
+}
 
 export interface DadosEtiqueta {
   /** Código do lote no formato DDMMAA-NN. */
@@ -111,16 +122,21 @@ function desenharLogo(
   logo: HTMLImageElement,
   alturaDisponivel: number,
   margem: number,
+  larguraMaxima: number,
 ): number {
   const proporcao = logo.naturalWidth > 0 && logo.naturalHeight > 0
     ? logo.naturalWidth / logo.naturalHeight
     : 1
-  const altura = alturaDisponivel
-  const largura = Math.max(1, Math.round(altura * proporcao))
 
-  ctx.drawImage(logo, margem, margem, largura, altura)
+  // A marca é deitada: quem manda no tamanho é a largura que sobrou, não a
+  // altura da etiqueta. Cresce até o limite pedido e para na altura útil.
+  const largura = Math.max(1, Math.round(Math.min(larguraMaxima, alturaDisponivel * proporcao)))
+  const altura = Math.max(1, Math.round(largura / proporcao))
+  const topo = margem + Math.floor((alturaDisponivel - altura) / 2)
 
-  const area = ctx.getImageData(margem, margem, largura, altura)
+  ctx.drawImage(logo, margem, topo, largura, altura)
+
+  const area = ctx.getImageData(margem, topo, largura, altura)
   for (let i = 0; i < area.data.length; i += 4) {
     const alfa = area.data[i + 3]
     const luz = (area.data[i] + area.data[i + 1] + area.data[i + 2]) / 3
@@ -128,7 +144,7 @@ function desenharLogo(
     area.data[i] = area.data[i + 1] = area.data[i + 2] = tinta ? 0 : 255
     area.data[i + 3] = 255
   }
-  ctx.putImageData(area, margem, margem)
+  ctx.putImageData(area, margem, topo)
 
   return largura
 }
@@ -163,7 +179,8 @@ export function desenharEtiqueta(
   // lote não nascer colado na marca.
   let x = margem
   if (dados.logo) {
-    x += desenharLogo(ctx, dados.logo, alturaUtil, margem) + Math.round(PONTOS_POR_MM * 1.5)
+    const orcamento = Math.round((comprimento * (formato.logoPorcento ?? 34)) / 100)
+    x += desenharLogo(ctx, dados.logo, alturaUtil, margem, orcamento) + Math.round(PONTOS_POR_MM * 1.5)
   }
 
   const larguraTexto = comprimento - x - margem

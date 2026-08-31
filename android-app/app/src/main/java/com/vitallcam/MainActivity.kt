@@ -465,6 +465,23 @@ class MainActivity : AppCompatActivity() {
         um.requestPermission(cam, pi)
     }
 
+    /** Manda a trilha da impressao pro /api/debug-log — leio de fora. */
+    private fun logEtiqueta(texto: String) {
+        android.util.Log.d("VitallCamEtiqueta", texto)
+        Thread {
+            runCatching {
+                val u = java.net.URL(getString(R.string.app_url).trimEnd('/') + "/api/debug-log")
+                val c = u.openConnection() as java.net.HttpURLConnection
+                c.requestMethod = "POST"; c.doOutput = true
+                c.connectTimeout = 6000; c.readTimeout = 6000
+                c.setRequestProperty("Content-Type", "text/plain; charset=utf-8")
+                val hora = android.text.format.DateFormat.format("HH:mm:ss", System.currentTimeMillis())
+                c.outputStream.use { it.write("ETIQUETA $hora\n$texto".toByteArray()) }
+                c.responseCode; c.disconnect()
+            }
+        }.start()
+    }
+
     /** Devolve o resultado da impressao pro JS; "" = deu certo. */
     private fun responderEtiqueta(erro: String) {
         runOnUiThread {
@@ -612,6 +629,10 @@ class MainActivity : AppCompatActivity() {
                         }
                     }.getOrElse { it.message ?: "Falha ao imprimir" }
                     imprimindo = false
+                    // Uma linha por passo do trabalho, sempre — e o unico jeito
+                    // de enxergar por que a impressao falhou num tablet que esta
+                    // na clinica. Um POST por impressao, nao por passo.
+                    logEtiqueta((if (erro.isEmpty()) "OK\n" else "ERRO: $erro\n") + etiqueta.diagnostico())
                     responderEtiqueta(erro)
                 }.start()
             }

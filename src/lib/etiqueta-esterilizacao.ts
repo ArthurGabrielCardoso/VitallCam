@@ -298,3 +298,41 @@ export function bitmapDeTeste(
 
   return { largura: larguraFinal, altura: alturaFinal, linhas }
 }
+
+/** Caminho da marca da clínica dentro do app. */
+const CAMINHO_LOGO = '/assets/images/logo-doc.png'
+
+let logoCarregando: Promise<HTMLImageElement | null> | null = null
+
+/**
+ * Carrega a marca da clínica uma vez por sessão.
+ *
+ * Devolve uma promessa porque a impressão precisa esperar por ela: desenhar
+ * antes de a imagem estar decodificada não dá erro, só sai etiqueta sem logo —
+ * e etiqueta sem logo é justamente o que não pode acontecer.
+ *
+ * Nunca rejeita. Se a imagem não vier, a etiqueta sai sem ela: o lote, as datas
+ * e o responsável é que fazem a rastreabilidade, e segurar a impressão por causa
+ * de um arquivo de imagem seria o erro maior.
+ */
+export function carregarLogo(): Promise<HTMLImageElement | null> {
+  if (typeof window === 'undefined') return Promise.resolve(null)
+  if (logoCarregando) return logoCarregando
+
+  logoCarregando = new Promise((resolve) => {
+    const img = new window.Image()
+    const desistir = setTimeout(() => resolve(null), 5_000)
+    img.onload = () => {
+      clearTimeout(desistir)
+      resolve(img)
+    }
+    img.onerror = () => {
+      clearTimeout(desistir)
+      // Uma falha não fica cacheada: a próxima impressão tenta de novo.
+      logoCarregando = null
+      resolve(null)
+    }
+    img.src = CAMINHO_LOGO
+  })
+  return logoCarregando
+}

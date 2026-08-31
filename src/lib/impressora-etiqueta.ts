@@ -28,7 +28,7 @@ export interface OpcoesImpressaoEtiqueta {
 const VARIANTE_NATIVA: Record<VarianteProtocolo, number> = { d11: 1, b21: 2, b1: 3 }
 
 const RECADOS: Record<string, string> = {
-  'sem-permissao': 'O app precisa da permissão de Bluetooth para achar a impressora.',
+  'sem-permissao': 'O app precisa da permissão de Bluetooth. Se a caixa não aparecer mais, libere em Ajustes do Android → Apps → VitallCam → Permissões.',
   'ja-imprimindo': 'Já tem uma etiqueta saindo. Espere terminar.',
   'etiqueta-invalida': 'O desenho da etiqueta não chegou inteiro no app.',
 }

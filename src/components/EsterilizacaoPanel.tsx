@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Biohazard, Bluetooth, Calendar, ChevronLeft, ChevronRight, Download, Loader2,
-  Pencil, Plus, Printer, QrCode, X,
+  Biohazard, Bluetooth, Calendar, ChevronLeft, ChevronRight, Download, Image as ImageIcon,
+  Loader2, Pencil, Plus, Printer, X,
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import {
@@ -45,8 +45,8 @@ interface Ajustes extends FormatoEtiqueta {
   densidade: number
   /** Reenvia o desenho a cada cópia, para modelo que ignore o contador. */
   repetirPagina: boolean
-  /** QR com o lote: conferência sem digitar. Não é exigência da norma. */
-  comQr: boolean
+  /** Marca da clínica à esquerda da etiqueta. */
+  comLogo: boolean
   /**
    * Família da impressora. Decide o formato do comando de tamanho de página —
    * errar faz a etiqueta andar em branco, que é como isso aparece na bancada.
@@ -59,7 +59,7 @@ const AJUSTES_PADRAO: Ajustes = {
   rotacao: 90,
   densidade: 3,
   repetirPagina: false,
-  comQr: true,
+  comLogo: true,
   variante: 'd11',
 }
 
@@ -87,7 +87,24 @@ function somarDias(iso: string, dias: number): string {
   return data.toISOString().slice(0, 10)
 }
 
-function etiquetaDoCiclo(ciclo: CicloEsterilizacao, comQr: boolean): DadosEtiqueta {
+/**
+ * Carrega a marca da clínica uma vez para desenhar na etiqueta.
+ *
+ * O canvas precisa da imagem já decodificada — desenhar antes disso sai em
+ * branco, sem erro. Enquanto ela não chega a etiqueta se desenha sem a logo, e
+ * o efeito redesenha quando ela carrega.
+ */
+function useLogoDaClinica(): HTMLImageElement | null {
+  const [logo, setLogo] = useState<HTMLImageElement | null>(null)
+  useEffect(() => {
+    const img = new window.Image()
+    img.onload = () => setLogo(img)
+    img.src = '/assets/images/logo.png'
+  }, [])
+  return logo
+}
+
+function etiquetaDoCiclo(ciclo: CicloEsterilizacao, logo: HTMLImageElement | null): DadosEtiqueta {
   return {
     lote: ciclo.lote,
     data: formatarData(ciclo.data),
@@ -95,7 +112,7 @@ function etiquetaDoCiclo(ciclo: CicloEsterilizacao, comQr: boolean): DadosEtique
     responsavel: ciclo.responsavel,
     autoclave: ciclo.autoclave,
     conteudo: ciclo.conteudo,
-    qr: comQr ? `VITALL:${ciclo.lote}` : undefined,
+    logo,
   }
 }
 
@@ -400,6 +417,7 @@ function ModalEtiqueta({
   const [conteudo, setConteudo] = useState(ciclo?.conteudo ?? '')
   const [quantidade, setQuantidade] = useState(ciclo?.quantidade_etiquetas ?? 10)
   const [progresso, setProgresso] = useState<number | null>(null)
+  const logo = useLogoDaClinica()
 
   // A validade acompanha a data do ciclo enquanto ninguém a escreveu à mão.
   useEffect(() => {
@@ -416,8 +434,8 @@ function ModalEtiqueta({
     responsavel: responsavel.trim() || RESPONSAVEL_PADRAO,
     autoclave: autoclave.trim() || null,
     conteudo: conteudo.trim() || null,
-    qr: ajustes.comQr ? `VITALL:${lote}` : undefined,
-  }), [lote, data, validade, responsavel, autoclave, conteudo, ajustes.comQr])
+    logo: ajustes.comLogo ? logo : null,
+  }), [lote, data, validade, responsavel, autoclave, conteudo, ajustes.comLogo, logo])
 
   const desenhar = useCallback((alvo: HTMLCanvasElement) => {
     desenharEtiqueta(alvo, dados, {
@@ -450,7 +468,7 @@ function ModalEtiqueta({
       })
 
       const canvas = document.createElement('canvas')
-      desenharEtiqueta(canvas, etiquetaDoCiclo(alvo, ajustes.comQr), {
+      desenharEtiqueta(canvas, etiquetaDoCiclo(alvo, ajustes.comLogo ? logo : null), {
         comprimentoMm: ajustes.comprimentoMm,
         larguraMm: ajustes.larguraMm,
         margem: ajustes.margem,
@@ -789,8 +807,8 @@ function AjustesImpressora({
         </button>
 
         <label className="flex items-center gap-2 text-[11px] text-gray-500 col-span-2">
-          <input type="checkbox" checked={ajustes.comQr} onChange={(e) => onMudar({ comQr: e.target.checked })} />
-          <QrCode className="w-3.5 h-3.5" /> Imprimir QR do lote
+          <input type="checkbox" checked={ajustes.comLogo} onChange={(e) => onMudar({ comLogo: e.target.checked })} />
+          <ImageIcon className="w-3.5 h-3.5" /> Imprimir a logo da clínica
         </label>
         <label className="flex items-center gap-2 text-[11px] text-gray-500 col-span-2">
           <input

@@ -8,16 +8,14 @@
  * linha na largura da cabeça.
  *
  * O que vai impresso segue o art. 81 da RDC 1.002/2025: lote/ciclo, data da
- * esterilização, validade do pacote, responsável e a autoclave. O QR é conveniência
- * (dá para conferir o lote sem digitar), não exigência: o texto legível é o que
- * a Vigilância bate o olho, então ele nunca some para dar espaço ao QR.
+ * esterilização, validade do pacote, responsável e a autoclave. À esquerda vai a
+ * marca da clínica — o texto legível é o que a Vigilância bate o olho, então ele
+ * nunca encolhe para dar espaço à logo.
  *
  * O indicador químico tipo 1 NÃO está aqui e não tem como estar: papel térmico
  * não vira reagente. Ele vem da borda do papel grau cirúrgico ou da fita
  * zebrada — esta etiqueta cuida da rastreabilidade, o pacote cuida do indicador.
  */
-
-import { gerarQrCode } from './qrcode'
 
 /** Resolução da cabeça térmica: 203 dpi ≈ 8 pontos por milímetro. */
 export const PONTOS_POR_MM = 8
@@ -47,8 +45,11 @@ export interface DadosEtiqueta {
   responsavel: string
   autoclave?: string | null
   conteudo?: string | null
-  /** Conteúdo do QR. Vazio esconde o QR e devolve todo o espaço ao texto. */
-  qr?: string
+  /**
+   * Marca da clínica, já carregada. Nulo imprime só o texto — a etiqueta vale
+   * igual sem ela, então uma imagem que não carregou nunca segura a impressão.
+   */
+  logo?: HTMLImageElement | null
 }
 
 /** Bitmap monocromático pronto para a impressora: uma linha por vez. */
@@ -85,27 +86,51 @@ function ajustarFonte(
   return tamanho
 }
 
-/** Desenha o QR no canto esquerdo e devolve quanto de largura ele consumiu. */
-function desenharQr(
+/**
+ * Alfa a partir do qual o ponto vira tinta.
+ *
+ * Baixo de propósito: a marca é de traço fino e, reduzida a 10 mm, cada traço
+ * cai em cima de meio ponto da cabeça térmica. Com o corte no meio da escala os
+ * traços somem; com ele baixo a logo engorda um pouco, que é o erro certo numa
+ * impressora de 203 dpi.
+ */
+const ALFA_MINIMO_LOGO = 48
+
+/** Acima disto o ponto é claro demais para virar tinta (fundo branco da arte). */
+const LUZ_MAXIMA_LOGO = 235
+
+/**
+ * Desenha a marca da clínica à esquerda e devolve a largura que ela ocupou.
+ *
+ * A impressora é preto no branco, sem meio-tom: em vez de deixar o limiar geral
+ * decidir depois — que apagaria o dourado da marca, claro demais — a região da
+ * logo já sai binarizada aqui, por opacidade.
+ */
+function desenharLogo(
   ctx: CanvasRenderingContext2D,
-  conteudo: string,
+  logo: HTMLImageElement,
   alturaDisponivel: number,
   margem: number,
 ): number {
-  const modulos = gerarQrCode(conteudo, 'M')
-  // Escala inteira: meio ponto de módulo em impressora térmica vira módulo
-  // borrado, e QR borrado é QR que não lê.
-  const escala = Math.max(1, Math.floor(alturaDisponivel / modulos.length))
-  const lado = escala * modulos.length
-  const topo = margem + Math.floor((alturaDisponivel - lado) / 2)
+  const proporcao = logo.naturalWidth > 0 && logo.naturalHeight > 0
+    ? logo.naturalWidth / logo.naturalHeight
+    : 1
+  const altura = alturaDisponivel
+  const largura = Math.max(1, Math.round(altura * proporcao))
 
-  ctx.fillStyle = '#000'
-  for (let l = 0; l < modulos.length; l++) {
-    for (let c = 0; c < modulos.length; c++) {
-      if (modulos[l][c]) ctx.fillRect(margem + c * escala, topo + l * escala, escala, escala)
-    }
+  ctx.drawImage(logo, margem, margem, largura, altura)
+
+  const area = ctx.getImageData(margem, margem, largura, altura)
+  for (let i = 0; i < area.data.length; i += 4) {
+    const alfa = area.data[i + 3]
+    const luz = (area.data[i] + area.data[i + 1] + area.data[i + 2]) / 3
+    const tinta = alfa >= ALFA_MINIMO_LOGO && luz < LUZ_MAXIMA_LOGO
+    area.data[i] = area.data[i + 1] = area.data[i + 2] = tinta ? 0 : 255
+    area.data[i + 3] = 255
   }
-  return lado
+  ctx.putImageData(area, margem, margem)
+
+  return largura
 }
 
 /**
@@ -133,9 +158,12 @@ export function desenharEtiqueta(
   const margem = formato.margem
   const alturaUtil = largura - margem * 2
 
+  // A logo abre espaço à esquerda; o texto começa depois dela, com uma folga
+  // maior do que a de antes — pedido de quem lê a etiqueta na bancada, para o
+  // lote não nascer colado na marca.
   let x = margem
-  if (dados.qr) {
-    x += desenharQr(ctx, dados.qr, alturaUtil, margem) + Math.round(PONTOS_POR_MM * 0.75)
+  if (dados.logo) {
+    x += desenharLogo(ctx, dados.logo, alturaUtil, margem) + Math.round(PONTOS_POR_MM * 1.5)
   }
 
   const larguraTexto = comprimento - x - margem
@@ -155,7 +183,11 @@ export function desenharEtiqueta(
   const entrelinha = 2
   const alturaTotal = tamanhos.reduce((soma, t) => soma + t + entrelinha, -entrelinha)
 
-  let y = margem + Math.max(0, Math.floor((alturaUtil - alturaTotal) / 2))
+  // Meio ponto de milímetro abaixo do centro: sem isso o bloco fica alto demais
+  // em relação à marca, e a etiqueta parece torta mesmo estando certa.
+  const respiro = Math.round(PONTOS_POR_MM * 0.5)
+  const sobra = Math.max(0, alturaUtil - alturaTotal)
+  let y = margem + Math.min(sobra, Math.floor(sobra / 2) + respiro)
   linhas.forEach((linha, i) => {
     ctx.font = `${linha.peso} ${tamanhos[i]}px Arial, Helvetica, sans-serif`
     ctx.fillText(linha.texto, x, y)

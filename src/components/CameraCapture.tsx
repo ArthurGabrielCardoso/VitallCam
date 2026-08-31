@@ -67,6 +67,8 @@ declare global {
       versaoEtiqueta?: () => number
       /** Procura impressoras; responde por __onImpressorasEncontradas. */
       procurarImpressoras?: () => void
+      /** Abre a conexão com a impressora sem imprimir, para aquecer o canal. */
+      aquecerImpressora?: () => void
       /** Fixa a impressora escolhida na lista. */
       escolherImpressora?: (mac: string, nome: string) => void
       /** Nome da impressora lembrada, ou "" enquanto nenhuma foi encontrada. */

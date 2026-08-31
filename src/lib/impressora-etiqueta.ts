@@ -98,6 +98,22 @@ export function procurarImpressoras(): Promise<ImpressoraEncontrada[]> {
   })
 }
 
+/**
+ * Abre a conexão com a impressora antes de a pessoa pedir a etiqueta.
+ *
+ * O trabalho que abre a conexão é o que sai em branco — a impressora ainda não
+ * terminou de acordar quando o desenho chega. Aquecendo ao abrir a tela, o
+ * trabalho dela nunca é o primeiro contato. Silencioso de propósito: se não der,
+ * a impressão faz a conexão do jeito de sempre.
+ */
+export function aquecerImpressora(): void {
+  try {
+    window.VitallCam?.aquecerImpressora?.()
+  } catch {
+    // APK sem o método: a impressão conecta na hora, como antes.
+  }
+}
+
 /** Fixa a impressora escolhida na lista; a próxima impressão vai nela. */
 export function escolherImpressora(impressora: ImpressoraEncontrada): void {
   window.VitallCam?.escolherImpressora?.(impressora.mac, impressora.nome)

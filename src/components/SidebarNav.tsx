@@ -10,6 +10,7 @@ import {
   PlayCircle,
   FileSignature,
   ScanLine,
+  Biohazard,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -22,11 +23,12 @@ type NavItem = {
 }
 
 const navigation: NavItem[] = [
-  { name: "Início",       href: "/patients",               icon: Home          },
-  { name: "Pacientes",    href: "/patients",               icon: UserRound     },
-  { name: "Radiografias", href: "/patients/radiografias",  icon: ScanLine      },
-  { name: "Contratos",    href: "/patients/contratos",     icon: FileSignature },
-  { name: "Mídia",        href: "/patients/media",         icon: PlayCircle    },
+  { name: "Início",        href: "/patients",               icon: Home          },
+  { name: "Pacientes",     href: "/patients",               icon: UserRound     },
+  { name: "Radiografias",  href: "/patients/radiografias",  icon: ScanLine      },
+  { name: "Esterilização", href: "/patients/esterilizacao", icon: Biohazard     },
+  { name: "Contratos",     href: "/patients/contratos",     icon: FileSignature },
+  { name: "Mídia",         href: "/patients/media",         icon: PlayCircle    },
 ]
 
 export function SidebarNav() {

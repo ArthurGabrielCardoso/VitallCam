@@ -185,6 +185,53 @@ class EtiquetaNiimbot(private val context: Context) {
         return achada
     }
 
+    /** Uma impressora vista no ar, do jeito que a tela mostra. */
+    data class Encontrada(val nome: String, val mac: String, val provavel: Boolean)
+
+    /**
+     * Varre e devolve tudo o que apareceu, com as prováveis Niimbot na frente.
+     *
+     * Devolver também o que não parece impressora é de propósito: o nome do
+     * anúncio varia por lote e por firmware, e esconder um aparelho porque o
+     * nome não bate com a nossa lista é como a busca automática falha sem
+     * explicação. Quem está com a impressora na mão sabe qual é a dela.
+     *
+     * Bloqueia pelo tempo da varredura — chame de uma thread de fundo.
+     */
+    fun procurar(segundos: Long = SEGUNDOS_VARREDURA): List<Encontrada> {
+        val adapter = adaptador() ?: return emptyList()
+        val achados = LinkedHashMap<String, Encontrada>()
+
+        adapter.bondedDevices.orEmpty().forEach { pareada ->
+            val nome = pareada.name
+            if (!nome.isNullOrBlank()) achados[pareada.address] = Encontrada(nome, pareada.address, ehNiimbot(nome))
+        }
+
+        val scanner = adapter.bluetoothLeScanner
+        if (scanner != null) {
+            val varredura = object : ScanCallback() {
+                override fun onScanResult(tipo: Int, resultado: ScanResult) {
+                    val device = resultado.device ?: return
+                    val nome = device.name ?: resultado.scanRecord?.deviceName ?: return
+                    val anunciaServico = resultado.scanRecord?.serviceUuids?.any { it.uuid == SERVICO } == true
+                    achados[device.address] = Encontrada(nome, device.address, ehNiimbot(nome) || anunciaServico)
+                }
+            }
+            val ajustes = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+            scanner.startScan(null, ajustes, varredura)
+            runCatching { Thread.sleep(segundos * 1000) }
+            runCatching { scanner.stopScan(varredura) }
+        }
+
+        return achados.values.sortedByDescending { it.provavel }
+    }
+
+    /** Fixa a impressora escolhida na tela; a próxima impressão vai direto nela. */
+    fun escolher(mac: String, nome: String) {
+        desconectar()
+        prefs().edit().putString(CHAVE_MAC, mac).putString(CHAVE_NOME, nome).apply()
+    }
+
     private fun ehNiimbot(nome: String?): Boolean {
         val n = nome?.uppercase() ?: return false
         return PREFIXOS.any { n.startsWith(it) }
@@ -221,7 +268,7 @@ class EtiquetaNiimbot(private val context: Context) {
      * localizacao LIGADA para devolver qualquer resultado de varredura BLE.
      * Ninguem adivinha isso olhando para uma impressora acesa.
      */
-    private fun impedimento(): String {
+    fun impedimento(): String {
         val adapter = adaptador() ?: return "Este aparelho nao tem Bluetooth."
         if (!adapter.isEnabled) return "O Bluetooth do tablet esta desligado. Ligue e tente de novo."
 

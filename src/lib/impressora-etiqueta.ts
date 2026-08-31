@@ -48,6 +48,61 @@ export function impressoraLembrada(): string {
   }
 }
 
+export interface ImpressoraEncontrada {
+  nome: string
+  mac: string
+  /** Nome ou serviço batem com uma Niimbot — vem no topo da lista. */
+  provavel: boolean
+}
+
+/** O app sabe listar impressoras? (APK anterior à ponte 3 não sabe.) */
+export function podeListarImpressoras(): boolean {
+  return modoImpressao() === 'app' && typeof window.VitallCam?.procurarImpressoras === 'function'
+}
+
+/**
+ * Procura impressoras pelo app e devolve o que apareceu.
+ *
+ * Existe porque a busca automática, quando não acha, é um beco sem saída: sem
+ * lista, "não achei a impressora" não diz se o tablet enxergou alguma coisa.
+ */
+export function procurarImpressoras(): Promise<ImpressoraEncontrada[]> {
+  return new Promise((resolve, reject) => {
+    const ponte = window.VitallCam
+    if (typeof ponte?.procurarImpressoras !== 'function') {
+      reject(new Error('Este app ainda não sabe listar impressoras. Atualize o APK.'))
+      return
+    }
+
+    const limpar = () => {
+      clearTimeout(cronometro)
+      delete window.__onImpressorasEncontradas
+    }
+    const cronometro = setTimeout(() => {
+      limpar()
+      reject(new Error('A busca não respondeu. Tente de novo.'))
+    }, 40_000)
+
+    window.__onImpressorasEncontradas = (lista, impedimento) => {
+      limpar()
+      if (impedimento) reject(new Error(impedimento))
+      else resolve(lista || [])
+    }
+
+    try {
+      ponte.procurarImpressoras()
+    } catch (erro) {
+      limpar()
+      reject(erro instanceof Error ? erro : new Error('Falha ao chamar o app'))
+    }
+  })
+}
+
+/** Fixa a impressora escolhida na lista; a próxima impressão vai nela. */
+export function escolherImpressora(impressora: ImpressoraEncontrada): void {
+  window.VitallCam?.escolherImpressora?.(impressora.mac, impressora.nome)
+}
+
 export function esquecerImpressora(): void {
   try {
     window.VitallCam?.esquecerImpressoraEtiqueta?.()

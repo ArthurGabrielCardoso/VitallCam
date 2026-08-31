@@ -15,7 +15,9 @@ import {
   DadosEtiqueta, FORMATO_PADRAO, FormatoEtiqueta, bitmapDeTeste, canvasParaBitmap, desenharEtiqueta,
 } from '@/lib/etiqueta-esterilizacao'
 import {
-  ModoImpressao, esquecerImpressora, imprimirEtiqueta as enviarEtiqueta, impressoraLembrada, modoImpressao,
+  ImpressoraEncontrada, ModoImpressao, escolherImpressora, esquecerImpressora,
+  imprimirEtiqueta as enviarEtiqueta, impressoraLembrada, modoImpressao, podeListarImpressoras,
+  procurarImpressoras,
 } from '@/lib/impressora-etiqueta'
 import { Niimbot, VarianteProtocolo } from '@/lib/niimbot'
 
@@ -301,10 +303,27 @@ function EstadoImpressora({
   const { toast } = useToast()
   const [conectando, setConectando] = useState(false)
   const [lembrada, setLembrada] = useState('')
+  const [buscando, setBuscando] = useState(false)
+  const [encontradas, setEncontradas] = useState<ImpressoraEncontrada[] | null>(null)
 
   useEffect(() => {
     if (modo === 'app') setLembrada(impressoraLembrada())
   }, [modo])
+
+  const buscar = async () => {
+    setBuscando(true)
+    try {
+      setEncontradas(await procurarImpressoras())
+    } catch (erro: unknown) {
+      toast({
+        variant: 'destructive',
+        title: 'Não deu para procurar',
+        description: erro instanceof Error ? erro.message : 'Tente de novo',
+      })
+    } finally {
+      setBuscando(false)
+    }
+  }
 
   const conectar = async (mostrarTodos: boolean) => {
     setConectando(true)
@@ -323,16 +342,34 @@ function EstadoImpressora({
 
   if (modo === 'app') {
     return (
-      <div className="flex items-center gap-2 text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded px-3 py-2">
-        <Printer className="w-3.5 h-3.5" />
-        {lembrada ? `${lembrada} — pronta` : 'Impressão pelo app: a impressora é procurada na primeira etiqueta'}
-        <button
-          onClick={() => { esquecerImpressora(); setLembrada('') }}
-          className="text-gray-400 hover:text-gray-600 underline underline-offset-2"
-          title="Procurar a impressora de novo na próxima impressão"
-        >
-          procurar de novo
-        </button>
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded px-3 py-2">
+          <Printer className="w-3.5 h-3.5" />
+          {lembrada ? `${lembrada} — pronta` : 'Nenhuma impressora escolhida ainda'}
+        </div>
+        {podeListarImpressoras() && (
+          <button
+            onClick={buscar}
+            disabled={buscando}
+            className="flex items-center gap-2 h-9 px-4 rounded border border-gray-200 bg-white text-sm text-gray-600 hover:text-teal-700 hover:border-teal-500 transition-colors disabled:opacity-60"
+          >
+            {buscando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bluetooth className="w-4 h-4" />}
+            {buscando ? 'Procurando…' : 'Conectar impressora'}
+          </button>
+        )}
+
+        {encontradas && (
+          <ListaImpressoras
+            lista={encontradas}
+            onEscolher={(impressora) => {
+              escolherImpressora(impressora)
+              setLembrada(impressora.nome)
+              setEncontradas(null)
+              toast({ title: `${impressora.nome} escolhida`, description: 'As próximas etiquetas vão direto para ela.' })
+            }}
+            onFechar={() => setEncontradas(null)}
+          />
+        )}
       </div>
     )
   }
@@ -378,6 +415,59 @@ function EstadoImpressora({
       >
         não aparece?
       </button>
+    </div>
+  )
+}
+
+/** Lista do que apareceu no ar — a pessoa toca na impressora dela. */
+function ListaImpressoras({
+  lista, onEscolher, onFechar,
+}: {
+  lista: ImpressoraEncontrada[]
+  onEscolher: (i: ImpressoraEncontrada) => void
+  onFechar: () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in"
+      onClick={onFechar}
+    >
+      <div
+        className="clean-dialog w-full max-w-sm max-h-[80vh] overflow-y-auto bg-white rounded-xl shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-base font-semibold text-gray-800">Escolha a impressora</h2>
+            <p className="text-xs text-gray-400">Toque na sua Niimbot. Fica salva para as próximas.</p>
+          </div>
+          <button onClick={onFechar} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-3 space-y-2">
+          {lista.length === 0 && (
+            <p className="text-sm text-gray-500 p-4 text-center">
+              Nenhum aparelho apareceu. Confira se a Niimbot está ligada, perto do tablet e não conectada
+              no app dela — ela aceita uma conexão por vez.
+            </p>
+          )}
+          {lista.map((impressora) => (
+            <button
+              key={impressora.mac}
+              onClick={() => onEscolher(impressora)}
+              className="w-full text-left px-4 py-3 rounded border border-gray-200 hover:bg-teal-50 hover:border-teal-500 transition-colors"
+            >
+              <span className="block text-sm font-medium text-gray-800">{impressora.nome}</span>
+              <span className="block text-[11px] text-gray-400">
+                {impressora.mac}
+                {impressora.provavel ? ' · parece uma Niimbot' : ''}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

@@ -200,16 +200,20 @@ export class Niimbot {
   }
 
   /**
-   * Escreve no canal serial.
+   * Escreve no canal serial, em fatias de 20 bytes.
    *
-   * Em blocos de 500 bytes, não de 20: o navegador já quebra o valor no MTU
-   * negociado e manda os pedaços em sequência, enquanto fatiar aqui obriga uma
-   * ida e volta por fatia. Com 20 bytes, uma etiqueta de 400 linhas virava umas
-   * oitocentas idas e voltas — mais de um minuto de barra de progresso para uma
-   * etiqueta que a impressora cospe em segundos.
+   * Vinte é o que cabe num pacote BLE sem MTU negociado, e a Web Bluetooth não
+   * diz qual MTU a conexão conseguiu. Escrever mais que isso "sem resposta" não
+   * dá erro: o sistema corta o resto em silêncio, e a etiqueta sai em branco ou
+   * não sai. Tentei 500 bytes por fatia e foi exatamente o que aconteceu.
+   *
+   * A velocidade não vem do tamanho da fatia e sim de não esperar confirmação:
+   * cada confirmação custa um intervalo de conexão inteiro, e uma etiqueta são
+   * centenas de escritas. Sem confirmação o navegador enfileira e despacha
+   * várias por intervalo.
    */
   private async escrever(dados: Uint8Array) {
-    const passo = 500
+    const passo = 20
     for (let i = 0; i < dados.length; i += passo) {
       const fatia = dados.slice(i, i + passo)
       if (this.semResposta) await this.caracteristica.writeValueWithoutResponse(fatia)
@@ -291,9 +295,9 @@ export class Niimbot {
         await this.enviar(COMANDO.QUANTIDADE, quantidade, COMANDO.QUANTIDADE + 1)
       }
 
-      // As linhas vão em lote: o canal é um fluxo de bytes, então vários
-      // pacotes numa escrita só chegam iguais e custam uma ida e volta em vez
-      // de uma por linha.
+      // As linhas vão em lote: o canal é um fluxo de bytes, então juntar
+      // pacotes antes de escrever poupa chamadas — as fatias de 20 bytes saem
+      // cheias em vez de terminar cada linha com uma fatia pela metade.
       let lote: number[] = []
       const despejar = async () => {
         if (lote.length === 0) return

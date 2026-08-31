@@ -99,7 +99,9 @@ function useLogoDaClinica(): HTMLImageElement | null {
   useEffect(() => {
     const img = new window.Image()
     img.onload = () => setLogo(img)
-    img.src = '/assets/images/logo.png'
+    // A versão de documento é a marca já sem a moldura transparente da
+    // quadrada — na etiqueta, aquela moldura viraria espaço em branco caro.
+    img.src = '/assets/images/logo-doc.png'
   }, [])
   return logo
 }
@@ -323,13 +325,13 @@ function EstadoImpressora({
     return (
       <div className="flex items-center gap-2 text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded px-3 py-2">
         <Printer className="w-3.5 h-3.5" />
-        {lembrada ? `${lembrada} — pronta` : 'Impressão pelo app, sem conectar'}
+        {lembrada ? `${lembrada} — pronta` : 'Impressão pelo app: a impressora é procurada na primeira etiqueta'}
         <button
           onClick={() => { esquecerImpressora(); setLembrada('') }}
           className="text-gray-400 hover:text-gray-600 underline underline-offset-2"
           title="Procurar a impressora de novo na próxima impressão"
         >
-          trocar
+          procurar de novo
         </button>
       </div>
     )
@@ -417,6 +419,9 @@ function ModalEtiqueta({
   const [conteudo, setConteudo] = useState(ciclo?.conteudo ?? '')
   const [quantidade, setQuantidade] = useState(ciclo?.quantidade_etiquetas ?? 10)
   const [progresso, setProgresso] = useState<number | null>(null)
+  // O aviso de erro fica na tela, não só no toast: quem está na bancada precisa
+  // conseguir ler a mensagem inteira e repetir para quem vai consertar.
+  const [ultimoErro, setUltimoErro] = useState<string | null>(null)
   const logo = useLogoDaClinica()
 
   // A validade acompanha a data do ciclo enquanto ninguém a escreveu à mão.
@@ -442,6 +447,7 @@ function ModalEtiqueta({
       comprimentoMm: ajustes.comprimentoMm,
       larguraMm: ajustes.larguraMm,
       margem: ajustes.margem,
+      logoPorcento: ajustes.logoPorcento,
     })
   }, [dados, ajustes.comprimentoMm, ajustes.larguraMm, ajustes.margem])
 
@@ -472,6 +478,7 @@ function ModalEtiqueta({
         comprimentoMm: ajustes.comprimentoMm,
         larguraMm: ajustes.larguraMm,
         margem: ajustes.margem,
+        logoPorcento: ajustes.logoPorcento,
       })
       const bitmap = canvasParaBitmap(canvas, ajustes.rotacao)
 
@@ -487,6 +494,7 @@ function ModalEtiqueta({
         { impressora: conectada, aoConectar: onImpressora },
       )
 
+      setUltimoErro(null)
       toast({
         title: `Lote ${alvo.lote} impresso`,
         description: `${quantidade} etiqueta${quantidade > 1 ? 's' : ''} — cole no papel grau cirúrgico, que já traz o indicador químico.`,
@@ -495,6 +503,7 @@ function ModalEtiqueta({
     } catch (erro: unknown) {
       const msg = erro instanceof Error ? erro.message : 'Falha ao imprimir'
       if (!/cancel|user/i.test(msg)) {
+        setUltimoErro(msg)
         toast({ variant: 'destructive', title: 'Não deu para imprimir', description: msg })
       }
     } finally {
@@ -517,6 +526,7 @@ function ModalEtiqueta({
         conectada = await Niimbot.conectar(false)
         onImpressora(conectada)
       }
+      setUltimoErro(null)
       await enviarEtiqueta(
         bitmapDeTeste({
           comprimentoMm: ajustes.comprimentoMm,
@@ -539,6 +549,7 @@ function ModalEtiqueta({
     } catch (erro: unknown) {
       const msg = erro instanceof Error ? erro.message : 'Falha ao imprimir'
       if (!/cancel|user/i.test(msg)) {
+        setUltimoErro(msg)
         toast({ variant: 'destructive', title: 'Não deu para imprimir o teste', description: msg })
       }
     } finally {
@@ -690,6 +701,12 @@ function ModalEtiqueta({
 
           <AjustesImpressora ajustes={ajustes} onMudar={salvarAjustes} onTestar={imprimirTeste} ocupado={ocupado} />
 
+          {ultimoErro && (
+            <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-3">
+              {ultimoErro}
+            </p>
+          )}
+
           {progresso !== null && (
             <div className="h-1.5 rounded bg-gray-100 overflow-hidden">
               <div className="h-full bg-teal-600 transition-all" style={{ width: `${progresso}%` }} />
@@ -771,6 +788,14 @@ function AjustesImpressora({
             <option value={180}>180°</option>
             <option value={270}>270°</option>
           </select>
+        </label>
+        <label className="text-[11px] text-gray-500">
+          Tamanho da logo (%)
+          <input
+            type="number" min={0} max={60} value={ajustes.logoPorcento ?? 34}
+            onChange={(e) => onMudar({ logoPorcento: Math.min(60, Math.max(0, Number(e.target.value) || 0)) })}
+            className={`${campo} w-full mt-1`}
+          />
         </label>
         <label className="text-[11px] text-gray-500">
           Densidade (1 a 5)

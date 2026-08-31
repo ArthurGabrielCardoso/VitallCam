@@ -156,7 +156,9 @@ export class Niimbot {
       throw new Error('A impressora conectou, mas não expôs o canal de impressão esperado.')
     }
 
-    const impressora = new Niimbot(dispositivo, escolhida, !escolhida.properties.write)
+    // Sem confirmação sempre que o firmware aceitar: cada confirmação custa um
+    // intervalo de conexão inteiro, e uma etiqueta são centenas de escritas.
+    const impressora = new Niimbot(dispositivo, escolhida, !!escolhida.properties.writeWithoutResponse)
     if (escolhida.properties.notify) {
       await escolhida.startNotifications()
       escolhida.addEventListener('characteristicvaluechanged', (evento: any) => {
@@ -197,11 +199,19 @@ export class Niimbot {
     }
   }
 
-  private async escrever(pacote: Uint8Array) {
-    // MTU padrão do BLE são 20 bytes de carga; o firmware remonta o fluxo.
-    const passo = 20
-    for (let i = 0; i < pacote.length; i += passo) {
-      const fatia = pacote.slice(i, i + passo)
+  /**
+   * Escreve no canal serial.
+   *
+   * Em blocos de 500 bytes, não de 20: o navegador já quebra o valor no MTU
+   * negociado e manda os pedaços em sequência, enquanto fatiar aqui obriga uma
+   * ida e volta por fatia. Com 20 bytes, uma etiqueta de 400 linhas virava umas
+   * oitocentas idas e voltas — mais de um minuto de barra de progresso para uma
+   * etiqueta que a impressora cospe em segundos.
+   */
+  private async escrever(dados: Uint8Array) {
+    const passo = 500
+    for (let i = 0; i < dados.length; i += passo) {
+      const fatia = dados.slice(i, i + passo)
       if (this.semResposta) await this.caracteristica.writeValueWithoutResponse(fatia)
       else await this.caracteristica.writeValueWithResponse(fatia)
     }
@@ -281,6 +291,16 @@ export class Niimbot {
         await this.enviar(COMANDO.QUANTIDADE, quantidade, COMANDO.QUANTIDADE + 1)
       }
 
+      // As linhas vão em lote: o canal é um fluxo de bytes, então vários
+      // pacotes numa escrita só chegam iguais e custam uma ida e volta em vez
+      // de uma por linha.
+      let lote: number[] = []
+      const despejar = async () => {
+        if (lote.length === 0) return
+        await this.escrever(Uint8Array.from(lote))
+        lote = []
+      }
+
       for (let y = 0; y < bitmap.linhas.length; y++) {
         const linha = bitmap.linhas[y]
         // Cabeçalho: número da linha, três contadores de pontos pretos (a
@@ -290,10 +310,15 @@ export class Niimbot {
         corpo[1] = y & 0xff
         corpo[5] = 1
         corpo.set(linha, 6)
-        await this.escrever(montarPacote(COMANDO.IMPRIMIR_LINHA, corpo))
+
+        const pacote = montarPacote(COMANDO.IMPRIMIR_LINHA, corpo)
+        for (let i = 0; i < pacote.length; i++) lote.push(pacote[i])
+        if (lote.length >= 480) await despejar()
+
         enviadas++
-        if (enviadas % 16 === 0) opcoes.aoProgredir?.(enviadas, totalLinhas)
+        if (enviadas % 32 === 0) opcoes.aoProgredir?.(enviadas, totalLinhas)
       }
+      await despejar()
 
       await this.enviar(COMANDO.FIM_PAGINA, [0x01], COMANDO.FIM_PAGINA + 1)
     }

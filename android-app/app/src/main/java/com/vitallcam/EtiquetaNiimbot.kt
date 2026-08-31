@@ -15,6 +15,7 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import java.util.UUID
@@ -149,7 +150,12 @@ class EtiquetaNiimbot(private val context: Context) {
         val varredura = object : ScanCallback() {
             override fun onScanResult(tipo: Int, resultado: ScanResult) {
                 val nome = resultado.device?.name ?: resultado.scanRecord?.deviceName
-                if (ehNiimbot(nome)) achados.offer(resultado.device)
+                // Nem toda Niimbot anuncia o nome: parte delas so aparece com o
+                // nome depois de conectada. Quando o anuncio traz o servico
+                // serial, isso ja identifica a impressora.
+                val anunciaServico = resultado.scanRecord?.serviceUuids
+                    ?.any { it.uuid == SERVICO } == true
+                if (ehNiimbot(nome) || anunciaServico) achados.offer(resultado.device)
             }
         }
         val ajustes = ScanSettings.Builder()
@@ -189,11 +195,41 @@ class EtiquetaNiimbot(private val context: Context) {
         return false
     }
 
+    /**
+     * O que impede a busca antes mesmo de comecar.
+     *
+     * Sem isto tudo desemboca em "nao achei a impressora", que manda a pessoa
+     * procurar defeito na Niimbot quando o problema esta no tablet — e o caso
+     * mais comum e justamente esse: ate o Android 11, o sistema exige a
+     * localizacao LIGADA para devolver qualquer resultado de varredura BLE.
+     * Ninguem adivinha isso olhando para uma impressora acesa.
+     */
+    private fun impedimento(): String {
+        val adapter = adaptador() ?: return "Este aparelho nao tem Bluetooth."
+        if (!adapter.isEnabled) return "O Bluetooth do tablet esta desligado. Ligue e tente de novo."
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            val local = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            val ligada = local != null && (
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) local.isLocationEnabled
+                else runCatching { local.isProviderEnabled(LocationManager.NETWORK_PROVIDER) }.getOrDefault(false) ||
+                    runCatching { local.isProviderEnabled(LocationManager.GPS_PROVIDER) }.getOrDefault(false)
+            )
+            if (!ligada) {
+                return "Ligue a Localizacao do tablet: nesta versao do Android ela e obrigatoria para achar a impressora por Bluetooth."
+            }
+        }
+        return ""
+    }
+
     private fun conectar(): String {
         if (canal != null && gatt != null) return ""
 
+        val impedimento = impedimento()
+        if (impedimento.isNotEmpty()) return impedimento
+
         val device = encontrar()
-            ?: return "Nao achei a impressora. Ligue a Niimbot e deixe ela perto do tablet."
+            ?: return "Nao achei a impressora. Ligue a Niimbot, deixe perto do tablet e confira se ela nao esta conectada no app da Niimbot."
 
         eventos.clear()
         val g = device.connectGatt(context, false, retorno, BluetoothDevice.TRANSPORT_LE)
@@ -336,6 +372,12 @@ class EtiquetaNiimbot(private val context: Context) {
         return true
     }
 
+    /** Manda um comando e diz apenas se o pacote saiu — sem esperar resposta. */
+    private fun escreveu(tipo: Int, dados: ByteArray): Boolean {
+        respostas.clear()
+        return escrever(pacote(tipo, dados))
+    }
+
     private fun comando(tipo: Int, dados: ByteArray, respostaEsperada: Int?, ms: Long = 700): Resposta? {
         respostas.clear()
         if (!escrever(pacote(tipo, dados))) return null
@@ -368,15 +410,58 @@ class EtiquetaNiimbot(private val context: Context) {
         if (linhas.isEmpty()) return "Etiqueta vazia."
         if (permissoesFaltando().isNotEmpty()) return "Falta a permissao de Bluetooth."
 
+        // A conexao fica de pe entre as impressoes justamente para o segundo
+        // lote sair no toque — mas a impressora encerra a sessao por conta
+        // propria depois de um tempo parada, e o Android leva um tempo ate
+        // perceber. E por isso que a segunda etiqueta do dia "nao saia nada":
+        // mandavamos o trabalho por um cano que ja nao existia. Uma tentativa
+        // com conexao nova resolve, e custa os dois segundos de reconectar.
+        val primeira = enviarTrabalho(linhas, largura, copias, densidade, repetirPagina, variante, progresso)
+        if (primeira.isEmpty() || !reconectavel(primeira)) return primeira
+
+        desconectar()
+        return enviarTrabalho(linhas, largura, copias, densidade, repetirPagina, variante, progresso)
+    }
+
+    /**
+     * Erros que valem uma segunda tentativa com a conexao refeita — os de
+     * ambiente (Bluetooth desligado, permissao, localizacao) nao valem: repetir
+     * so troca a espera por outra igual.
+     */
+    private fun reconectavel(erro: String): Boolean =
+        erro.startsWith("A conexao caiu") || erro.startsWith("A impressora nao respondeu") ||
+            erro.startsWith("A impressora conectou")
+
+    private fun enviarTrabalho(
+        linhas: List<ByteArray>,
+        largura: Int,
+        copias: Int,
+        densidade: Int,
+        repetirPagina: Boolean,
+        variante: Int,
+        progresso: (Int) -> Unit,
+    ): String {
         val erro = conectar()
         if (erro.isNotEmpty()) return erro
+
+        // Resto de resposta de um trabalho anterior faria a proxima espera
+        // casar com o pacote errado e o envio andar fora de ordem.
+        eventos.clear()
+        respostas.clear()
+        recebidos.clear()
 
         val paginas = if (repetirPagina) copias else 1
         val totalLinhas = linhas.size * paginas
         var enviadas = 0
         val altura = linhas.size
 
-        comando(TIPO_ETIQUETA, byteArrayOf(1), TIPO_ETIQUETA + 1)
+        // O primeiro comando e o teste do cano: se nem ele passa, o trabalho
+        // inteiro sairia no vazio — melhor falhar aqui e deixar a tentativa com
+        // conexao nova acontecer.
+        if (!escreveu(TIPO_ETIQUETA, byteArrayOf(1))) {
+            desconectar()
+            return "A conexao caiu antes de comecar. Tente de novo."
+        }
         comando(DENSIDADE, byteArrayOf(densidade.coerceIn(1, 5).toByte()), DENSIDADE + 1)
         comando(INICIAR_IMPRESSAO, byteArrayOf(1), INICIAR_IMPRESSAO + 1)
 

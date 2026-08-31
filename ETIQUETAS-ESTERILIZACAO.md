@@ -17,8 +17,8 @@ EST 31/08/2026  ·  VAL 30/11/2026
 AUTOCLAVE 01 · JÉSSICA PÁDUA
 ```
 
-mais o QR do lote à esquerda (opcional, nos ajustes). É o que o art. 81 pede:
-data, lote/ciclo, responsável e identificação do equipamento.
+com a marca da clínica à esquerda. É o que o art. 81 pede: data, lote/ciclo,
+responsável e identificação do equipamento.
 
 **O indicador químico tipo 1 não vem daqui.** Papel térmico não é reagente. Ele
 continua vindo da borda do papel grau cirúrgico (a listra que muda de cor) ou da
@@ -72,6 +72,20 @@ a família e teste de novo. São três opções — no máximo três tentativas.
 
 A quantidade vai num comando só e a impressora repete o desenho sozinha — 20
 etiquetas não são 20 envios por Bluetooth, que levariam minutos.
+
+### Quando o app não acha a impressora
+
+Nesta ordem, que é a dos casos que realmente acontecem:
+
+1. **Bluetooth do tablet ligado?** O app avisa se estiver desligado.
+2. **Localização ligada?** Até o Android 11 o sistema exige a localização ativa
+   para devolver qualquer resultado de varredura Bluetooth — sem ela a busca
+   volta vazia mesmo com a impressora acesa ao lado. O app avisa também.
+3. **A impressora está conectada em outro lugar?** App da Niimbot aberto, ou a
+   mesma tela aberta no Chrome com a impressora conectada: ela aceita uma
+   conexão por vez. Feche o outro e tente de novo.
+4. **Permissão negada com "não perguntar de novo"?** Ajustes do Android → Apps →
+   VitallCam → Permissões → Dispositivos por perto.
 
 Se o Bluetooth não colaborar, **Baixar PNG** salva a etiqueta no tamanho exato
 para imprimir pelo app da Niimbot. Nesse caminho o ciclo não é registrado — o

@@ -354,6 +354,11 @@ class EtiquetaNiimbot(private val context: Context) {
 
         canal = caracteristica
         anotar("canal ${caracteristica.uuid} props=${caracteristica.properties}")
+
+        // Meio segundo parado antes do primeiro trabalho: o MTU e o intervalo
+        // de conexao acabaram de mudar, e mandar desenho no meio dessa troca e
+        // como falar por cima de alguem. Custa meio segundo uma vez por conexao.
+        Thread.sleep(500)
         return ""
     }
 
@@ -418,21 +423,36 @@ class EtiquetaNiimbot(private val context: Context) {
         }
     }
 
+    /**
+     * Escreve no canal serial.
+     *
+     * Com confirmacao sempre que o canal aceitar. "Sem resposta" e mais rapido
+     * no papel, mas nao tem controle de fluxo nenhum: a impressora descarta o
+     * pacote em silencio quando o buffer dela enche ou quando o link ainda esta
+     * ajustando parametros — que e exatamente o estado logo depois de conectar.
+     * Era isso que fazia a PRIMEIRA etiqueta de cada conexao sair em branco e a
+     * segunda sair certa.
+     *
+     * O custo e baixo porque as linhas ja vao em lote: com MTU de 244 uma
+     * etiqueta inteira sao umas quarenta escritas, nao oitocentas.
+     */
     private fun escrever(pacote: ByteArray): Boolean {
         val c = canal ?: return false
         val g = gatt ?: return false
+        val comResposta = c.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0
+        val tipo = if (comResposta) BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        else BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+
         val passo = (mtu - 3).coerceIn(20, 512)
         var i = 0
         while (i < pacote.size) {
             val fatia = pacote.copyOfRange(i, minOf(i + passo, pacote.size))
             val enviou = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                g.writeCharacteristic(
-                    c, fatia, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE,
-                ) == BluetoothStatusCodes.SUCCESS
+                g.writeCharacteristic(c, fatia, tipo) == BluetoothStatusCodes.SUCCESS
             } else {
                 @Suppress("DEPRECATION")
                 run {
-                    c.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    c.writeType = tipo
                     c.value = fatia
                     g.writeCharacteristic(c)
                 }

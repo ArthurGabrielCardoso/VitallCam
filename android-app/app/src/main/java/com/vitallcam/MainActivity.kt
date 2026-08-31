@@ -587,7 +587,7 @@ class MainActivity : AppCompatActivity() {
          * timeout sem ninguem entender por que.
          */
         @JavascriptInterface
-        fun versaoEtiqueta(): Int = 3
+        fun versaoEtiqueta(): Int = 4
 
         @JavascriptInterface
         fun imprimirEtiqueta(
@@ -695,6 +695,19 @@ class MainActivity : AppCompatActivity() {
                 buscaPendente = trabalho
                 runOnUiThread { ActivityCompat.requestPermissions(this@MainActivity, faltando, ETIQUETA_PERMISSION_CODE) }
             }
+        }
+
+        /**
+         * Abre a conexao com a impressora sem imprimir.
+         *
+         * A tela de esterilizacao chama isto ao abrir: o trabalho que ABRE a
+         * conexao e o que sai em branco, entao o jeito de a etiqueta dela sair
+         * de primeira e a conexao ja estar de pe quando ela aperta imprimir.
+         */
+        @JavascriptInterface
+        fun aquecerImpressora() {
+            if (imprimindo) return
+            Thread { runCatching { etiqueta.aquecer() } }.start()
         }
 
         /** Fixa a impressora que a pessoa escolheu na lista. */

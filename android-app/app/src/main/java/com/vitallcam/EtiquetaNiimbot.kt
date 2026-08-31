@@ -226,6 +226,18 @@ class EtiquetaNiimbot(private val context: Context) {
         return achados.values.sortedByDescending { it.provavel }
     }
 
+    /**
+     * Abre a conexao sem imprimir nada.
+     *
+     * A tela chama isto ao abrir, para que o trabalho da Jessica nunca seja o
+     * primeiro contato com a impressora — que e justamente o que sai em branco.
+     * Quando ela aperta imprimir, o canal ja esta quente ha algum tempo.
+     */
+    fun aquecer(): String {
+        if (permissoesFaltando().isNotEmpty()) return "Falta a permissao de Bluetooth."
+        return conectar()
+    }
+
     /** Fixa a impressora escolhida na tela; a próxima impressão vai direto nela. */
     fun escolher(mac: String, nome: String) {
         desconectar()
@@ -355,10 +367,31 @@ class EtiquetaNiimbot(private val context: Context) {
         canal = caracteristica
         anotar("canal ${caracteristica.uuid} props=${caracteristica.properties}")
 
-        // Meio segundo parado antes do primeiro trabalho: o MTU e o intervalo
-        // de conexao acabaram de mudar, e mandar desenho no meio dessa troca e
-        // como falar por cima de alguem. Custa meio segundo uma vez por conexao.
-        Thread.sleep(500)
+        // Aperto de mao antes do primeiro trabalho.
+        //
+        // A trilha mostrou que o trabalho que ABRE a conexao sai em branco e o
+        // seguinte sai certo. Nao e o desenho: e a impressora, que ainda nao
+        // terminou de acordar quando o desenho chega — o papel anda, os comandos
+        // de abertura passam e as linhas se perdem.
+        //
+        // A batida resolve os dois lados de uma vez: acorda a impressora e so
+        // volta quando ela responde, o que tambem prova que as notificacoes
+        // estao chegando. Esperar resposta e melhor do que esperar um tempo fixo,
+        // porque tempo fixo ou sobra ou falta, e aqui faltou.
+        var respondeu = false
+        for (tentativa in 1..4) {
+            if (comando(BATIDA, byteArrayOf(1), null) == null) {
+                // Sem resposta esperada: qualquer pacote que volte serve de sinal
+                // de vida, entao damos um tempo curto e olhamos a fila.
+                Thread.sleep(250)
+            }
+            if (respostas.isNotEmpty()) { respondeu = true; break }
+            Thread.sleep(250)
+            if (respostas.isNotEmpty()) { respondeu = true; break }
+        }
+        respostas.clear()
+        anotar(if (respondeu) "impressora respondeu a batida" else "batida sem resposta — seguindo assim mesmo")
+
         return ""
     }
 
@@ -501,7 +534,7 @@ class EtiquetaNiimbot(private val context: Context) {
         progresso: (Int) -> Unit,
     ): String {
         trilha.setLength(0)
-        anotar("imprimir linhas=${linhas.size} largura=$largura copias=$copias variante=$variante")
+        anotar("v$VERSAO imprimir linhas=${linhas.size} largura=$largura copias=$copias variante=$variante")
         if (linhas.isEmpty()) return "Etiqueta vazia."
         if (permissoesFaltando().isNotEmpty()) {
             anotar("permissoes faltando: " + permissoesFaltando().joinToString())
@@ -670,6 +703,11 @@ class EtiquetaNiimbot(private val context: Context) {
         private const val FIM_PAGINA = 0xE3
         private const val FIM_IMPRESSAO = 0xF3
         private const val STATUS = 0xA3
+        /** "Voce esta ai?" — desperta a impressora e prova que o canal responde. */
+        private const val BATIDA = 0xDC
+
+        /** Marca da build, para saber no log qual versao gerou a trilha. */
+        private const val VERSAO = 5
 
         /** Familia D11/D110/D101: tamanho da pagina em 2 bytes (so as linhas). */
         const val VARIANTE_D11 = 1

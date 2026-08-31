@@ -16,7 +16,7 @@ import {
   desenharEtiqueta,
 } from '@/lib/etiqueta-esterilizacao'
 import {
-  ImpressoraEncontrada, ModoImpressao, escolherImpressora, esquecerImpressora,
+  ImpressoraEncontrada, ModoImpressao, aquecerImpressora, escolherImpressora, esquecerImpressora,
   imprimirEtiqueta as enviarEtiqueta, impressoraLembrada, modoImpressao, podeListarImpressoras,
   procurarImpressoras,
 } from '@/lib/impressora-etiqueta'
@@ -124,6 +124,12 @@ export default function EsterilizacaoPanel() {
   // servidor e um valor diferente ali quebraria a hidratação.
   const [modo, setModo] = useState<ModoImpressao>('indisponivel')
   useEffect(() => setModo(modoImpressao()), [])
+
+  // Aquece a conexão assim que a tela abre. O trabalho que abre a conexão é o
+  // que sai em branco, então a etiqueta dela nunca deve ser o primeiro contato.
+  useEffect(() => {
+    if (modo === 'app') aquecerImpressora()
+  }, [modo])
 
   const grupos = useMemo(() => {
     const mapa = new Map<string, CicloEsterilizacao[]>()

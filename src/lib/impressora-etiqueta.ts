@@ -12,7 +12,7 @@
 import type { BitmapImpressao } from './etiqueta-esterilizacao'
 import { Niimbot, VarianteProtocolo, bluetoothDisponivel } from './niimbot'
 
-export type ModoImpressao = 'app' | 'navegador' | 'indisponivel'
+export type ModoImpressao = 'app' | 'app-antigo' | 'navegador' | 'indisponivel'
 
 export interface OpcoesImpressaoEtiqueta {
   copias: number
@@ -35,6 +35,13 @@ const RECADOS: Record<string, string> = {
 export function modoImpressao(): ModoImpressao {
   if (typeof window === 'undefined') return 'indisponivel'
   if (typeof window.VitallCam?.imprimirEtiqueta === 'function') return 'app'
+
+  // Estar dentro do app e não ter a ponte de impressão é APK velho, não falta
+  // de Bluetooth. São problemas com soluções opostas — um se resolve
+  // atualizando o app, o outro trocando de navegador — e mandar a pessoa
+  // "abrir pelo app da clínica" quando ela JÁ está no app é um beco sem saída.
+  if (window.VitallCam?.isNative?.()) return 'app-antigo'
+
   return bluetoothDisponivel() ? 'navegador' : 'indisponivel'
 }
 

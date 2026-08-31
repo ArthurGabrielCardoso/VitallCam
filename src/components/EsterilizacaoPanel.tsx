@@ -13,7 +13,7 @@ import {
 } from '@/hooks/useEsterilizacao'
 import {
   DadosEtiqueta, FORMATO_PADRAO, FormatoEtiqueta, bitmapDeTeste, canvasParaBitmap, carregarLogo,
-  desenharEtiqueta,
+  desenharEtiqueta, fontesProntas,
 } from '@/lib/etiqueta-esterilizacao'
 import {
   ImpressoraEncontrada, ModoImpressao, aquecerImpressora, escolherImpressora, esquecerImpressora,
@@ -556,9 +556,18 @@ function ModalEtiqueta({
     })
   }, [dados, ajustes.comprimentoMm, ajustes.larguraMm, ajustes.margem])
 
+  // A prévia também precisa esperar a fonte: desenhada antes, ela mostra um
+  // texto mais largo do que o que vai sair, e a tela deixaria de avisar.
+  const [comFontes, setComFontes] = useState(false)
+  useEffect(() => {
+    let vivo = true
+    fontesProntas().then(() => { if (vivo) setComFontes(true) })
+    return () => { vivo = false }
+  }, [])
+
   useEffect(() => {
     if (canvasRef.current) desenhar(canvasRef.current)
-  }, [desenhar])
+  }, [desenhar, comFontes])
 
   const imprimir = async () => {
     setProgresso(0)
@@ -578,10 +587,11 @@ function ModalEtiqueta({
         responsavel, autoclave, quantidade, conteudo, data, validade,
       })
 
-      // Espera a marca antes de desenhar: a etiqueta tem que sair com a logo
-      // sempre, e quem aperta imprimir logo depois de abrir a tela chegaria
-      // aqui antes de a imagem terminar de carregar.
-      const marca = logo ?? await carregarLogo()
+      // Espera a marca E as fontes antes de desenhar. Quem abre a tela e aperta
+      // imprimir chega aqui antes das duas coisas: sem a marca a etiqueta sai
+      // sem logo, e sem a fonte a medida do texto vem menor do que a realidade
+      // e o lote sai batendo na borda.
+      const [marca] = await Promise.all([logo ?? carregarLogo(), fontesProntas()])
 
       const canvas = document.createElement('canvas')
       desenharEtiqueta(canvas, etiquetaDoCiclo(alvo, marca), {
@@ -636,6 +646,7 @@ function ModalEtiqueta({
         onImpressora(conectada)
       }
       setUltimoErro(null)
+      await fontesProntas()
       await enviarEtiqueta(
         bitmapDeTeste({
           comprimentoMm: ajustes.comprimentoMm,

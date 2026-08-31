@@ -14,6 +14,11 @@
  *      BLE levaria minutos; `repetirPagina` fica como saída caso o modelo em
  *      cima da bancada ignore o contador.
  *
+ * O comando de tamanho da página (0x13) muda de formato entre as famílias, e é
+ * aí que a etiqueta sai em branco quando erra: a impressora aceita o trabalho,
+ * anda o papel e descarta as linhas. Daí `VarianteProtocolo` — a D110 usa o
+ * formato de 2 bytes.
+ *
  * Requer contexto seguro (https ou localhost) e navegador Chromium — Web
  * Bluetooth não existe no Safari nem no Firefox. `bluetoothDisponivel()` é o
  * que a tela usa para decidir se mostra o botão ou o caminho alternativo.
@@ -42,6 +47,12 @@ const COMANDO = {
   STATUS: 0xa3,
 } as const
 
+/**
+ * Formato do comando de tamanho da página, por família de impressora.
+ * `d11` (2 bytes, só as linhas) é o da D110; as outras esperam mais campos.
+ */
+export type VarianteProtocolo = 'd11' | 'b21' | 'b1'
+
 export interface OpcoesImpressao {
   /** Quantas etiquetas iguais — uma por pacote de grau cirúrgico. */
   copias?: number
@@ -51,6 +62,8 @@ export interface OpcoesImpressao {
   tipoEtiqueta?: number
   /** Reenvia o desenho a cada cópia, para modelos que ignoram o contador. */
   repetirPagina?: boolean
+  /** Família da impressora; erra isto e a etiqueta sai em branco. */
+  variante?: VarianteProtocolo
   /** Chamado a cada linha enviada, para a barra de progresso. */
   aoProgredir?: (enviadas: number, total: number) => void
 }
@@ -63,7 +76,9 @@ export function bluetoothDisponivel(): boolean {
 function montarPacote(tipo: number, dados: number[] | Uint8Array): Uint8Array {
   const corpo = dados instanceof Uint8Array ? dados : Uint8Array.from(dados)
   let verificacao = tipo ^ corpo.length
-  for (const byte of corpo) verificacao ^= byte
+  // Laço por índice, não for...of: o alvo do projeto é a WebView do Android
+  // 7.1.2, onde iterar um Uint8Array depende de polyfill.
+  for (let i = 0; i < corpo.length; i++) verificacao ^= corpo[i]
 
   const pacote = new Uint8Array(corpo.length + 7)
   pacote[0] = 0x55
@@ -161,7 +176,7 @@ export class Niimbot {
 
   /** Junta os fragmentos das notificações até fechar um pacote completo. */
   private receber(bytes: Uint8Array) {
-    for (const byte of bytes) this.buffer.push(byte)
+    for (let i = 0; i < bytes.length; i++) this.buffer.push(bytes[i])
 
     while (this.buffer.length >= 7) {
       const inicio = this.buffer.findIndex((b, i) => b === 0x55 && this.buffer[i + 1] === 0x55)
@@ -250,13 +265,20 @@ export class Niimbot {
 
     for (let pagina = 0; pagina < paginas; pagina++) {
       await this.enviar(COMANDO.INICIAR_PAGINA, [0x01], COMANDO.INICIAR_PAGINA + 1)
-      await this.enviar(
-        COMANDO.DIMENSAO,
-        [(bitmap.altura >> 8) & 0xff, bitmap.altura & 0xff, (bitmap.largura >> 8) & 0xff, bitmap.largura & 0xff],
-        COMANDO.DIMENSAO + 1,
-      )
-      if (!opcoes.repetirPagina) {
-        await this.enviar(COMANDO.QUANTIDADE, [(copias >> 8) & 0xff, copias & 0xff], COMANDO.QUANTIDADE + 1)
+
+      const linhas = [(bitmap.altura >> 8) & 0xff, bitmap.altura & 0xff]
+      const colunas = [(bitmap.largura >> 8) & 0xff, bitmap.largura & 0xff]
+      const quantidade = [(copias >> 8) & 0xff, copias & 0xff]
+      const variante = opcoes.variante ?? 'd11'
+      const tamanhoPagina =
+        variante === 'b21' ? [...linhas, ...colunas]
+        : variante === 'b1' ? [...linhas, ...colunas, ...quantidade]
+        : linhas
+      await this.enviar(COMANDO.DIMENSAO, tamanhoPagina, COMANDO.DIMENSAO + 1)
+
+      // Na variante b1 a quantidade já foi junto do tamanho da página.
+      if (!opcoes.repetirPagina && variante !== 'b1') {
+        await this.enviar(COMANDO.QUANTIDADE, quantidade, COMANDO.QUANTIDADE + 1)
       }
 
       for (let y = 0; y < bitmap.linhas.length; y++) {

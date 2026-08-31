@@ -60,7 +60,11 @@ declare global {
         copias: number,
         densidade: number,
         repetirPagina: boolean,
+        /** Família da impressora (1 D11/D110, 2 B21, 3 B1). Só da versão 2 da ponte. */
+        variante?: number,
       ) => void
+      /** Versão da ponte de impressão; ausente = APK anterior à variante. */
+      versaoEtiqueta?: () => number
       /** Nome da impressora lembrada, ou "" enquanto nenhuma foi encontrada. */
       impressoraEtiqueta?: () => string
       esquecerImpressoraEtiqueta?: () => void

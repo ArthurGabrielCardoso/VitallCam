@@ -12,12 +12,12 @@ import {
   useAbrirCiclo, useCiclosEsterilizacao,
 } from '@/hooks/useEsterilizacao'
 import {
-  DadosEtiqueta, FORMATO_PADRAO, FormatoEtiqueta, canvasParaBitmap, desenharEtiqueta,
+  DadosEtiqueta, FORMATO_PADRAO, FormatoEtiqueta, bitmapDeTeste, canvasParaBitmap, desenharEtiqueta,
 } from '@/lib/etiqueta-esterilizacao'
 import {
   ModoImpressao, esquecerImpressora, imprimirEtiqueta as enviarEtiqueta, impressoraLembrada, modoImpressao,
 } from '@/lib/impressora-etiqueta'
-import { Niimbot } from '@/lib/niimbot'
+import { Niimbot, VarianteProtocolo } from '@/lib/niimbot'
 
 /**
  * Etiquetas de esterilização da CME.
@@ -47,6 +47,11 @@ interface Ajustes extends FormatoEtiqueta {
   repetirPagina: boolean
   /** QR com o lote: conferência sem digitar. Não é exigência da norma. */
   comQr: boolean
+  /**
+   * Família da impressora. Decide o formato do comando de tamanho de página —
+   * errar faz a etiqueta andar em branco, que é como isso aparece na bancada.
+   */
+  variante: VarianteProtocolo
 }
 
 const AJUSTES_PADRAO: Ajustes = {
@@ -55,6 +60,7 @@ const AJUSTES_PADRAO: Ajustes = {
   densidade: 3,
   repetirPagina: false,
   comQr: true,
+  variante: 'd11',
 }
 
 function lerAjustes(): Ajustes {
@@ -457,6 +463,7 @@ function ModalEtiqueta({
           copias: quantidade,
           densidade: ajustes.densidade,
           repetirPagina: ajustes.repetirPagina,
+          variante: ajustes.variante,
           aoProgredir: setProgresso,
         },
         { impressora: conectada, aoConectar: onImpressora },
@@ -471,6 +478,50 @@ function ModalEtiqueta({
       const msg = erro instanceof Error ? erro.message : 'Falha ao imprimir'
       if (!/cancel|user/i.test(msg)) {
         toast({ variant: 'destructive', title: 'Não deu para imprimir', description: msg })
+      }
+    } finally {
+      setProgresso(null)
+    }
+  }
+
+  /**
+   * Imprime o padrão de teste: tarjas e xadrez, sem texto e sem QR.
+   *
+   * É o que separa "a impressora não recebeu nada" de "o desenho saiu errado" —
+   * e não abre ciclo nenhum, então dá para tentar as variantes do protocolo à
+   * vontade sem sujar o histórico da CME com lotes que não existem.
+   */
+  const imprimirTeste = async () => {
+    setProgresso(0)
+    try {
+      let conectada = impressora
+      if (modo === 'navegador' && !conectada?.conectado) {
+        conectada = await Niimbot.conectar(false)
+        onImpressora(conectada)
+      }
+      await enviarEtiqueta(
+        bitmapDeTeste({
+          comprimentoMm: ajustes.comprimentoMm,
+          larguraMm: ajustes.larguraMm,
+          margem: ajustes.margem,
+        }, ajustes.rotacao),
+        {
+          copias: 1,
+          densidade: ajustes.densidade,
+          repetirPagina: ajustes.repetirPagina,
+          variante: ajustes.variante,
+          aoProgredir: setProgresso,
+        },
+        { impressora: conectada, aoConectar: onImpressora },
+      )
+      toast({
+        title: 'Teste enviado',
+        description: 'Saiu tarja preta e xadrez? Então os dados chegam. Em branco, troque a família da impressora nos ajustes.',
+      })
+    } catch (erro: unknown) {
+      const msg = erro instanceof Error ? erro.message : 'Falha ao imprimir'
+      if (!/cancel|user/i.test(msg)) {
+        toast({ variant: 'destructive', title: 'Não deu para imprimir o teste', description: msg })
       }
     } finally {
       setProgresso(null)
@@ -619,7 +670,7 @@ function ModalEtiqueta({
             </div>
           </div>
 
-          <AjustesImpressora ajustes={ajustes} onMudar={salvarAjustes} />
+          <AjustesImpressora ajustes={ajustes} onMudar={salvarAjustes} onTestar={imprimirTeste} ocupado={ocupado} />
 
           {progresso !== null && (
             <div className="h-1.5 rounded bg-gray-100 overflow-hidden">
@@ -660,7 +711,14 @@ function Campo({ rotulo, children }: { rotulo: string; children: React.ReactNode
 }
 
 /** Ajustes do rolo e da impressora — muda de fornecedor, muda aqui. */
-function AjustesImpressora({ ajustes, onMudar }: { ajustes: Ajustes; onMudar: (a: Partial<Ajustes>) => void }) {
+function AjustesImpressora({
+  ajustes, onMudar, onTestar, ocupado,
+}: {
+  ajustes: Ajustes
+  onMudar: (a: Partial<Ajustes>) => void
+  onTestar: () => void
+  ocupado: boolean
+}) {
   const campo = 'h-8 px-2 rounded border border-gray-200 text-xs text-gray-700 focus:border-teal-500 focus:outline-none'
 
   return (
@@ -704,6 +762,32 @@ function AjustesImpressora({ ajustes, onMudar }: { ajustes: Ajustes; onMudar: (a
             className={`${campo} w-full mt-1`}
           />
         </label>
+        <label className="text-[11px] text-gray-500 col-span-2">
+          Família da impressora
+          <select
+            value={ajustes.variante}
+            onChange={(e) => onMudar({ variante: e.target.value as VarianteProtocolo })}
+            className={`${campo} w-full mt-1`}
+          >
+            <option value="d11">D110 / D11 / D101</option>
+            <option value="b21">B21 / B3</option>
+            <option value="b1">B1</option>
+          </select>
+          <span className="block mt-1 text-gray-400">
+            Etiqueta andando em branco é quase sempre isto: cada família espera um
+            comando de tamanho de página diferente. Teste as três.
+          </span>
+        </label>
+
+        <button
+          type="button"
+          onClick={onTestar}
+          disabled={ocupado}
+          className="col-span-2 flex items-center justify-center gap-1.5 h-8 rounded border border-gray-200 bg-white text-xs text-gray-600 hover:text-teal-700 hover:border-teal-500 transition-colors disabled:opacity-60"
+        >
+          <Printer className="w-3.5 h-3.5" /> Imprimir teste (tarja e xadrez, sem gravar ciclo)
+        </button>
+
         <label className="flex items-center gap-2 text-[11px] text-gray-500 col-span-2">
           <input type="checkbox" checked={ajustes.comQr} onChange={(e) => onMudar({ comQr: e.target.checked })} />
           <QrCode className="w-3.5 h-3.5" /> Imprimir QR do lote

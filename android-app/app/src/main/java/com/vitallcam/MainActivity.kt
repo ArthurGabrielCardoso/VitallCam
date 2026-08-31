@@ -558,6 +558,15 @@ class MainActivity : AppCompatActivity() {
          * @param linhasBase64 linhas concatenadas, `bytesPorLinha` cada.
          * @param largura pontos na largura da cabeca (96 na D110).
          */
+        /**
+         * Versao da ponte de impressao. A web checa antes de chamar: sem isto,
+         * um APK antigo com a web nova receberia uma chamada com um parametro a
+         * mais, que o WebView descarta calado — e a tela ficaria girando ate o
+         * timeout sem ninguem entender por que.
+         */
+        @JavascriptInterface
+        fun versaoEtiqueta(): Int = 2
+
         @JavascriptInterface
         fun imprimirEtiqueta(
             linhasBase64: String,
@@ -565,6 +574,16 @@ class MainActivity : AppCompatActivity() {
             copias: Int,
             densidade: Int,
             repetirPagina: Boolean,
+        ) = imprimirEtiqueta(linhasBase64, largura, copias, densidade, repetirPagina, EtiquetaNiimbot.VARIANTE_D11)
+
+        @JavascriptInterface
+        fun imprimirEtiqueta(
+            linhasBase64: String,
+            largura: Int,
+            copias: Int,
+            densidade: Int,
+            repetirPagina: Boolean,
+            variante: Int,
         ) {
             if (imprimindo) { responderEtiqueta("ja-imprimindo"); return }
 
@@ -583,7 +602,7 @@ class MainActivity : AppCompatActivity() {
                 imprimindo = true
                 Thread {
                     val erro = runCatching {
-                        etiqueta.imprimir(linhas, largura, copias, densidade, repetirPagina) { pct ->
+                        etiqueta.imprimir(linhas, largura, copias, densidade, repetirPagina, variante) { pct ->
                             runOnUiThread {
                                 webView.evaluateJavascript(
                                     "if(typeof window.__onEtiquetaProgresso==='function'){window.__onEtiquetaProgresso($pct);}",

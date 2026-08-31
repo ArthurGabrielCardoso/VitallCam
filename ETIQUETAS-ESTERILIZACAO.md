@@ -56,10 +56,19 @@ modal, existem para resolver o que aparecer, sem mexer no código:
 
 | Sintoma na primeira etiqueta | Ajuste |
 | --- | --- |
+| **Andou em branco, sem nada impresso** | Família da impressora (D110 / B21 / B1) |
 | Texto deitado ou de cabeça para baixo | Giro na impressora (0/90/180/270°) |
-| Etiqueta cortada nas laterais | Comprimento e largura útil em mm |
+| Etiqueta cortada, ou andou duas para um pedido | Comprimento e largura útil em mm — meça o rolo |
 | Muito clara ou borrada | Densidade (1 a 5) |
 | Saiu só uma etiqueta em vez de 20 | Marque "reenviar o desenho a cada cópia" |
+
+**Etiqueta em branco é quase sempre a família.** Cada geração de Niimbot espera
+um comando de tamanho de página diferente (a D110 lê 2 bytes; a B21, 4; a B1,
+6). Com o formato errado a impressora aceita o trabalho, anda o papel e descarta
+o desenho — sai em branco, sem erro nenhum. O botão **Imprimir teste** manda
+tarja preta e xadrez, sem texto, sem QR e sem gravar ciclo: se a tarja sai, os
+dados chegam à cabeça térmica e o resto é ajuste de tamanho; se não sai, troque
+a família e teste de novo. São três opções — no máximo três tentativas.
 
 A quantidade vai num comando só e a impressora repete o desenho sozinha — 20
 etiquetas não são 20 envios por Bluetooth, que levariam minutos.

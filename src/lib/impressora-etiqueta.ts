@@ -10,7 +10,7 @@
  */
 
 import type { BitmapImpressao } from './etiqueta-esterilizacao'
-import { Niimbot, bluetoothDisponivel } from './niimbot'
+import { Niimbot, VarianteProtocolo, bluetoothDisponivel } from './niimbot'
 
 export type ModoImpressao = 'app' | 'navegador' | 'indisponivel'
 
@@ -18,10 +18,15 @@ export interface OpcoesImpressaoEtiqueta {
   copias: number
   densidade: number
   repetirPagina: boolean
+  /** Família da impressora; errar isto faz a etiqueta sair em branco. */
+  variante: VarianteProtocolo
   aoProgredir?: (porcentagem: number) => void
 }
 
 /** Mensagens que o bridge devolve em vez de texto pronto para a tela. */
+/** Números que a ponte nativa entende, na ordem das famílias conhecidas. */
+const VARIANTE_NATIVA: Record<VarianteProtocolo, number> = { d11: 1, b21: 2, b1: 3 }
+
 const RECADOS: Record<string, string> = {
   'sem-permissao': 'O app precisa da permissão de Bluetooth para achar a impressora.',
   'ja-imprimindo': 'Já tem uma etiqueta saindo. Espere terminar.',
@@ -100,13 +105,19 @@ export function imprimirPeloApp(
     }
 
     try {
-      ponte.imprimirEtiqueta(
+      // O APK anterior não conhece a variante do protocolo e descartaria o
+      // parâmetro extra em silêncio — a tela ficaria girando até o timeout.
+      // A versão da ponte diz qual chamada esse aparelho entende.
+      const versao = ponte.versaoEtiqueta?.() ?? 1
+      const argumentos: [string, number, number, number, boolean] = [
         bitmapParaBase64(bitmap),
         bitmap.largura,
         Math.max(1, Math.floor(opcoes.copias)),
         opcoes.densidade,
         opcoes.repetirPagina,
-      )
+      ]
+      if (versao >= 2) ponte.imprimirEtiqueta(...argumentos, VARIANTE_NATIVA[opcoes.variante])
+      else ponte.imprimirEtiqueta(...argumentos)
     } catch (erro) {
       limpar()
       reject(erro instanceof Error ? erro : new Error('Falha ao chamar o app'))
@@ -136,6 +147,7 @@ export async function imprimirEtiqueta(
     copias: opcoes.copias,
     densidade: opcoes.densidade,
     repetirPagina: opcoes.repetirPagina,
+    variante: opcoes.variante,
     aoProgredir: (feitas, total) => opcoes.aoProgredir?.(Math.round((feitas / total) * 100)),
   })
 }

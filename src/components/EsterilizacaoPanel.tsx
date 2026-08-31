@@ -373,10 +373,26 @@ function EstadoImpressora({
     )
   }
 
+  if (modo === 'app-antigo') {
+    return (
+      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+        Este app é de uma versão anterior à impressão de etiquetas.{' '}
+        <a href="/vitallcam-android.apk" className="font-semibold underline underline-offset-2">
+          Baixe o app atualizado
+        </a>{' '}
+        e instale por cima — depois disso a impressora aparece aqui.
+      </p>
+    )
+  }
+
   if (modo === 'indisponivel') {
     return (
       <p className="text-xs text-gray-500 bg-gray-100 border border-gray-200 rounded px-3 py-2">
-        Este navegador não conversa com a Niimbot. Abra pelo app da clínica, use o Chrome — ou baixe o PNG e imprima pelo app da impressora.
+        Esta tela está aberta num navegador que não conversa com a Niimbot. Abra pelo{' '}
+        <a href="/vitallcam-android.apk" className="font-semibold underline underline-offset-2">
+          app da clínica
+        </a>{' '}
+        ou pelo Chrome — ou baixe o PNG e imprima pelo app da impressora.
       </p>
     )
   }

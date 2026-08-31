@@ -522,7 +522,14 @@ function ModalEtiqueta({
   const [autoclave, setAutoclave] = useState(ciclo?.autoclave ?? AUTOCLAVE_PADRAO)
   const [responsavel, setResponsavel] = useState(ciclo?.responsavel ?? RESPONSAVEL_PADRAO)
   const [conteudo, setConteudo] = useState(ciclo?.conteudo ?? '')
-  const [quantidade, setQuantidade] = useState(ciclo?.quantidade_etiquetas ?? 10)
+  // Quantidade como texto, não como número: guardada como número, o campo nunca
+  // fica vazio — apagar o "0" de "10" já virava "1", e trocar 10 por 3 exigia
+  // digitar por cima e apagar de novo. Vazio é um estado legítimo enquanto ela
+  // digita; só na hora de imprimir é que ele vira erro.
+  const [quantidadeTexto, setQuantidadeTexto] = useState(String(ciclo?.quantidade_etiquetas ?? 10))
+  const quantidade = Math.min(100, Math.max(0, parseInt(quantidadeTexto, 10) || 0))
+  const quantidadeInvalida = quantidade < 1
+  const [avisouQuantidade, setAvisouQuantidade] = useState(false)
   const [progresso, setProgresso] = useState<number | null>(null)
   // O aviso de erro fica na tela, não só no toast: quem está na bancada precisa
   // conseguir ler a mensagem inteira e repetir para quem vai consertar.
@@ -570,6 +577,10 @@ function ModalEtiqueta({
   }, [desenhar, comFontes])
 
   const imprimir = async () => {
+    if (quantidadeInvalida) {
+      setAvisouQuantidade(true)
+      return
+    }
     setProgresso(0)
     try {
       // No navegador o seletor de Bluetooth só abre enquanto o clique ainda
@@ -792,12 +803,17 @@ function ModalEtiqueta({
           )}
 
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-2">Quantas etiquetas (uma por pacote)</p>
+            <p className="text-xs font-medium text-gray-500 mb-2">
+              Quantas etiquetas (uma por pacote)
+              {avisouQuantidade && quantidadeInvalida && (
+                <span className="ml-2 text-red-600">diga quantas antes de imprimir</span>
+              )}
+            </p>
             <div className="flex items-center gap-2 flex-wrap">
               {QUANTIDADES.map((n) => (
                 <button
                   key={n}
-                  onClick={() => setQuantidade(n)}
+                  onClick={() => { setQuantidadeTexto(String(n)); setAvisouQuantidade(false) }}
                   className={`h-9 w-12 rounded text-sm font-semibold border transition-colors ${
                     quantidade === n
                       ? 'bg-teal-700 text-white border-teal-700'
@@ -808,12 +824,19 @@ function ModalEtiqueta({
                 </button>
               ))}
               <input
-                type="number"
-                min={1}
-                max={100}
-                value={quantidade}
-                onChange={(e) => setQuantidade(Math.min(100, Math.max(1, Number(e.target.value) || 1)))}
-                className="h-9 w-20 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none"
+                type="text"
+                inputMode="numeric"
+                maxLength={3}
+                value={quantidadeTexto}
+                onChange={(e) => {
+                  setQuantidadeTexto(e.target.value.replace(/\D/g, ''))
+                  setAvisouQuantidade(false)
+                }}
+                className={`h-9 w-20 px-3 rounded border text-sm focus:outline-none ${
+                  avisouQuantidade && quantidadeInvalida
+                    ? 'border-red-400 bg-red-50 text-red-700 focus:border-red-500'
+                    : 'border-gray-200 text-gray-700 focus:border-teal-500'
+                }`}
               />
             </div>
           </div>
@@ -847,7 +870,7 @@ function ModalEtiqueta({
             className="flex items-center gap-2 px-6 h-10 rounded text-sm font-semibold bg-teal-700 text-white hover:bg-teal-800 transition-colors disabled:opacity-60"
           >
             {ocupado ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-            {ocupado ? 'Imprimindo…' : `Imprimir ${quantidade}`}
+            {ocupado ? 'Imprimindo…' : quantidadeInvalida ? 'Imprimir' : `Imprimir ${quantidade}`}
           </button>
         </div>
       </div>

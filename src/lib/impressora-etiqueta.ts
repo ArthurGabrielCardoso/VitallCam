@@ -206,6 +206,26 @@ export function imprimirPeloApp(
  * Imprime pelo caminho que existir. No app, sem seletor; no navegador, com a
  * impressora já conectada ou abrindo o seletor do Chrome.
  */
+/**
+ * Deixa uma linha no diagnóstico também quando a impressão sai pelo navegador.
+ *
+ * O app registra cada trabalho desde o começo; o navegador não registrava nada,
+ * e quando a Jéssica dizia "pedi três e saíram duas" pelo Chrome não havia o que
+ * ler. Uma linha por impressão, sem travar nada se o registro falhar.
+ */
+function registrar(texto: string): void {
+  try {
+    void fetch('/api/debug-log', {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+      body: `NAVEGADOR ${new Date().toLocaleTimeString('pt-BR')}\n${texto}`,
+      keepalive: true,
+    }).catch(() => undefined)
+  } catch {
+    // Diagnóstico nunca atrapalha a impressão.
+  }
+}
+
 export async function imprimirEtiqueta(
   bitmap: BitmapImpressao,
   opcoes: OpcoesImpressaoEtiqueta,
@@ -219,6 +239,10 @@ export async function imprimirEtiqueta(
   const atual = navegador?.impressora
   const conectada = atual?.conectado ? atual : await Niimbot.conectar(false)
   if (conectada !== atual) navegador?.aoConectar(conectada)
+  registrar(
+    `imprimir linhas=${bitmap.altura} largura=${bitmap.largura} copias=${opcoes.copias}` +
+    ` variante=${opcoes.variante} conexao=${conectada === atual ? 'reaproveitada' : 'nova'}`,
+  )
 
   await conectada.imprimir(bitmap, {
     copias: opcoes.copias,

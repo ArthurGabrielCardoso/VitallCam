@@ -49,6 +49,21 @@ declare global {
       abrirDentalSlice?: () => string
       /** Abre o scanner de documentos (camera traseira). Usado nos contratos. */
       escanearDocumento?: (callbackName?: string) => void
+      /**
+       * Imprime a etiqueta de esterilização na Niimbot que o app já conhece.
+       * O desenho vai pronto (linhas de 1 bit por ponto, em base64); a resposta
+       * volta por __onEtiquetaImpressa.
+       */
+      imprimirEtiqueta?: (
+        linhasBase64: string,
+        largura: number,
+        copias: number,
+        densidade: number,
+        repetirPagina: boolean,
+      ) => void
+      /** Nome da impressora lembrada, ou "" enquanto nenhuma foi encontrada. */
+      impressoraEtiqueta?: () => string
+      esquecerImpressoraEtiqueta?: () => void
     }
     __onIntraoralCapture?: (dataUrls: string[], error: string | null) => void
     __onDocumentScan?: (urls: string[], error: string | null) => void
@@ -57,6 +72,9 @@ declare global {
     __onIntraoralVideo?: (dataUrl: string | null, error: string | null) => void
     __onIntraoralState?: (state: string) => void
     __onIntraoralCapabilities?: (caps: IntraoralCapabilities) => void
+    /** Fim da impressão da etiqueta: null = saiu; string = o que deu errado. */
+    __onEtiquetaImpressa?: (erro: string | null) => void
+    __onEtiquetaProgresso?: (porcentagem: number) => void
   }
 }
 

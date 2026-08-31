@@ -1,0 +1,449 @@
+package com.vitallcam
+
+import android.Manifest
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCallback
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
+import java.util.UUID
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.TimeUnit
+
+/**
+ * Impressao de etiqueta na Niimbot, direto do app — sem o Bluetooth do
+ * navegador e sem escolher a impressora a cada vez.
+ *
+ * A Web Bluetooth do Chrome obriga um clique e um seletor de aparelhos a cada
+ * sessao, por seguranca: pagina nenhuma pode falar com um aparelho que o
+ * usuario nao escolheu naquele momento. Isso e correto para a web e pessimo
+ * para a bancada da CME, onde a Jessica embala vinte pacotes e quer apertar
+ * "imprimir 15" e pronto. Dentro do APK a regra nao existe: o MAC da impressora
+ * fica salvo, a conexao GATT fica de pe entre as impressoes e o segundo lote do
+ * dia sai sem nenhuma caixa de dialogo.
+ *
+ * O desenho da etiqueta continua sendo feito na web (canvas + QR, em 203 dpi) e
+ * chega aqui pronto, ja empacotado em 1 bit por ponto. Este arquivo so cuida do
+ * radio: achar a impressora, manter a conexao e falar o protocolo.
+ *
+ * O protocolo e o mapeado pela comunidade (niimprint, NiimBlue) — a Niimbot nao
+ * publica SDK. Pacote: 55 55 <tipo> <tamanho> <dados> <xor> AA AA.
+ */
+@SuppressLint("MissingPermission")
+class EtiquetaNiimbot(private val context: Context) {
+
+    private var gatt: BluetoothGatt? = null
+    private var canal: BluetoothGattCharacteristic? = null
+    private var mtu = 23
+
+    /** Eventos de conexao/escrita, na ordem em que o Android os entrega. */
+    private data class Evento(val tipo: String, val ok: Boolean)
+    private val eventos = ArrayBlockingQueue<Evento>(64)
+
+    private data class Resposta(val tipo: Int, val dados: ByteArray)
+    private val respostas = ArrayBlockingQueue<Resposta>(32)
+    private val recebidos = ArrayList<Byte>()
+
+    private val retorno = object : BluetoothGattCallback() {
+        override fun onConnectionStateChange(g: BluetoothGatt, status: Int, novoEstado: Int) {
+            if (novoEstado == BluetoothProfile.STATE_CONNECTED) {
+                eventos.offer(Evento("conectado", status == BluetoothGatt.GATT_SUCCESS))
+            } else {
+                canal = null
+                eventos.offer(Evento("desconectado", false))
+            }
+        }
+
+        override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            eventos.offer(Evento("servicos", status == BluetoothGatt.GATT_SUCCESS))
+        }
+
+        override fun onMtuChanged(g: BluetoothGatt, novoMtu: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) mtu = novoMtu
+            eventos.offer(Evento("mtu", status == BluetoothGatt.GATT_SUCCESS))
+        }
+
+        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
+            eventos.offer(Evento("descritor", status == BluetoothGatt.GATT_SUCCESS))
+        }
+
+        override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
+            eventos.offer(Evento("escrito", status == BluetoothGatt.GATT_SUCCESS))
+        }
+
+        // A assinatura com `value` so existe da API 33 pra cima; sem sobrescrever
+        // a nova, o Android chama esta em todas as versoes.
+        @Suppress("DEPRECATION")
+        override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
+            receber(c.value ?: return)
+        }
+    }
+
+    // ------------------------------------------------------------ permissoes ---
+
+    /** Permissoes que ainda faltam; vazio = pode imprimir. */
+    fun permissoesFaltando(): Array<String> {
+        val necessarias = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            // Ate o Android 11 varrer BLE exige localizacao — regra do sistema,
+            // nao nossa: sem ela o scanner devolve lista vazia e nada explica.
+            listOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        return necessarias
+            .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+            .toTypedArray()
+    }
+
+    // -------------------------------------------------------------- impressora ---
+
+    private fun prefs() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /** Nome da impressora lembrada, ou "" enquanto nenhuma foi encontrada. */
+    fun nomeLembrado(): String = prefs().getString(CHAVE_NOME, "") ?: ""
+
+    /** Esquece a impressora salva — troca de aparelho na clinica. */
+    fun esquecer() {
+        desconectar()
+        prefs().edit().remove(CHAVE_MAC).remove(CHAVE_NOME).apply()
+    }
+
+    private fun adaptador() =
+        (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+
+    /**
+     * Acha a impressora, na ordem que custa menos tempo: a que ja usamos, a que
+     * esta pareada no Android, e so entao varre o ar.
+     */
+    private fun encontrar(): BluetoothDevice? {
+        val adapter = adaptador() ?: return null
+        val prefs = prefs()
+
+        prefs.getString(CHAVE_MAC, null)?.let { mac ->
+            runCatching { adapter.getRemoteDevice(mac) }.getOrNull()?.let { return it }
+        }
+
+        adapter.bondedDevices?.firstOrNull { ehNiimbot(it.name) }?.let { pareada ->
+            lembrar(pareada)
+            return pareada
+        }
+
+        val scanner = adapter.bluetoothLeScanner ?: return null
+        val achados = ArrayBlockingQueue<BluetoothDevice>(1)
+        val varredura = object : ScanCallback() {
+            override fun onScanResult(tipo: Int, resultado: ScanResult) {
+                val nome = resultado.device?.name ?: resultado.scanRecord?.deviceName
+                if (ehNiimbot(nome)) achados.offer(resultado.device)
+            }
+        }
+        val ajustes = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+        scanner.startScan(null, ajustes, varredura)
+        val achada = runCatching { achados.poll(SEGUNDOS_VARREDURA, TimeUnit.SECONDS) }.getOrNull()
+        runCatching { scanner.stopScan(varredura) }
+        achada?.let { lembrar(it) }
+        return achada
+    }
+
+    private fun ehNiimbot(nome: String?): Boolean {
+        val n = nome?.uppercase() ?: return false
+        return PREFIXOS.any { n.startsWith(it) }
+    }
+
+    private fun lembrar(device: BluetoothDevice) {
+        prefs().edit()
+            .putString(CHAVE_MAC, device.address)
+            .putString(CHAVE_NOME, device.name ?: "Niimbot")
+            .apply()
+    }
+
+    // ----------------------------------------------------------------- conexao ---
+
+    /** Espera o proximo evento do tipo pedido, ignorando o que vier antes. */
+    private fun esperar(tipo: String, ms: Long): Boolean {
+        val limite = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < limite) {
+            val evento = runCatching {
+                eventos.poll(limite - System.currentTimeMillis(), TimeUnit.MILLISECONDS)
+            }.getOrNull() ?: return false
+            if (evento.tipo == tipo) return evento.ok
+            if (evento.tipo == "desconectado") return false
+        }
+        return false
+    }
+
+    private fun conectar(): String {
+        if (canal != null && gatt != null) return ""
+
+        val device = encontrar()
+            ?: return "Nao achei a impressora. Ligue a Niimbot e deixe ela perto do tablet."
+
+        eventos.clear()
+        val g = device.connectGatt(context, false, retorno, BluetoothDevice.TRANSPORT_LE)
+            ?: return "Nao consegui abrir a conexao com a impressora."
+        gatt = g
+
+        if (!esperar("conectado", 15_000)) {
+            // MAC salvo de uma impressora que nao esta mais ali: esquecer aqui
+            // faz a proxima tentativa varrer em vez de insistir no aparelho errado.
+            desconectar()
+            prefs().edit().remove(CHAVE_MAC).apply()
+            return "A impressora nao respondeu. Confira se ela esta ligada."
+        }
+
+        // MTU maior = menos fatias por linha impressa; se o firmware recusar,
+        // seguimos nos 23 bytes padrao, so mais devagar.
+        g.requestMtu(247)
+        esperar("mtu", 3_000)
+
+        if (!g.discoverServices() || !esperar("servicos", 15_000)) {
+            desconectar()
+            return "A impressora conectou mas nao listou os servicos."
+        }
+
+        val caracteristica = g.getService(SERVICO)?.getCharacteristic(CARACTERISTICA)
+            ?: procurarCanalSerial(g)
+            ?: run {
+                desconectar()
+                return "Este modelo nao expos o canal de impressao esperado."
+            }
+
+        g.setCharacteristicNotification(caracteristica, true)
+        caracteristica.getDescriptor(CCCD)?.let { descritor ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                g.writeDescriptor(descritor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            } else {
+                @Suppress("DEPRECATION")
+                run {
+                    descritor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    g.writeDescriptor(descritor)
+                }
+            }
+            esperar("descritor", 3_000)
+        }
+
+        canal = caracteristica
+        return ""
+    }
+
+    /** Qualquer caracteristica que escreva e notifique serve de porta serial. */
+    private fun procurarCanalSerial(g: BluetoothGatt): BluetoothGattCharacteristic? {
+        for (servico in g.services.orEmpty()) {
+            for (c in servico.characteristics.orEmpty()) {
+                val escreve = c.properties and
+                    (BluetoothGattCharacteristic.PROPERTY_WRITE or
+                        BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0
+                val notifica = c.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0
+                if (escreve && notifica) return c
+            }
+        }
+        return null
+    }
+
+    fun desconectar() {
+        canal = null
+        runCatching { gatt?.close() }
+        gatt = null
+        eventos.clear()
+        respostas.clear()
+        recebidos.clear()
+    }
+
+    // ---------------------------------------------------------------- protocolo ---
+
+    private fun pacote(tipo: Int, dados: ByteArray): ByteArray {
+        var xor = tipo xor dados.size
+        for (b in dados) xor = xor xor (b.toInt() and 0xFF)
+        val saida = ByteArray(dados.size + 7)
+        saida[0] = 0x55
+        saida[1] = 0x55
+        saida[2] = tipo.toByte()
+        saida[3] = dados.size.toByte()
+        System.arraycopy(dados, 0, saida, 4, dados.size)
+        saida[dados.size + 4] = xor.toByte()
+        saida[dados.size + 5] = 0xAA.toByte()
+        saida[dados.size + 6] = 0xAA.toByte()
+        return saida
+    }
+
+    /** Junta os fragmentos das notificacoes ate fechar um pacote inteiro. */
+    private fun receber(bytes: ByteArray) {
+        for (b in bytes) recebidos.add(b)
+        while (recebidos.size >= 7) {
+            var inicio = -1
+            for (i in 0 until recebidos.size - 1) {
+                if (recebidos[i] == 0x55.toByte() && recebidos[i + 1] == 0x55.toByte()) { inicio = i; break }
+            }
+            if (inicio < 0) { recebidos.clear(); return }
+            if (inicio > 0) repeat(inicio) { recebidos.removeAt(0) }
+
+            val tamanho = recebidos[3].toInt() and 0xFF
+            val total = tamanho + 7
+            if (recebidos.size < total) return
+            val dados = ByteArray(tamanho) { recebidos[4 + it] }
+            val tipo = recebidos[2].toInt() and 0xFF
+            repeat(total) { recebidos.removeAt(0) }
+            respostas.offer(Resposta(tipo, dados))
+        }
+    }
+
+    private fun escrever(pacote: ByteArray): Boolean {
+        val c = canal ?: return false
+        val g = gatt ?: return false
+        val passo = (mtu - 3).coerceIn(20, 512)
+        var i = 0
+        while (i < pacote.size) {
+            val fatia = pacote.copyOfRange(i, minOf(i + passo, pacote.size))
+            val enviou = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                g.writeCharacteristic(
+                    c, fatia, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE,
+                ) == BluetoothStatusCodes.SUCCESS
+            } else {
+                @Suppress("DEPRECATION")
+                run {
+                    c.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    c.value = fatia
+                    g.writeCharacteristic(c)
+                }
+            }
+            // Uma escrita por vez: o Android descarta a segunda se a primeira
+            // ainda nao voltou, e a etiqueta sairia com linhas faltando.
+            if (!enviou || !esperar("escrito", 5_000)) return false
+            i += passo
+        }
+        return true
+    }
+
+    private fun comando(tipo: Int, dados: ByteArray, respostaEsperada: Int?, ms: Long = 700): Resposta? {
+        respostas.clear()
+        if (!escrever(pacote(tipo, dados))) return null
+        if (respostaEsperada == null) return null
+        val limite = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < limite) {
+            val r = runCatching {
+                respostas.poll(limite - System.currentTimeMillis(), TimeUnit.MILLISECONDS)
+            }.getOrNull() ?: return null
+            if (r.tipo == respostaEsperada) return r
+        }
+        return null
+    }
+
+    /**
+     * Imprime as linhas ja empacotadas (1 bit por ponto, bit mais significativo
+     * a esquerda). Bloqueia — chame de uma thread de fundo.
+     *
+     * Devolve "" quando deu certo, ou a mensagem que a tela mostra.
+     */
+    fun imprimir(
+        linhas: List<ByteArray>,
+        largura: Int,
+        copias: Int,
+        densidade: Int,
+        repetirPagina: Boolean,
+        progresso: (Int) -> Unit,
+    ): String {
+        if (linhas.isEmpty()) return "Etiqueta vazia."
+        if (permissoesFaltando().isNotEmpty()) return "Falta a permissao de Bluetooth."
+
+        val erro = conectar()
+        if (erro.isNotEmpty()) return erro
+
+        val paginas = if (repetirPagina) copias else 1
+        val totalLinhas = linhas.size * paginas
+        var enviadas = 0
+        val altura = linhas.size
+
+        comando(TIPO_ETIQUETA, byteArrayOf(1), TIPO_ETIQUETA + 1)
+        comando(DENSIDADE, byteArrayOf(densidade.coerceIn(1, 5).toByte()), DENSIDADE + 1)
+        comando(INICIAR_IMPRESSAO, byteArrayOf(1), INICIAR_IMPRESSAO + 1)
+
+        for (pagina in 0 until paginas) {
+            comando(INICIAR_PAGINA, byteArrayOf(1), INICIAR_PAGINA + 1)
+            comando(
+                DIMENSAO,
+                byteArrayOf(
+                    (altura shr 8).toByte(), altura.toByte(),
+                    (largura shr 8).toByte(), largura.toByte(),
+                ),
+                DIMENSAO + 1,
+            )
+            if (!repetirPagina) {
+                comando(QUANTIDADE, byteArrayOf((copias shr 8).toByte(), copias.toByte()), QUANTIDADE + 1)
+            }
+
+            for (y in linhas.indices) {
+                val linha = linhas[y]
+                // Cabecalho: numero da linha, tres contadores de pontos pretos
+                // (a impressora aceita zeros) e quantas linhas repetem o desenho.
+                val corpo = ByteArray(6 + linha.size)
+                corpo[0] = (y shr 8).toByte()
+                corpo[1] = y.toByte()
+                corpo[5] = 1
+                System.arraycopy(linha, 0, corpo, 6, linha.size)
+                if (!escrever(pacote(IMPRIMIR_LINHA, corpo))) {
+                    desconectar()
+                    return "A conexao caiu no meio da impressao. Tente de novo."
+                }
+                enviadas++
+                if (enviadas % 16 == 0) progresso(enviadas * 100 / totalLinhas)
+            }
+
+            comando(FIM_PAGINA, byteArrayOf(1), FIM_PAGINA + 1)
+        }
+        progresso(100)
+
+        // O papel ainda anda quando a ultima linha chega: encerrar agora corta a
+        // etiqueta pela metade. Espera a impressora dizer quantas ja saíram e,
+        // se ela nao disser nada, da o tempo de um ciclo por etiqueta.
+        val limite = System.currentTimeMillis() + 3_000 + copias * 2_000L
+        var confirmou = false
+        while (System.currentTimeMillis() < limite) {
+            val status = comando(STATUS, byteArrayOf(1), STATUS + 0x10, 500)
+            if (status == null || status.dados.size < 2) break
+            val feitas = ((status.dados[0].toInt() and 0xFF) shl 8) or (status.dados[1].toInt() and 0xFF)
+            if (feitas >= copias) { confirmou = true; break }
+            Thread.sleep(200)
+        }
+        if (!confirmou) Thread.sleep(500 + copias * 300L)
+
+        comando(FIM_IMPRESSAO, byteArrayOf(1), FIM_IMPRESSAO + 1)
+        return ""
+    }
+
+    companion object {
+        private const val PREFS = "vitallcam.etiqueta"
+        private const val CHAVE_MAC = "impressora_mac"
+        private const val CHAVE_NOME = "impressora_nome"
+        private const val SEGUNDOS_VARREDURA = 12L
+
+        /** Servico serial das Niimbot D11/D110/B1 mapeado pela comunidade. */
+        private val SERVICO: UUID = UUID.fromString("e7810a71-73ae-499d-8c15-faa9aef0c3f2")
+        private val CARACTERISTICA: UUID = UUID.fromString("bef8d6c9-9c21-4c9e-b632-bd58c1009f9f")
+        private val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+        private val PREFIXOS = listOf("D110", "D11", "D101", "B1", "B21", "B18", "NIIMBOT")
+
+        private const val IMPRIMIR_LINHA = 0x85
+        private const val INICIAR_IMPRESSAO = 0x01
+        private const val INICIAR_PAGINA = 0x03
+        private const val DIMENSAO = 0x13
+        private const val QUANTIDADE = 0x15
+        private const val DENSIDADE = 0x21
+        private const val TIPO_ETIQUETA = 0x23
+        private const val FIM_PAGINA = 0xE3
+        private const val FIM_IMPRESSAO = 0xF3
+        private const val STATUS = 0xA3
+    }
+}

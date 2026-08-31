@@ -46,8 +46,6 @@ interface Ajustes extends FormatoEtiqueta {
   rotacao: 0 | 90 | 180 | 270
   /** 1 a 5; acima de 3 a etiqueta escurece e pode borrar. */
   densidade: number
-  /** Reenvia o desenho a cada cópia, para modelo que ignore o contador. */
-  repetirPagina: boolean
   /**
    * Família da impressora. Decide o formato do comando de tamanho de página —
    * errar faz a etiqueta andar em branco, que é como isso aparece na bancada.
@@ -59,7 +57,6 @@ const AJUSTES_PADRAO: Ajustes = {
   ...FORMATO_PADRAO,
   rotacao: 90,
   densidade: 3,
-  repetirPagina: false,
   variante: 'd11',
 }
 
@@ -584,7 +581,6 @@ function ModalEtiqueta({
         {
           copias: quantidade,
           densidade: ajustes.densidade,
-          repetirPagina: ajustes.repetirPagina,
           variante: ajustes.variante,
           aoProgredir: setProgresso,
         },
@@ -633,7 +629,6 @@ function ModalEtiqueta({
         {
           copias: 1,
           densidade: ajustes.densidade,
-          repetirPagina: ajustes.repetirPagina,
           variante: ajustes.variante,
           aoProgredir: setProgresso,
         },
@@ -928,14 +923,6 @@ function AjustesImpressora({
           <Printer className="w-3.5 h-3.5" /> Imprimir teste (tarja e xadrez, sem gravar ciclo)
         </button>
 
-        <label className="flex items-center gap-2 text-[11px] text-gray-500 col-span-2">
-          <input
-            type="checkbox"
-            checked={ajustes.repetirPagina}
-            onChange={(e) => onMudar({ repetirPagina: e.target.checked })}
-          />
-          Reenviar o desenho a cada cópia (só se a impressora sair com uma etiqueta só)
-        </label>
       </div>
     </details>
   )

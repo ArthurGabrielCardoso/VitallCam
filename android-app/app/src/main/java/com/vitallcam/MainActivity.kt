@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
     /** Impressora de etiqueta: uma so, viva enquanto o app estiver aberto. */
     private val etiqueta by lazy { EtiquetaNiimbot(this) }
     private var impressaoPendente: (() -> Unit)? = null
+    private var buscaPendente: (() -> Unit)? = null
     @Volatile private var imprimindo = false
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
@@ -223,6 +224,10 @@ class MainActivity : AppCompatActivity() {
 
         if (requestCode == ETIQUETA_PERMISSION_CODE) {
             val concedidas = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            val busca = buscaPendente
+            buscaPendente = null
+            if (concedidas && busca != null) busca()
+
             val pendente = impressaoPendente
             impressaoPendente = null
             if (concedidas && pendente != null) {
@@ -582,7 +587,7 @@ class MainActivity : AppCompatActivity() {
          * timeout sem ninguem entender por que.
          */
         @JavascriptInterface
-        fun versaoEtiqueta(): Int = 2
+        fun versaoEtiqueta(): Int = 3
 
         @JavascriptInterface
         fun imprimirEtiqueta(
@@ -651,6 +656,52 @@ class MainActivity : AppCompatActivity() {
         /** Nome da impressora lembrada, ou "" enquanto nenhuma foi encontrada. */
         @JavascriptInterface
         fun impressoraEtiqueta(): String = etiqueta.nomeLembrado()
+
+        /**
+         * Procura impressoras e devolve a lista pro JS, que mostra pra pessoa
+         * escolher — igual ao seletor do Chrome, que e o que ela ja conhece.
+         *
+         * Buscar sozinho na hora de imprimir resolve o dia a dia, mas quando nao
+         * acha nao ha o que fazer na tela: sem lista, "nao achei a impressora" e
+         * um beco sem saida. Com ela da pra ver o que o tablet enxerga.
+         */
+        @JavascriptInterface
+        fun procurarImpressoras() {
+            val trabalho = {
+                Thread {
+                    val impedimento = etiqueta.impedimento()
+                    val lista = if (impedimento.isEmpty()) etiqueta.procurar() else emptyList()
+                    val json = lista.joinToString(",", "[", "]") { impressora ->
+                        "{\"nome\":${jsString(impressora.nome)}," +
+                            "\"mac\":${jsString(impressora.mac)}," +
+                            "\"provavel\":${impressora.provavel}}"
+                    }
+                    runOnUiThread {
+                        webView.evaluateJavascript(
+                            "if(typeof window.__onImpressorasEncontradas==='function')" +
+                                "{window.__onImpressorasEncontradas($json,${
+                                    if (impedimento.isEmpty()) "null" else jsString(impedimento)
+                                });}",
+                            null,
+                        )
+                    }
+                }.start()
+            }
+
+            val faltando = etiqueta.permissoesFaltando()
+            if (faltando.isEmpty()) {
+                trabalho()
+            } else {
+                buscaPendente = trabalho
+                runOnUiThread { ActivityCompat.requestPermissions(this@MainActivity, faltando, ETIQUETA_PERMISSION_CODE) }
+            }
+        }
+
+        /** Fixa a impressora que a pessoa escolheu na lista. */
+        @JavascriptInterface
+        fun escolherImpressora(mac: String, nome: String) {
+            Thread { etiqueta.escolher(mac, nome) }.start()
+        }
 
         /** Esquece a impressora salva — trocou de aparelho na clinica. */
         @JavascriptInterface

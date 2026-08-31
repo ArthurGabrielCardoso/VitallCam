@@ -65,6 +65,10 @@ declare global {
       ) => void
       /** Versão da ponte de impressão; ausente = APK anterior à variante. */
       versaoEtiqueta?: () => number
+      /** Procura impressoras; responde por __onImpressorasEncontradas. */
+      procurarImpressoras?: () => void
+      /** Fixa a impressora escolhida na lista. */
+      escolherImpressora?: (mac: string, nome: string) => void
       /** Nome da impressora lembrada, ou "" enquanto nenhuma foi encontrada. */
       impressoraEtiqueta?: () => string
       esquecerImpressoraEtiqueta?: () => void
@@ -79,7 +83,15 @@ declare global {
     /** Fim da impressão da etiqueta: null = saiu; string = o que deu errado. */
     __onEtiquetaImpressa?: (erro: string | null) => void
     __onEtiquetaProgresso?: (porcentagem: number) => void
+    __onImpressorasEncontradas?: (lista: ImpressoraEncontrada[], impedimento: string | null) => void
   }
+}
+
+/** Uma impressora vista no ar pelo app, do jeito que a lista mostra. */
+interface ImpressoraEncontrada {
+  nome: string
+  mac: string
+  provavel: boolean
 }
 
 interface IntraoralCapabilities {

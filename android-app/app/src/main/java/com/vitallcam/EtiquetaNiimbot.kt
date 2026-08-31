@@ -499,6 +499,28 @@ class EtiquetaNiimbot(private val context: Context) {
     }
 
     /** Manda um comando e diz apenas se o pacote saiu — sem esperar resposta. */
+    /**
+     * Espera a impressora chegar em `alvo` etiquetas.
+     *
+     * Prefere a resposta dela ao relogio; quando ela nao responde ao pedido de
+     * status — e esta nao responde — cai no tempo estimado pelo tamanho do
+     * desenho, que e melhor do que um numero fixo chutado.
+     */
+    private fun esperarEtiquetas(alvo: Int, msPorEtiqueta: Long) {
+        val limite = System.currentTimeMillis() + 2_000 + alvo * msPorEtiqueta * 2
+        var mudo = false
+        while (System.currentTimeMillis() < limite) {
+            val status = comando(STATUS, byteArrayOf(1), STATUS + 0x10, 400)
+            if (status == null || status.dados.size < 2) { mudo = true; break }
+            val feitas = ((status.dados[0].toInt() and 0xFF) shl 8) or (status.dados[1].toInt() and 0xFF)
+            if (feitas >= alvo) { anotar("impressora confirmou $feitas"); return }
+            Thread.sleep(200)
+        }
+        Thread.sleep(msPorEtiqueta)
+        if (mudo) anotar("status mudo — esperou pela etiqueta $alvo")
+        else anotar("status nao chegou a $alvo")
+    }
+
     private fun escreveu(tipo: Int, dados: ByteArray): Boolean {
         respostas.clear()
         return escrever(pacote(tipo, dados))
@@ -591,6 +613,9 @@ class EtiquetaNiimbot(private val context: Context) {
         // e determinista e funciona em qualquer modelo — e, com as linhas em
         // lote, o envio some perto do tempo que a impressora leva para imprimir.
         val paginas = copias
+        // 8 pontos por milimetro na cabeca termica, e a D110 anda perto de
+        // 20 mm/s: o proprio desenho diz quanto tempo cada etiqueta leva.
+        val msPorEtiqueta = ((linhas.size / 8.0) * 50).toLong().coerceIn(800, 6_000)
         val totalLinhas = linhas.size * paginas
         var enviadas = 0
         val altura = linhas.size
@@ -664,27 +689,20 @@ class EtiquetaNiimbot(private val context: Context) {
             }
 
             comando(FIM_PAGINA, byteArrayOf(1), FIM_PAGINA + 1)
+
+            // Espera a etiqueta sair antes de mandar a proxima.
+            //
+            // Mandar as tres de uma vez e mais rapido no papel e perde etiqueta
+            // na pratica: a impressora tem buffer pequeno e imprime devagar
+            // (uns 20 mm por segundo), entao a ultima chegava enquanto ela ainda
+            // estava na anterior. Pedimos tres e sairam duas.
+            esperarEtiquetas(pagina + 1, msPorEtiqueta)
         }
         progresso(100)
 
         // O papel ainda anda quando a ultima linha chega: encerrar agora corta a
-        // etiqueta pela metade. Espera a impressora dizer quantas ja saíram e,
-        // se ela nao disser nada, da o tempo de um ciclo por etiqueta.
-        val limite = System.currentTimeMillis() + 5_000 + copias * 3_000L
-        var confirmou = false
-        var mudo = false
-        while (System.currentTimeMillis() < limite) {
-            val status = comando(STATUS, byteArrayOf(1), STATUS + 0x10, 500)
-            if (status == null || status.dados.size < 2) { mudo = true; break }
-            val feitas = ((status.dados[0].toInt() and 0xFF) shl 8) or (status.dados[1].toInt() and 0xFF)
-            if (feitas >= copias) { confirmou = true; break }
-            Thread.sleep(200)
-        }
-        // Sem resposta de status, o tempo tem que cobrir a impressao inteira: a
-        // D110 leva perto de um segundo por etiqueta, e encerrar antes disso
-        // corta o resto do lote — foi assim que "imprimir 3" virou uma etiqueta.
-        if (!confirmou) Thread.sleep(1_000 + copias * 1_500L)
-        anotar(if (confirmou) "impressora confirmou $copias" else if (mudo) "status mudo — esperou pelo tempo" else "status nao chegou a $copias")
+        // etiqueta pela metade.
+        esperarEtiquetas(copias, msPorEtiqueta)
 
         comando(FIM_IMPRESSAO, byteArrayOf(1), FIM_IMPRESSAO + 1)
         return ""
@@ -717,7 +735,7 @@ class EtiquetaNiimbot(private val context: Context) {
         private const val BATIDA = 0xDC
 
         /** Marca da build, para saber no log qual versao gerou a trilha. */
-        private const val VERSAO = 6
+        private const val VERSAO = 7
 
         /** Familia D11/D110/D101: tamanho da pagina em 2 bytes (so as linhas). */
         const val VARIANTE_D11 = 1

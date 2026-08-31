@@ -254,6 +254,24 @@ export class Niimbot {
     })
   }
 
+  /**
+   * Espera a impressora chegar em `alvo` etiquetas.
+   *
+   * Prefere a resposta dela ao relógio; quando ela não responde ao pedido de
+   * status — e esta não responde — cai no tempo estimado pelo tamanho do
+   * desenho, que é melhor do que um número fixo chutado.
+   */
+  private async esperarEtiquetas(alvo: number, msPorEtiqueta: number): Promise<void> {
+    const limite = Date.now() + 2000 + alvo * msPorEtiqueta * 2
+    while (Date.now() < limite) {
+      const feitas = await this.paginasImpressas()
+      if (feitas === null) break
+      if (feitas >= alvo) return
+      await espera(200)
+    }
+    await espera(msPorEtiqueta)
+  }
+
   /** Página impressa segundo a impressora — é como sabemos que o lote acabou. */
   private async paginasImpressas(): Promise<number | null> {
     const resposta = await this.enviar(COMANDO.STATUS, [0x01], COMANDO.STATUS + 0x10, 500)
@@ -272,6 +290,9 @@ export class Niimbot {
     // mas a D110 ignora — pedimos três e saiu uma. Mandar o desenho uma vez por
     // etiqueta é determinista e funciona em qualquer modelo.
     const paginas = copias
+    // 8 pontos por milímetro na cabeça térmica, e a D110 anda perto de 20 mm/s:
+    // o próprio desenho diz quanto tempo cada etiqueta leva.
+    const msPorEtiqueta = Math.min(6000, Math.max(800, Math.round((bitmap.altura / 8) * 50)))
     const totalLinhas = bitmap.linhas.length * paginas
     let enviadas = 0
 
@@ -325,24 +346,17 @@ export class Niimbot {
       await despejar()
 
       await this.enviar(COMANDO.FIM_PAGINA, [0x01], COMANDO.FIM_PAGINA + 1)
+
+      // Espera a etiqueta sair antes de mandar a próxima: a impressora tem
+      // buffer pequeno e imprime devagar, então mandar tudo de uma vez perde
+      // etiqueta — pedimos três e saíram duas.
+      await this.esperarEtiquetas(pagina + 1, msPorEtiqueta)
     }
     opcoes.aoProgredir?.(totalLinhas, totalLinhas)
 
     // O papel ainda está andando quando a última linha chega: encerrar agora
-    // corta a etiqueta pela metade. Espera a impressora dizer que terminou —
-    // e, se ela não disser nada, dá o tempo de imprimir o lote inteiro.
-    const limite = Date.now() + 5000 + copias * 3000
-    let confirmou = false
-    while (Date.now() < limite) {
-      const paginasFeitas = await this.paginasImpressas()
-      if (paginasFeitas === null) break
-      if (paginasFeitas >= copias) {
-        confirmou = true
-        break
-      }
-      await espera(200)
-    }
-    if (!confirmou) await espera(1000 + copias * 1500)
+    // corta a etiqueta pela metade.
+    await this.esperarEtiquetas(copias, msPorEtiqueta)
 
     await this.enviar(COMANDO.FIM_IMPRESSAO, [0x01], COMANDO.FIM_IMPRESSAO + 1)
   }

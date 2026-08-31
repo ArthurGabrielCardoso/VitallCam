@@ -39,6 +39,11 @@ import java.util.concurrent.TimeUnit
  *
  * O protocolo e o mapeado pela comunidade (niimprint, NiimBlue) — a Niimbot nao
  * publica SDK. Pacote: 55 55 <tipo> <tamanho> <dados> <xor> AA AA.
+ *
+ * O comando de tamanho da pagina (0x13) muda de formato entre as familias, e e
+ * ai que a etiqueta sai em branco quando erra: a impressora aceita o trabalho,
+ * anda o papel e descarta as linhas. Sao tres formatos conhecidos (VARIANTE_*),
+ * escolhidos na tela — a D110 usa o de 2 bytes.
  */
 @SuppressLint("MissingPermission")
 class EtiquetaNiimbot(private val context: Context) {
@@ -203,6 +208,11 @@ class EtiquetaNiimbot(private val context: Context) {
             return "A impressora nao respondeu. Confira se ela esta ligada."
         }
 
+        // Sem isto o Android conversa no intervalo folgado de ~50ms: 400 linhas
+        // viram mais de meio minuto de barra de progresso. Em prioridade alta o
+        // intervalo cai para ~11ms e a etiqueta sai em poucos segundos.
+        runCatching { g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) }
+
         // MTU maior = menos fatias por linha impressa; se o firmware recusar,
         // seguimos nos 23 bytes padrao, so mais devagar.
         g.requestMtu(247)
@@ -352,6 +362,7 @@ class EtiquetaNiimbot(private val context: Context) {
         copias: Int,
         densidade: Int,
         repetirPagina: Boolean,
+        variante: Int,
         progresso: (Int) -> Unit,
     ): String {
         if (linhas.isEmpty()) return "Etiqueta vazia."
@@ -371,15 +382,25 @@ class EtiquetaNiimbot(private val context: Context) {
 
         for (pagina in 0 until paginas) {
             comando(INICIAR_PAGINA, byteArrayOf(1), INICIAR_PAGINA + 1)
-            comando(
-                DIMENSAO,
-                byteArrayOf(
+            // O tamanho da pagina e o comando que decide se a etiqueta sai
+            // escrita ou em branco: a familia D11/D110 le so as linhas, as
+            // outras esperam mais campos e descartam o desenho se receberem
+            // menos (ou mais) do que esperam.
+            val tamanhoPagina = when (variante) {
+                VARIANTE_B21 -> byteArrayOf(
                     (altura shr 8).toByte(), altura.toByte(),
                     (largura shr 8).toByte(), largura.toByte(),
-                ),
-                DIMENSAO + 1,
-            )
-            if (!repetirPagina) {
+                )
+                VARIANTE_B1 -> byteArrayOf(
+                    (altura shr 8).toByte(), altura.toByte(),
+                    (largura shr 8).toByte(), largura.toByte(),
+                    (copias shr 8).toByte(), copias.toByte(),
+                )
+                else -> byteArrayOf((altura shr 8).toByte(), altura.toByte())
+            }
+            comando(DIMENSAO, tamanhoPagina, DIMENSAO + 1)
+            // Na variante B1 a quantidade ja foi junto do tamanho da pagina.
+            if (!repetirPagina && variante != VARIANTE_B1) {
                 comando(QUANTIDADE, byteArrayOf((copias shr 8).toByte(), copias.toByte()), QUANTIDADE + 1)
             }
 
@@ -445,5 +466,12 @@ class EtiquetaNiimbot(private val context: Context) {
         private const val FIM_PAGINA = 0xE3
         private const val FIM_IMPRESSAO = 0xF3
         private const val STATUS = 0xA3
+
+        /** Familia D11/D110/D101: tamanho da pagina em 2 bytes (so as linhas). */
+        const val VARIANTE_D11 = 1
+        /** Familia B21/B3: 4 bytes (linhas e largura). */
+        const val VARIANTE_B21 = 2
+        /** Familia B1: 6 bytes (linhas, largura e copias). */
+        const val VARIANTE_B1 = 3
     }
 }

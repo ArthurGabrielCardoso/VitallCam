@@ -211,3 +211,41 @@ export function canvasParaBitmap(canvas: HTMLCanvasElement, rotacao: 0 | 90 | 18
 
   return { largura, altura, linhas }
 }
+
+/**
+ * Padrão de teste: duas tarjas pretas e um quadriculado, sem texto e sem QR.
+ *
+ * Serve para separar dois problemas que na bancada parecem o mesmo: "a etiqueta
+ * saiu em branco". Se a tarja preta sai, os dados chegam à cabeça térmica e o
+ * que falta é o desenho ou o tamanho; se nem a tarja sai, o problema está no
+ * comando de tamanho de página (a variante do protocolo) ou no rolo, que pode
+ * não ser térmico.
+ */
+export function bitmapDeTeste(
+  formato: FormatoEtiqueta = FORMATO_PADRAO,
+  rotacao: 0 | 90 | 180 | 270 = 90,
+): BitmapImpressao {
+  const { comprimento, largura } = dimensoesEmPontos(formato)
+  const trocaEixos = rotacao === 90 || rotacao === 270
+  const larguraFinal = trocaEixos ? largura : comprimento
+  const alturaFinal = trocaEixos ? comprimento : largura
+
+  const bytesPorLinha = Math.ceil(larguraFinal / 8)
+  const tarja = Math.max(4, Math.round(alturaFinal * 0.12))
+  const quadro = Math.max(4, Math.round(PONTOS_POR_MM))
+
+  const linhas: Uint8Array[] = []
+  for (let y = 0; y < alturaFinal; y++) {
+    const linha = new Uint8Array(bytesPorLinha)
+    const naTarja = y < tarja || y >= alturaFinal - tarja
+    for (let x = 0; x < larguraFinal; x++) {
+      // Tarjas cheias nas pontas e xadrez no meio: o xadrez mostra se a
+      // impressora está perdendo linhas, o que a tarja sozinha esconderia.
+      const preto = naTarja || (Math.floor(x / quadro) + Math.floor(y / quadro)) % 2 === 0
+      if (preto) linha[x >> 3] |= 0x80 >> (x & 7)
+    }
+    linhas.push(linha)
+  }
+
+  return { largura: larguraFinal, altura: alturaFinal, linhas }
+}

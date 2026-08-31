@@ -14,7 +14,10 @@ import {
 import {
   DadosEtiqueta, FORMATO_PADRAO, FormatoEtiqueta, canvasParaBitmap, desenharEtiqueta,
 } from '@/lib/etiqueta-esterilizacao'
-import { Niimbot, bluetoothDisponivel } from '@/lib/niimbot'
+import {
+  ModoImpressao, esquecerImpressora, imprimirEtiqueta as enviarEtiqueta, impressoraLembrada, modoImpressao,
+} from '@/lib/impressora-etiqueta'
+import { Niimbot } from '@/lib/niimbot'
 
 /**
  * Etiquetas de esterilização da CME.
@@ -26,6 +29,10 @@ import { Niimbot, bluetoothDisponivel } from '@/lib/niimbot'
  *
  * Cada cartão é um ciclo já aberto; abrir um cartão reimprime aquele lote, que
  * é o que acontece quando falta etiqueta no meio da embalagem.
+ *
+ * Dentro do APK não há nada para conectar: o app guarda a Niimbot e imprime no
+ * toque. No navegador o Chrome exige escolher o aparelho a cada sessão, e é por
+ * isso — e só por isso — que existe um botão de conectar nesta tela.
  */
 
 const AJUSTES_CHAVE = 'vitallcam:etiqueta-esterilizacao:ajustes'
@@ -90,6 +97,10 @@ export default function EsterilizacaoPanel() {
   const { data: ciclos, isLoading, error } = useCiclosEsterilizacao()
   const [aberto, setAberto] = useState<CicloEsterilizacao | 'novo' | null>(null)
   const [impressora, setImpressora] = useState<Niimbot | null>(null)
+  // Em efeito, não no valor inicial: `window` não existe na renderização do
+  // servidor e um valor diferente ali quebraria a hidratação.
+  const [modo, setModo] = useState<ModoImpressao>('indisponivel')
+  useEffect(() => setModo(modoImpressao()), [])
 
   const grupos = useMemo(() => {
     const mapa = new Map<string, CicloEsterilizacao[]>()
@@ -106,7 +117,7 @@ export default function EsterilizacaoPanel() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <EstadoImpressora impressora={impressora} onMudar={setImpressora} />
+        <EstadoImpressora modo={modo} impressora={impressora} onMudar={setImpressora} />
         <button
           onClick={() => setAberto('novo')}
           className="flex items-center gap-2 px-6 h-9 rounded text-sm font-semibold bg-teal-700 text-white hover:bg-teal-800 transition-colors shadow-sm"
@@ -145,6 +156,7 @@ export default function EsterilizacaoPanel() {
         <ModalEtiqueta
           ciclo={aberto === 'novo' ? null : aberto}
           ciclos={ciclos || []}
+          modo={modo}
           impressora={impressora}
           onImpressora={setImpressora}
           onFechar={() => setAberto(null)}
@@ -253,20 +265,21 @@ function Cartao({ ciclo, onAbrir }: { ciclo: CicloEsterilizacao; onAbrir: (c: Ci
   )
 }
 
-/** Chip de conexão da Niimbot, sempre visível: sem ela nada imprime. */
+/** Estado da impressora. No app é informação; no navegador é um botão. */
 function EstadoImpressora({
-  impressora, onMudar,
+  modo, impressora, onMudar,
 }: {
+  modo: ModoImpressao
   impressora: Niimbot | null
   onMudar: (i: Niimbot | null) => void
 }) {
   const { toast } = useToast()
   const [conectando, setConectando] = useState(false)
-  const [suportado, setSuportado] = useState(true)
+  const [lembrada, setLembrada] = useState('')
 
-  // Em efeito, não no estado inicial: `navigator` não existe na renderização
-  // do servidor e um valor diferente ali quebraria a hidratação.
-  useEffect(() => setSuportado(bluetoothDisponivel()), [])
+  useEffect(() => {
+    if (modo === 'app') setLembrada(impressoraLembrada())
+  }, [modo])
 
   const conectar = async (mostrarTodos: boolean) => {
     setConectando(true)
@@ -283,10 +296,26 @@ function EstadoImpressora({
     }
   }
 
-  if (!suportado) {
+  if (modo === 'app') {
+    return (
+      <div className="flex items-center gap-2 text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded px-3 py-2">
+        <Printer className="w-3.5 h-3.5" />
+        {lembrada ? `${lembrada} — pronta` : 'Impressão pelo app, sem conectar'}
+        <button
+          onClick={() => { esquecerImpressora(); setLembrada('') }}
+          className="text-gray-400 hover:text-gray-600 underline underline-offset-2"
+          title="Procurar a impressora de novo na próxima impressão"
+        >
+          trocar
+        </button>
+      </div>
+    )
+  }
+
+  if (modo === 'indisponivel') {
     return (
       <p className="text-xs text-gray-500 bg-gray-100 border border-gray-200 rounded px-3 py-2">
-        Este navegador não conversa com a Niimbot. Use o Chrome ou o Edge — ou baixe o PNG e imprima pelo app da impressora.
+        Este navegador não conversa com a Niimbot. Abra pelo app da clínica, use o Chrome — ou baixe o PNG e imprima pelo app da impressora.
       </p>
     )
   }
@@ -329,10 +358,11 @@ function EstadoImpressora({
 }
 
 function ModalEtiqueta({
-  ciclo, ciclos, impressora, onImpressora, onFechar,
+  ciclo, ciclos, modo, impressora, onImpressora, onFechar,
 }: {
   ciclo: CicloEsterilizacao | null
   ciclos: CicloEsterilizacao[]
+  modo: ModoImpressao
   impressora: Niimbot | null
   onImpressora: (i: Niimbot | null) => void
   onFechar: () => void
@@ -398,10 +428,14 @@ function ModalEtiqueta({
   const imprimir = async () => {
     setProgresso(0)
     try {
-      // Conectar primeiro: o seletor de Bluetooth do navegador só abre enquanto
-      // o clique ainda "vale", e depois de uma ida ao banco ele já não vale.
-      const conectada = impressora?.conectado ? impressora : await Niimbot.conectar(false)
-      if (conectada !== impressora) onImpressora(conectada)
+      // No navegador o seletor de Bluetooth só abre enquanto o clique ainda
+      // "vale" — depois de uma ida ao banco ele já não vale. No app não há
+      // seletor: a impressora está salva e a conexão fica de pé.
+      let conectada = impressora
+      if (modo === 'navegador' && !conectada?.conectado) {
+        conectada = await Niimbot.conectar(false)
+        onImpressora(conectada)
+      }
 
       // Ciclo novo grava antes de imprimir: o número do lote é do banco, não do
       // que está na tela. Reimpressão não abre ciclo nenhum.
@@ -417,12 +451,16 @@ function ModalEtiqueta({
       })
       const bitmap = canvasParaBitmap(canvas, ajustes.rotacao)
 
-      await conectada.imprimir(bitmap, {
-        copias: quantidade,
-        densidade: ajustes.densidade,
-        repetirPagina: ajustes.repetirPagina,
-        aoProgredir: (feitas, total) => setProgresso(Math.round((feitas / total) * 100)),
-      })
+      await enviarEtiqueta(
+        bitmap,
+        {
+          copias: quantidade,
+          densidade: ajustes.densidade,
+          repetirPagina: ajustes.repetirPagina,
+          aoProgredir: setProgresso,
+        },
+        { impressora: conectada, aoConectar: onImpressora },
+      )
 
       toast({
         title: `Lote ${alvo.lote} impresso`,

@@ -46,6 +46,11 @@ class MainActivity : AppCompatActivity() {
     private var pendingJsCallback: String? = null
     private var pendingFileChooser: ValueCallback<Array<Uri>>? = null
 
+    /** Impressora de etiqueta: uma so, viva enquanto o app estiver aberto. */
+    private val etiqueta by lazy { EtiquetaNiimbot(this) }
+    private var impressaoPendente: (() -> Unit)? = null
+    @Volatile private var imprimindo = false
+
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(androidx.appcompat.R.style.Theme_AppCompat_NoActionBar)
@@ -214,6 +219,19 @@ class MainActivity : AppCompatActivity() {
                 pendingPermissionRequest?.deny()
             }
             pendingPermissionRequest = null
+        }
+
+        if (requestCode == ETIQUETA_PERMISSION_CODE) {
+            val concedidas = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            val pendente = impressaoPendente
+            impressaoPendente = null
+            if (concedidas && pendente != null) {
+                // Concedeu: imprime sem pedir pra apertar o botao de novo — ela
+                // ja apertou uma vez, a caixa de permissao foi um pedagio.
+                pendente()
+            } else if (!concedidas) {
+                responderEtiqueta("sem-permissao")
+            }
         }
 
         if (requestCode == SCAN_PERMISSION_CODE) {
@@ -447,6 +465,17 @@ class MainActivity : AppCompatActivity() {
         um.requestPermission(cam, pi)
     }
 
+    /** Devolve o resultado da impressao pro JS; "" = deu certo. */
+    private fun responderEtiqueta(erro: String) {
+        runOnUiThread {
+            val valor = if (erro.isEmpty()) "null" else jsString(erro)
+            webView.evaluateJavascript(
+                "if(typeof window.__onEtiquetaImpressa==='function'){window.__onEtiquetaImpressa($valor);}",
+                null,
+            )
+        }
+    }
+
     private fun jsString(s: String): String {
         val sb = StringBuilder("\"")
         for (c in s) {
@@ -516,6 +545,77 @@ class MainActivity : AppCompatActivity() {
                 if (runCatching { startActivity(intent) }.isSuccess) return "ok"
             }
             return "sem-app"
+        }
+
+        /**
+         * Imprime a etiqueta na Niimbot pareada. O desenho vem pronto da web
+         * (canvas em 203 dpi, ja em 1 bit por ponto) — aqui so o radio.
+         *
+         * Existe porque a Web Bluetooth exige escolher o aparelho num seletor a
+         * cada sessao. Na bancada da CME isso e um clique a mais por lote; com o
+         * MAC salvo e a conexao de pe, "imprimir 15" e um toque so.
+         *
+         * @param linhasBase64 linhas concatenadas, `bytesPorLinha` cada.
+         * @param largura pontos na largura da cabeca (96 na D110).
+         */
+        @JavascriptInterface
+        fun imprimirEtiqueta(
+            linhasBase64: String,
+            largura: Int,
+            copias: Int,
+            densidade: Int,
+            repetirPagina: Boolean,
+        ) {
+            if (imprimindo) { responderEtiqueta("ja-imprimindo"); return }
+
+            val bytesPorLinha = (largura + 7) / 8
+            val dados = runCatching {
+                android.util.Base64.decode(linhasBase64, android.util.Base64.DEFAULT)
+            }.getOrNull()
+            if (dados == null || bytesPorLinha <= 0 || dados.size < bytesPorLinha) {
+                responderEtiqueta("etiqueta-invalida"); return
+            }
+            val linhas = (0 until dados.size / bytesPorLinha).map { y ->
+                dados.copyOfRange(y * bytesPorLinha, (y + 1) * bytesPorLinha)
+            }
+
+            val trabalho = {
+                imprimindo = true
+                Thread {
+                    val erro = runCatching {
+                        etiqueta.imprimir(linhas, largura, copias, densidade, repetirPagina) { pct ->
+                            runOnUiThread {
+                                webView.evaluateJavascript(
+                                    "if(typeof window.__onEtiquetaProgresso==='function'){window.__onEtiquetaProgresso($pct);}",
+                                    null,
+                                )
+                            }
+                        }
+                    }.getOrElse { it.message ?: "Falha ao imprimir" }
+                    imprimindo = false
+                    responderEtiqueta(erro)
+                }.start()
+            }
+
+            val faltando = etiqueta.permissoesFaltando()
+            if (faltando.isEmpty()) {
+                trabalho()
+            } else {
+                // Pedir na hora do uso: quem so veio ver a ficha do paciente nao
+                // precisa ver caixa de Bluetooth nenhuma.
+                impressaoPendente = trabalho
+                runOnUiThread { ActivityCompat.requestPermissions(this@MainActivity, faltando, ETIQUETA_PERMISSION_CODE) }
+            }
+        }
+
+        /** Nome da impressora lembrada, ou "" enquanto nenhuma foi encontrada. */
+        @JavascriptInterface
+        fun impressoraEtiqueta(): String = etiqueta.nomeLembrado()
+
+        /** Esquece a impressora salva — trocou de aparelho na clinica. */
+        @JavascriptInterface
+        fun esquecerImpressoraEtiqueta() {
+            Thread { etiqueta.esquecer() }.start()
         }
 
         // ---- Stubs no-op pra compatibilidade com versões web em cache que
@@ -606,6 +706,7 @@ class MainActivity : AppCompatActivity() {
         private const val CAMERA_PERMISSION_CODE = 1001
         private const val FILE_CHOOSER_CODE = 1002
         private const val SCAN_PERMISSION_CODE = 1003
+        private const val ETIQUETA_PERMISSION_CODE = 1004
 
         // Pacote do RustDesk (o cliente Flutter oficial). Tambem declarado em
         // <queries> no manifest, senao o Android 11+ esconde o app de nos.

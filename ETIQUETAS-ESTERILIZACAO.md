@@ -30,12 +30,27 @@ fita zebrada. A etiqueta cuida da rastreabilidade; o pacote cuida do indicador.
    no Supabase. Sem ela a tela avisa e não grava ciclo nenhum.
 2. Use rolos de etiqueta **resistentes à autoclave**. O papel térmico comum
    (cupom fiscal, etiqueta de correio) fica preto a 121 °C.
+3. Para imprimir sem conectar, atualize o APK: a impressão nativa mora em
+   `android-app/.../EtiquetaNiimbot.kt` e chega pela ponte `VitallCam`.
+   Na primeira impressão o Android pede a permissão de Bluetooth — uma vez só.
 
 ## Impressão na Niimbot
 
-A impressão sai direto do navegador por Web Bluetooth (Chrome ou Edge, em
-https). A Niimbot não tem driver de sistema nem SDK público: o protocolo aqui é
-o mapeado pela comunidade (niimprint, NiimBlue), então a primeira etiqueta na
+**No app da clínica (APK): um toque.** O app guarda o endereço da Niimbot na
+primeira vez que a encontra e mantém a conexão de pé enquanto estiver aberto.
+Depois disso é abrir o ciclo, dizer 15 e apertar imprimir — sem seletor, sem
+parear, sem conectar. A primeira impressão pode levar alguns segundos
+procurando a impressora; da segunda em diante sai na hora. O chip no topo da
+tela mostra qual impressora está salva, com um **trocar** para procurar de novo
+quando a clínica trocar de aparelho.
+
+**No navegador (Chrome/Edge, https): tem seletor.** É regra do Chrome, não
+escolha nossa — nenhuma página fala com um aparelho Bluetooth que o usuário não
+apontou naquela sessão. Serve para abrir a tela no notebook; na bancada, use o
+app.
+
+A Niimbot não tem driver de sistema nem SDK público: o protocolo aqui é o
+mapeado pela comunidade (niimprint, NiimBlue), então a primeira etiqueta na
 bancada é o teste de verdade. Os **Ajustes do rolo e da impressora**, dentro do
 modal, existem para resolver o que aparecer, sem mexer no código:
 
@@ -46,9 +61,12 @@ modal, existem para resolver o que aparecer, sem mexer no código:
 | Muito clara ou borrada | Densidade (1 a 5) |
 | Saiu só uma etiqueta em vez de 20 | Marque "reenviar o desenho a cada cópia" |
 
+A quantidade vai num comando só e a impressora repete o desenho sozinha — 20
+etiquetas não são 20 envios por Bluetooth, que levariam minutos.
+
 Se o Bluetooth não colaborar, **Baixar PNG** salva a etiqueta no tamanho exato
 para imprimir pelo app da Niimbot. Nesse caminho o ciclo não é registrado — o
-registro nasce da impressão pelo app.
+registro nasce da impressão pelo VitallCam.
 
 ## Reimpressão
 

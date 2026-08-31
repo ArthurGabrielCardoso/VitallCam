@@ -80,7 +80,13 @@ export function dimensoesEmPontos(formato: FormatoEtiqueta) {
   }
 }
 
-/** Fonte que reduz até a linha caber na largura disponível. */
+/**
+ * Fonte que reduz até a linha caber na largura disponível.
+ *
+ * Com 3% de folga: `measureText` e o desenho final podem discordar por
+ * arredondamento e por diferença de espaçamento entre letras, e numa etiqueta de
+ * 50 mm essa diferença é a última letra do lote encostando na borda.
+ */
 function ajustarFonte(
   ctx: CanvasRenderingContext2D,
   texto: string,
@@ -88,10 +94,11 @@ function ajustarFonte(
   tamanhoInicial: number,
   peso: string,
 ): number {
+  const cabe = largura * 0.97
   let tamanho = tamanhoInicial
   while (tamanho > 8) {
     ctx.font = `${peso} ${tamanho}px Arial, Helvetica, sans-serif`
-    if (ctx.measureText(texto).width <= largura) break
+    if (ctx.measureText(texto).width <= cabe) break
     tamanho -= 1
   }
   return tamanho
@@ -205,11 +212,20 @@ export function desenharEtiqueta(
   const respiro = Math.round(PONTOS_POR_MM * 0.5)
   const sobra = Math.max(0, alturaUtil - alturaTotal)
   let y = margem + Math.min(sobra, Math.floor(sobra / 2) + respiro)
+
+  // Recorte na área do texto: se a medida ainda escapar, a linha para na margem
+  // em vez de sair pela borda do adesivo. Cortar é ruim; vazar é pior, porque
+  // some com o caractere sem deixar sinal de que faltou alguma coisa.
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(x, 0, larguraTexto, largura)
+  ctx.clip()
   linhas.forEach((linha, i) => {
     ctx.font = `${linha.peso} ${tamanhos[i]}px Arial, Helvetica, sans-serif`
     ctx.fillText(linha.texto, x, y)
     y += tamanhos[i] + entrelinha
   })
+  ctx.restore()
 
   return canvas
 }
@@ -335,4 +351,18 @@ export function carregarLogo(): Promise<HTMLImageElement | null> {
     img.src = CAMINHO_LOGO
   })
   return logoCarregando
+}
+
+/**
+ * Espera as fontes do documento ficarem prontas.
+ *
+ * O canvas mede o texto com a fonte que estiver valendo NA HORA. Se a medida
+ * acontece antes de a fonte terminar de carregar, ela vem menor do que a
+ * realidade: o ajuste escolhe um corpo grande demais e o texto sai batendo na
+ * borda direita. Foi o que aconteceu na primeira etiqueta de cada sessão — a
+ * segunda saía certa porque aí a fonte já estava resolvida.
+ */
+export function fontesProntas(): Promise<void> {
+  if (typeof document === 'undefined' || !document.fonts) return Promise.resolve()
+  return document.fonts.ready.then(() => undefined).catch(() => undefined)
 }

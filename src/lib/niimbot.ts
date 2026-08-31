@@ -10,9 +10,10 @@
  *      silêncio. Cada modelo responde a um subconjunto diferente, e travar a
  *      impressão porque a D110 não confirmou um comando que ela ignora é pior
  *      do que seguir em frente — o papel saindo é a confirmação que importa.
- *   2. A quantidade vai num comando só (0x15). Reenviar o bitmap 20 vezes por
- *      BLE levaria minutos; `repetirPagina` fica como saída caso o modelo em
- *      cima da bancada ignore o contador.
+ *   2. Uma página por etiqueta. O protocolo tem um contador de cópias (0x15) e
+ *      a D110 ignora — pedimos três e saiu uma. Com as linhas em lote, mandar o
+ *      desenho uma vez por etiqueta custa pouco perto do tempo que a impressora
+ *      leva imprimindo, e funciona em qualquer modelo.
  *
  * O comando de tamanho da página (0x13) muda de formato entre as famílias, e é
  * aí que a etiqueta sai em branco quando erra: a impressora aceita o trabalho,
@@ -60,8 +61,6 @@ export interface OpcoesImpressao {
   densidade?: number
   /** 1 = rolo com espaçamento entre etiquetas (o comum). */
   tipoEtiqueta?: number
-  /** Reenvia o desenho a cada cópia, para modelos que ignoram o contador. */
-  repetirPagina?: boolean
   /** Família da impressora; erra isto e a etiqueta sai em branco. */
   variante?: VarianteProtocolo
   /** Chamado a cada linha enviada, para a barra de progresso. */
@@ -269,7 +268,10 @@ export class Niimbot {
   async imprimir(bitmap: BitmapImpressao, opcoes: OpcoesImpressao = {}): Promise<void> {
     const copias = Math.max(1, Math.floor(opcoes.copias ?? 1))
     const densidade = Math.min(5, Math.max(1, Math.floor(opcoes.densidade ?? 3)))
-    const paginas = opcoes.repetirPagina ? copias : 1
+    // Uma página por etiqueta, sempre: o contador de cópias do protocolo existe
+    // mas a D110 ignora — pedimos três e saiu uma. Mandar o desenho uma vez por
+    // etiqueta é determinista e funciona em qualquer modelo.
+    const paginas = copias
     const totalLinhas = bitmap.linhas.length * paginas
     let enviadas = 0
 
@@ -282,18 +284,16 @@ export class Niimbot {
 
       const linhas = [(bitmap.altura >> 8) & 0xff, bitmap.altura & 0xff]
       const colunas = [(bitmap.largura >> 8) & 0xff, bitmap.largura & 0xff]
-      const quantidade = [(copias >> 8) & 0xff, copias & 0xff]
+      const umaCopia = [0, 1]
       const variante = opcoes.variante ?? 'd11'
       const tamanhoPagina =
         variante === 'b21' ? [...linhas, ...colunas]
-        : variante === 'b1' ? [...linhas, ...colunas, ...quantidade]
+        : variante === 'b1' ? [...linhas, ...colunas, ...umaCopia]
         : linhas
       await this.enviar(COMANDO.DIMENSAO, tamanhoPagina, COMANDO.DIMENSAO + 1)
 
-      // Na variante b1 a quantidade já foi junto do tamanho da página.
-      if (!opcoes.repetirPagina && variante !== 'b1') {
-        await this.enviar(COMANDO.QUANTIDADE, quantidade, COMANDO.QUANTIDADE + 1)
-      }
+      // Uma cópia por página: quem conta as etiquetas é o laço, não a impressora.
+      if (variante !== 'b1') await this.enviar(COMANDO.QUANTIDADE, [0, 1], COMANDO.QUANTIDADE + 1)
 
       // As linhas vão em lote: o canal é um fluxo de bytes, então juntar
       // pacotes antes de escrever poupa chamadas — as fatias de 20 bytes saem
@@ -330,8 +330,8 @@ export class Niimbot {
 
     // O papel ainda está andando quando a última linha chega: encerrar agora
     // corta a etiqueta pela metade. Espera a impressora dizer que terminou —
-    // e, se ela não disser nada, dá o tempo de um ciclo por etiqueta.
-    const limite = Date.now() + 3000 + copias * 2000
+    // e, se ela não disser nada, dá o tempo de imprimir o lote inteiro.
+    const limite = Date.now() + 5000 + copias * 3000
     let confirmou = false
     while (Date.now() < limite) {
       const paginasFeitas = await this.paginasImpressas()
@@ -342,7 +342,7 @@ export class Niimbot {
       }
       await espera(200)
     }
-    if (!confirmou) await espera(500 + copias * 300)
+    if (!confirmou) await espera(1000 + copias * 1500)
 
     await this.enviar(COMANDO.FIM_IMPRESSAO, [0x01], COMANDO.FIM_IMPRESSAO + 1)
   }

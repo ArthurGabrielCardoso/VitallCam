@@ -17,7 +17,6 @@ export type ModoImpressao = 'app' | 'navegador' | 'indisponivel'
 export interface OpcoesImpressaoEtiqueta {
   copias: number
   densidade: number
-  repetirPagina: boolean
   /** Família da impressora; errar isto faz a etiqueta sair em branco. */
   variante: VarianteProtocolo
   aoProgredir?: (porcentagem: number) => void
@@ -185,7 +184,7 @@ export function imprimirPeloApp(
         bitmap.largura,
         Math.max(1, Math.floor(opcoes.copias)),
         opcoes.densidade,
-        opcoes.repetirPagina,
+        false,
       ]
       if (versao >= 2) ponte.imprimirEtiqueta(...argumentos, VARIANTE_NATIVA[opcoes.variante])
       else ponte.imprimirEtiqueta(...argumentos)
@@ -217,7 +216,6 @@ export async function imprimirEtiqueta(
   await conectada.imprimir(bitmap, {
     copias: opcoes.copias,
     densidade: opcoes.densidade,
-    repetirPagina: opcoes.repetirPagina,
     variante: opcoes.variante,
     aoProgredir: (feitas, total) => opcoes.aoProgredir?.(Math.round((feitas / total) * 100)),
   })

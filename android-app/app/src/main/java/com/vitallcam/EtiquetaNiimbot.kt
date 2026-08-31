@@ -529,7 +529,7 @@ class EtiquetaNiimbot(private val context: Context) {
         largura: Int,
         copias: Int,
         densidade: Int,
-        repetirPagina: Boolean,
+        @Suppress("UNUSED_PARAMETER") repetirPagina: Boolean,
         variante: Int,
         progresso: (Int) -> Unit,
     ): String {
@@ -584,7 +584,13 @@ class EtiquetaNiimbot(private val context: Context) {
         respostas.clear()
         recebidos.clear()
 
-        val paginas = if (repetirPagina) copias else 1
+        // Uma pagina por etiqueta, sempre.
+        //
+        // O contador de copias (0x15) existe no protocolo e a D110 simplesmente
+        // ignora: pedimos tres e saiu uma. Mandar o desenho uma vez por etiqueta
+        // e determinista e funciona em qualquer modelo — e, com as linhas em
+        // lote, o envio some perto do tempo que a impressora leva para imprimir.
+        val paginas = copias
         val totalLinhas = linhas.size * paginas
         var enviadas = 0
         val altura = linhas.size
@@ -613,15 +619,14 @@ class EtiquetaNiimbot(private val context: Context) {
                 VARIANTE_B1 -> byteArrayOf(
                     (altura shr 8).toByte(), altura.toByte(),
                     (largura shr 8).toByte(), largura.toByte(),
-                    (copias shr 8).toByte(), copias.toByte(),
+                    0, 1,
                 )
                 else -> byteArrayOf((altura shr 8).toByte(), altura.toByte())
             }
             comando(DIMENSAO, tamanhoPagina, DIMENSAO + 1)
-            // Na variante B1 a quantidade ja foi junto do tamanho da pagina.
-            if (!repetirPagina && variante != VARIANTE_B1) {
-                comando(QUANTIDADE, byteArrayOf((copias shr 8).toByte(), copias.toByte()), QUANTIDADE + 1)
-            }
+            // Uma copia por pagina: quem conta as etiquetas e o laco, nao a
+            // impressora.
+            if (variante != VARIANTE_B1) comando(QUANTIDADE, byteArrayOf(0, 1), QUANTIDADE + 1)
 
             // As linhas vao em lote: o canal e um fluxo de bytes, entao varios
             // pacotes numa escrita so chegam iguais e custam uma ida e volta em
@@ -665,16 +670,21 @@ class EtiquetaNiimbot(private val context: Context) {
         // O papel ainda anda quando a ultima linha chega: encerrar agora corta a
         // etiqueta pela metade. Espera a impressora dizer quantas ja saíram e,
         // se ela nao disser nada, da o tempo de um ciclo por etiqueta.
-        val limite = System.currentTimeMillis() + 3_000 + copias * 2_000L
+        val limite = System.currentTimeMillis() + 5_000 + copias * 3_000L
         var confirmou = false
+        var mudo = false
         while (System.currentTimeMillis() < limite) {
             val status = comando(STATUS, byteArrayOf(1), STATUS + 0x10, 500)
-            if (status == null || status.dados.size < 2) break
+            if (status == null || status.dados.size < 2) { mudo = true; break }
             val feitas = ((status.dados[0].toInt() and 0xFF) shl 8) or (status.dados[1].toInt() and 0xFF)
             if (feitas >= copias) { confirmou = true; break }
             Thread.sleep(200)
         }
-        if (!confirmou) Thread.sleep(500 + copias * 300L)
+        // Sem resposta de status, o tempo tem que cobrir a impressao inteira: a
+        // D110 leva perto de um segundo por etiqueta, e encerrar antes disso
+        // corta o resto do lote — foi assim que "imprimir 3" virou uma etiqueta.
+        if (!confirmou) Thread.sleep(1_000 + copias * 1_500L)
+        anotar(if (confirmou) "impressora confirmou $copias" else if (mudo) "status mudo — esperou pelo tempo" else "status nao chegou a $copias")
 
         comando(FIM_IMPRESSAO, byteArrayOf(1), FIM_IMPRESSAO + 1)
         return ""
@@ -707,7 +717,7 @@ class EtiquetaNiimbot(private val context: Context) {
         private const val BATIDA = 0xDC
 
         /** Marca da build, para saber no log qual versao gerou a trilha. */
-        private const val VERSAO = 5
+        private const val VERSAO = 6
 
         /** Familia D11/D110/D101: tamanho da pagina em 2 bytes (so as linhas). */
         const val VARIANTE_D11 = 1

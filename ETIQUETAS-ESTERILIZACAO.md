@@ -95,7 +95,7 @@ registro nasce da impressão pelo VitallCam.
 
 Um ciclo de dez etiquetas são **dez pacotes**, não dez cópias. O código impresso
 é `LOTE-NN`: `0901-02-03` é o terceiro pacote do segundo ciclo do dia 1º de
-setembro. Ao lado do lote vai um QR com esse mesmo código.
+setembro — e é exatamente isso que sai na primeira linha da etiqueta.
 
 Isso existe por uma razão prática: se cinco pacotes foram para a Maria e cinco
 para o João, saber que "o lote foi para os dois" não serve de nada. Com o pacote
@@ -103,13 +103,20 @@ identificado, um indicador biológico positivo três dias depois responde **quem
 recebeu material daquele ciclo** — em vez de obrigar a ligar para todo mundo que
 passou pela cadeira naquele dia.
 
-Na ficha do paciente há uma seção **Esterilização**: a auxiliar lê o QR da
-etiqueta ao abrir o pacote na cadeira (ou digita o código) e o pacote fica ligado
-àquele paciente. Pacote de ciclo reprovado é recusado no ato — o momento de
-descobrir que a carga não presta é antes de abrir, não na auditoria.
+Na ficha do paciente há uma seção **Esterilização**: a auxiliar digita o código
+impresso ao abrir o pacote na cadeira e ele fica ligado àquele paciente. Pacote
+de ciclo reprovado é recusado no ato — o momento de descobrir que a carga não
+presta é antes de abrir, não na auditoria.
 
-A leitura usa o detector de códigos do próprio navegador, sem biblioteca nova.
-Onde ele não existir, a tela diz para digitar em vez de fingir que está lendo.
+A busca na tela de esterilização aceita o lote (`0901-02`) ou o código do pacote
+inteiro (`0901-02-03`).
+
+### Por que não tem QR
+
+Teve, por uma versão. Numa etiqueta de 50 por 12 mm o QR só cabia roubando
+espaço do texto — e texto apertado numa etiqueta que a Vigilância lê é o pior
+lugar para economizar espaço. Digitar dez caracteres uma vez por pacote custa
+menos que uma etiqueta ruim.
 
 ## O registro do ciclo (o que a fiscalização pede)
 

@@ -20,7 +20,7 @@ import PhotoComparison from '@/components/PhotoComparison'
 import PhotoEditor from '@/components/PhotoEditor'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, Minimize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, ScanLine, Download, ChevronRight, ChevronLeft, FileSignature, Film, RotateCw, Maximize2, ImageIcon, Settings2 } from 'lucide-react'
+import { ArrowLeft, User, Camera, FolderPlus, Folder, X, GitCompare, Printer, Edit, ZoomIn, ZoomOut, Pencil, Maximize, Minimize, ArrowUpDown, Upload, Sparkles, FileText, Calendar, Clock, Trash2, Check, ScanLine, Download, ChevronRight, ChevronLeft, FileSignature, Biohazard, Film, RotateCw, Maximize2, ImageIcon, Settings2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import PhotoGridSkeleton from '@/components/PhotoGridSkeleton'
 import FolderCardSkeleton from '@/components/FolderCardSkeleton'
@@ -30,6 +30,7 @@ import AIProcessingLoader from '@/components/AIProcessingLoader'
 import { transformSmileWithGemini } from '@/lib/gemini-smile'
 import ContractLibrary from '@/components/ContractLibrary'
 import RadiografiasPanel from '@/components/RadiografiasPanel'
+import EsterilizacaoPaciente from '@/components/EsterilizacaoPaciente'
 import { CONTRACT_TEMPLATES } from '@/lib/contracts'
 import AnamneseDocument from '@/components/AnamneseDocument'
 import PrintLayoutEditor from '@/components/PrintLayoutEditor'
@@ -1746,6 +1747,25 @@ export default function PatientPage() {
                     <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-teal-600 transition-colors" />
                   </div>
                 </button>
+
+                {/* Seção: Esterilização — qual pacote foi aberto neste paciente */}
+                <button
+                  onClick={() => openPatientSection('esterilizacao')}
+                  className="w-full text-left bg-white border border-gray-200 rounded shadow-sm p-4 sm:p-5 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
+                      <Biohazard className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">Esterilização</h3>
+                      <p className="text-sm text-gray-400 mt-0.5">
+                        Pacotes usados neste paciente — rastreabilidade da RDC 1.002/2025
+                      </p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-teal-600 transition-colors" />
+                  </div>
+                </button>
               </div>
             </div>
           </TabsContent>
@@ -2227,6 +2247,13 @@ export default function PatientPage() {
           <TabsContent value="radiografias" className="mt-0">
             <div className="max-w-6xl mx-auto">
               <RadiografiasPanel patientName={patient?.name} />
+            </div>
+          </TabsContent>
+
+          {/* Tab Content: Esterilização */}
+          <TabsContent value="esterilizacao" className="mt-0">
+            <div className="max-w-6xl mx-auto">
+              <EsterilizacaoPaciente patientId={patientId} />
             </div>
           </TabsContent>
         </Tabs>

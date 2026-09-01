@@ -2,15 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertTriangle, Biohazard, Bluetooth, Calendar, CheckCircle2, ChevronLeft, ChevronRight, Clock,
-  Download, FlaskConical, Loader2, Package, Pencil, Plus, Printer, Search, X,
+  AlertTriangle, Biohazard, Bluetooth, BookText, Calendar, CheckCircle2, ChevronLeft, ChevronRight,
+  Clock, Download, FlaskConical, Loader2, Package, PackageCheck, Pencil, Plus, Printer, Search, X,
 } from 'lucide-react'
+import Link from 'next/link'
 import { useToast } from '@/hooks/use-toast'
 import {
   AUTOCLAVE_PADRAO, CicloEsterilizacao, DIAS_ENTRE_BIOLOGICOS, MigrationPendenteError,
   RESPONSAVEL_PADRAO, VALIDADE_MESES, formatarData, formatarHora, hojeLocal, montarLote,
-  garantirPacotes, proximoNumeroDoDia, resumoEsterilizacao, situacaoDoCiclo, somarMeses,
-  useAbrirCiclo, useCiclosEsterilizacao, useRegistrarMonitoramento,
+  DIAS_AVISO_VENCIMENTO, garantirPacotes, proximoNumeroDoDia, resumoEsterilizacao,
+  situacaoDoCiclo, somarDias, somarMeses, useAbrirCiclo, useCiclosEsterilizacao,
+  useEstoquePacotes, useRegistrarMonitoramento,
 } from '@/hooks/useEsterilizacao'
 import {
   DadosEtiqueta, FORMATO_PADRAO, FormatoEtiqueta, bitmapDeTeste, canvasParaBitmap, carregarLogo,
@@ -79,12 +81,6 @@ function tituloDoDia(iso: string): string {
   return formatarData(iso)
 }
 
-function somarDias(iso: string, dias: number): string {
-  const [a, m, d] = iso.split('-').map(Number)
-  const data = new Date(Date.UTC(a, m - 1, d + dias))
-  return data.toISOString().slice(0, 10)
-}
-
 /**
  * Carrega a marca da clínica uma vez para desenhar na etiqueta.
  *
@@ -141,6 +137,7 @@ export default function EsterilizacaoPanel() {
 
   const migrationPendente = error instanceof MigrationPendenteError
   const resumo = useMemo(() => resumoEsterilizacao(ciclos || []), [ciclos])
+  const { data: estoque } = useEstoquePacotes()
 
   // A busca é pelo lote impresso no pacote: é assim que a fiscalização chega ao
   // registro — pega um pacote do estoque, lê a etiqueta e pede o ciclo dela.
@@ -153,17 +150,27 @@ export default function EsterilizacaoPanel() {
 
   return (
     <div className="space-y-6">
-      {!migrationPendente && <Resumo resumo={resumo} />}
+      {!migrationPendente && <Resumo resumo={resumo} estoque={estoque} />}
 
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <EstadoImpressora modo={modo} impressora={impressora} onMudar={setImpressora} />
-        <button
-          onClick={() => setAberto('novo')}
-          className="flex items-center gap-2 px-6 h-9 rounded text-sm font-semibold bg-teal-700 text-white hover:bg-teal-800 transition-colors shadow-sm"
-        >
-          <Plus className="h-4 w-4" />
-          Novo ciclo
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/patients/esterilizacao/livro"
+            className="flex items-center gap-2 h-9 px-4 rounded border border-gray-200 bg-white text-sm text-gray-600 hover:text-teal-700 hover:border-teal-500 transition-colors"
+            title="Um ciclo por linha, para entregar na inspeção"
+          >
+            <BookText className="h-4 w-4" />
+            Livro de registro
+          </Link>
+          <button
+            onClick={() => setAberto('novo')}
+            className="flex items-center gap-2 px-6 h-9 rounded text-sm font-semibold bg-teal-700 text-white hover:bg-teal-800 transition-colors shadow-sm"
+          >
+            <Plus className="h-4 w-4" />
+            Novo ciclo
+          </button>
+        </div>
       </div>
 
       {migrationPendente && (
@@ -239,7 +246,12 @@ export default function EsterilizacaoPanel() {
  * lote de um pacote qualquer do estoque. Descobrir o atraso no dia da visita é
  * tarde demais — então o número de dias fica na cara, sempre.
  */
-function Resumo({ resumo }: { resumo: ReturnType<typeof resumoEsterilizacao> }) {
+function Resumo({
+  resumo, estoque,
+}: {
+  resumo: ReturnType<typeof resumoEsterilizacao>
+  estoque?: { vencidos: unknown[]; vencendo: unknown[]; total: number }
+}) {
   const biologico = resumo.diasSemBiologico === null
     ? { texto: 'Teste biológico nunca registrado', urgente: true }
     : resumo.biologicoVencido
@@ -253,7 +265,7 @@ function Resumo({ resumo }: { resumo: ReturnType<typeof resumoEsterilizacao> }) 
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <Indicador icone={<Biohazard className="w-4 h-4" />} valor={resumo.ciclosHoje} rotulo="ciclos hoje" />
         <Indicador icone={<Package className="w-4 h-4" />} valor={resumo.pacotesHoje} rotulo="pacotes hoje" />
         <Indicador icone={<Calendar className="w-4 h-4" />} valor={resumo.ciclosMes} rotulo="ciclos no mês" />
@@ -263,7 +275,28 @@ function Resumo({ resumo }: { resumo: ReturnType<typeof resumoEsterilizacao> }) 
           rotulo="sem conferência"
           alerta={resumo.pendentes > 0}
         />
+        <Indicador
+          icone={<PackageCheck className="w-4 h-4" />}
+          valor={estoque?.total ?? 0}
+          rotulo="pacotes no estoque"
+        />
       </div>
+
+      {estoque && estoque.vencidos.length > 0 && (
+        <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 flex items-center gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+          {estoque.vencidos.length} pacote(s) vencido(s) no estoque — recolha e reprocesse antes que
+          alguém abra na cadeira.
+        </p>
+      )}
+
+      {estoque && estoque.vencidos.length === 0 && estoque.vencendo.length > 0 && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center gap-2">
+          <Clock className="w-3.5 h-3.5 shrink-0" />
+          {estoque.vencendo.length} pacote(s) vencem nos próximos {DIAS_AVISO_VENCIMENTO} dias — use
+          esses primeiro.
+        </p>
+      )}
 
       <p
         className={`text-xs rounded px-3 py-2 border flex items-center gap-2 ${

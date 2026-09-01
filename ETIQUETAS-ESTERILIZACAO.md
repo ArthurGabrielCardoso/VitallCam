@@ -142,6 +142,25 @@ A norma admite **até seis meses** para a validade da esterilização, com a
 embalagem íntegra, seca e bem guardada. A clínica usa três meses, que é mais
 conservador e força a recirculação — o campo é editável ciclo a ciclo.
 
+## Vencimento dos pacotes
+
+O app já sabia a validade de cada pacote desde o começo — o que faltava era
+alguém ser avisado. A tela mostra quantos pacotes estão no estoque e alerta
+quando algum vence nos próximos sete dias; vencido, o aviso fica vermelho e pede
+para recolher antes que alguém abra na cadeira.
+
+Pacote vencido esquecido na gaveta é não conformidade clássica, e o problema
+maior nem é a multa: é material aberto no paciente achando que está bom.
+
+## Livro de registro
+
+**Livro de registro**, no topo da tela: um ciclo por linha, no mês escolhido, com
+data, hora, lote, autoclave, pacotes, validade, temperatura, integrador,
+biológico, responsável e liberação — mais as linhas de assinatura no rodapé.
+
+Sai pela impressão do próprio navegador. O fiscal quer folhear papel, e ninguém
+entrega o tablet da clínica na mão de quem está fiscalizando.
+
 ## Reimpressão
 
 Clicar num cartão reabre aquele lote para imprimir mais etiquetas. Não abre

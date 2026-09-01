@@ -412,3 +412,65 @@ export const useUsarPacote = () => {
     },
   })
 }
+
+/** Pacote parado no estoque, com a validade do ciclo que o gerou. */
+export interface PacoteEmEstoque extends PacoteEsterilizacao {
+  esterilizacao_ciclos: Pick<CicloEsterilizacao, 'lote' | 'data' | 'validade' | 'conteudo' | 'autoclave'> | null
+}
+
+export interface Estoque {
+  /** Passaram da validade e ainda estão na gaveta. */
+  vencidos: PacoteEmEstoque[]
+  /** Vencem nos próximos dias — dá tempo de usar antes de perder. */
+  vencendo: PacoteEmEstoque[]
+  /** Total de pacotes esterilizados ainda não usados. */
+  total: number
+}
+
+/** Dias de antecedência do aviso de vencimento. */
+export const DIAS_AVISO_VENCIMENTO = 7
+
+/**
+ * O que está esterilizado e ainda não foi usado.
+ *
+ * Pacote vencido esquecido na gaveta é não conformidade clássica — e, pior, é
+ * material aberto na cadeira achando que está bom. O app já sabia a validade de
+ * cada lote desde o começo; o que faltava era alguém ser avisado.
+ */
+export const useEstoquePacotes = () => {
+  return useQuery({
+    queryKey: ['esterilizacao-estoque'],
+    queryFn: async (): Promise<Estoque> => {
+      const { data, error } = await supabase
+        .from('esterilizacao_pacotes')
+        .select('*, esterilizacao_ciclos(lote, data, validade, conteudo, autoclave)')
+        .is('usado_em', null)
+        .order('created_at', { ascending: true })
+      if (error) {
+        if (ehMigrationPendente(error)) return { vencidos: [], vencendo: [], total: 0 }
+        throw error
+      }
+
+      const hoje = hojeLocal()
+      const limite = somarDias(hoje, DIAS_AVISO_VENCIMENTO)
+      const pacotes = (data || []) as PacoteEmEstoque[]
+
+      return {
+        total: pacotes.length,
+        vencidos: pacotes.filter((p) => (p.esterilizacao_ciclos?.validade ?? '9999') < hoje),
+        vencendo: pacotes.filter((p) => {
+          const validade = p.esterilizacao_ciclos?.validade
+          return !!validade && validade >= hoje && validade <= limite
+        }),
+      }
+    },
+    retry: false,
+    staleTime: 60_000,
+  })
+}
+
+/** Soma dias a uma data ISO, sem passar por fuso. */
+export function somarDias(iso: string, dias: number): string {
+  const [a, m, d] = iso.split('-').map(Number)
+  return new Date(Date.UTC(a, m - 1, d + dias)).toISOString().slice(0, 10)
+}

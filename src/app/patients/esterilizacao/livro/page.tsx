@@ -1,0 +1,157 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { ArrowLeft, Printer } from 'lucide-react'
+import {
+  CicloEsterilizacao, formatarData, formatarHora, hojeLocal, situacaoDoCiclo, useCiclosEsterilizacao,
+} from '@/hooks/useEsterilizacao'
+
+/**
+ * Livro de registro da CME, para entregar na inspeção.
+ *
+ * A RDC 1.002/2025 pede registro formal de todos os resultados, para auditoria.
+ * Na prática o fiscal quer folhear: uma linha por ciclo, na ordem do mês, com o
+ * que aconteceu em cada um. Papel resolve isso melhor que tablet — ninguém
+ * entrega o aparelho da clínica na mão de quem está fiscalizando.
+ *
+ * Sai pela impressão do próprio navegador em vez de gerar PDF no servidor: é uma
+ * tabela, o navegador já sabe paginar tabela, e assim a folha sai igual à tela.
+ */
+export default function LivroEsterilizacaoPage() {
+  const router = useRouter()
+  const { data: ciclos } = useCiclosEsterilizacao(500)
+  const [mes, setMes] = useState(hojeLocal().slice(0, 7))
+
+  const doMes = useMemo(
+    () => (ciclos || [])
+      .filter((c) => c.data.startsWith(mes))
+      .sort((a, b) => a.data.localeCompare(b.data) || a.numero - b.numero),
+    [ciclos, mes],
+  )
+
+  const pacotes = doMes.reduce((total, c) => total + (c.quantidade_etiquetas || 0), 0)
+  const biologicos = doMes.filter((c) => c.indicador_biologico).length
+
+  return (
+    <div className="min-h-full bg-gray-50 p-4 sm:p-6 print:bg-white print:p-0">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex items-center gap-3 mb-6 print:hidden">
+          <button
+            onClick={() => router.push('/patients/esterilizacao')}
+            className="h-9 w-9 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 transition-colors"
+            title="Voltar"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <div className="flex-1">
+            <h1 className="text-2xl font-semibold text-gray-700">Livro de registro</h1>
+            <p className="text-sm text-gray-400">Um ciclo por linha, para a inspeção folhear</p>
+          </div>
+          <input
+            type="month"
+            value={mes}
+            onChange={(e) => setMes(e.target.value)}
+            className="h-9 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none"
+          />
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 h-9 px-5 rounded text-sm font-semibold bg-teal-700 text-white hover:bg-teal-800 transition-colors"
+          >
+            <Printer className="w-4 h-4" /> Imprimir
+          </button>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded p-6 print:border-0 print:p-0">
+          <header className="mb-4">
+            <h2 className="text-lg font-semibold text-gray-800">
+              Registro de esterilização — Clínica Vitall
+            </h2>
+            <p className="text-xs text-gray-500">
+              RDC Anvisa 1.002/2025 · {mesPorExtenso(mes)} · {doMes.length} ciclos ·{' '}
+              {pacotes} pacotes · {biologicos} teste(s) biológico(s)
+            </p>
+          </header>
+
+          {doMes.length === 0 ? (
+            <p className="text-sm text-gray-500 py-8 text-center">Nenhum ciclo neste mês.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[11px] border-collapse">
+                <thead>
+                  <tr className="text-left text-gray-500 border-b border-gray-300">
+                    <th className="py-1.5 pr-2">Data</th>
+                    <th className="py-1.5 pr-2">Hora</th>
+                    <th className="py-1.5 pr-2">Lote</th>
+                    <th className="py-1.5 pr-2">Autoclave</th>
+                    <th className="py-1.5 pr-2">Pacotes</th>
+                    <th className="py-1.5 pr-2">Validade</th>
+                    <th className="py-1.5 pr-2">Temp.</th>
+                    <th className="py-1.5 pr-2">Integrador</th>
+                    <th className="py-1.5 pr-2">Biológico</th>
+                    <th className="py-1.5 pr-2">Responsável</th>
+                    <th className="py-1.5">Liberação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {doMes.map((ciclo) => <Linha key={ciclo.id} ciclo={ciclo} />)}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <footer className="mt-10 pt-6 border-t border-gray-200 grid grid-cols-2 gap-8 text-[11px] text-gray-500">
+            <div>
+              <div className="h-10" />
+              <p className="border-t border-gray-400 pt-1">Responsável técnico</p>
+            </div>
+            <div>
+              <div className="h-10" />
+              <p className="border-t border-gray-400 pt-1">Data e assinatura</p>
+            </div>
+          </footer>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Linha({ ciclo }: { ciclo: CicloEsterilizacao }) {
+  const situacao = situacaoDoCiclo(ciclo)
+  const texto: Record<string, string> = {
+    pendente: 'não conferido',
+    liberado: `liberado${ciclo.liberado_por ? ` · ${ciclo.liberado_por}` : ''}`,
+    reprovado: 'REPROVADO',
+  }
+
+  return (
+    <tr className={`border-b border-gray-100 ${situacao === 'reprovado' ? 'text-red-700 font-medium' : 'text-gray-700'}`}>
+      <td className="py-1.5 pr-2 whitespace-nowrap">{formatarData(ciclo.data)}</td>
+      <td className="py-1.5 pr-2">{formatarHora(ciclo.created_at)}</td>
+      <td className="py-1.5 pr-2 font-semibold">{ciclo.lote}</td>
+      <td className="py-1.5 pr-2">{ciclo.autoclave || '—'}</td>
+      <td className="py-1.5 pr-2">{ciclo.quantidade_etiquetas}</td>
+      <td className="py-1.5 pr-2 whitespace-nowrap">{formatarData(ciclo.validade)}</td>
+      <td className="py-1.5 pr-2">{ciclo.temperatura ? `${ciclo.temperatura}°C` : '—'}</td>
+      <td className="py-1.5 pr-2">{rotulo(ciclo.integrador_quimico)}</td>
+      <td className="py-1.5 pr-2">{rotulo(ciclo.indicador_biologico)}</td>
+      <td className="py-1.5 pr-2">{ciclo.responsavel}</td>
+      <td className="py-1.5">{texto[situacao]}</td>
+    </tr>
+  )
+}
+
+function rotulo(valor: string | null): string {
+  if (!valor) return '—'
+  return { conforme: 'conforme', nao_conforme: 'NÃO CONFORME', negativo: 'negativo', positivo: 'POSITIVO' }[valor] ?? valor
+}
+
+const MESES = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+]
+
+function mesPorExtenso(mes: string): string {
+  const [ano, m] = mes.split('-')
+  return `${MESES[Number(m) - 1] ?? mes} de ${ano}`
+}

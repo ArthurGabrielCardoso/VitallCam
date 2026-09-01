@@ -10,7 +10,11 @@
  * O que vai impresso segue o art. 81 da RDC 1.002/2025: lote/ciclo, data da
  * esterilização, validade do pacote, responsável e a autoclave. À esquerda vai a
  * marca da clínica — o texto legível é o que a Vigilância bate o olho, então ele
- * nunca encolhe para dar espaço à logo.
+ * nunca encolhe para dar espaço a mais nada.
+ *
+ * Teve QR aqui por uma versão. Numa etiqueta de 50 por 12 mm ele só cabia
+ * roubando espaço do texto, e texto apertado numa etiqueta que a Vigilância lê é
+ * o pior lugar para economizar. Quem procura um pacote digita o código.
  *
  * O indicador químico tipo 1 NÃO está aqui e não tem como estar: papel térmico
  * não vira reagente. Ele vem da borda do papel grau cirúrgico ou da fita
@@ -18,8 +22,6 @@
  */
 
 /** Resolução da cabeça térmica: 203 dpi ≈ 8 pontos por milímetro. */
-import { gerarQrCode } from './qrcode'
-
 export const PONTOS_POR_MM = 8
 
 export interface FormatoEtiqueta {
@@ -35,8 +37,6 @@ export interface FormatoEtiqueta {
    * texto é o que a Vigilância lê, então o limite fica na tela, não no código.
    */
   logoPorcento?: number
-  /** Quanto do comprimento o QR do pacote pode ocupar, em porcentagem. */
-  qrPorcento?: number
 }
 
 /**
@@ -47,8 +47,7 @@ export const FORMATO_PADRAO: FormatoEtiqueta = {
   comprimentoMm: 50,
   larguraMm: 12,
   margem: 6,
-  logoPorcento: 26,
-  qrPorcento: 17,
+  logoPorcento: 34,
 }
 
 export interface DadosEtiqueta {
@@ -67,9 +66,9 @@ export interface DadosEtiqueta {
    */
   logo?: HTMLImageElement | null
   /**
-   * Código do pacote (LOTE-NN). Vai impresso e dentro do QR: é o que dá
-   * identidade a cada um dos dez pacotes de um mesmo ciclo. Vazio imprime só o
-   * lote, como antes.
+   * Código do pacote (LOTE-NN). É o que dá identidade a cada um dos dez pacotes
+   * de um mesmo ciclo — e é o que se digita para achar o pacote depois. Vazio
+   * imprime só o lote.
    */
   pacote?: string | null
 }
@@ -168,40 +167,6 @@ function desenharLogo(
 }
 
 /**
- * Desenha o QR encostado na direita e devolve a largura que ele ocupou.
- *
- * Escala inteira e nunca menor que três pontos por módulo: meio ponto de módulo
- * em impressora térmica vira módulo borrado, e QR borrado é QR que não lê. Se o
- * orçamento não comportar isso, o QR não é impresso — melhor a etiqueta sem ele
- * do que com um quadrado que a câmera não decifra.
- */
-function desenharQr(
-  ctx: CanvasRenderingContext2D,
-  conteudo: string,
-  alturaDisponivel: number,
-  direita: number,
-  orcamento: number,
-  margem: number,
-): number {
-  const modulos = gerarQrCode(conteudo, 'L')
-  const cabe = Math.min(alturaDisponivel, orcamento)
-  const escala = Math.floor(cabe / modulos.length)
-  if (escala < 3) return 0
-
-  const lado = escala * modulos.length
-  const esquerda = direita - lado
-  const topo = margem + Math.floor((alturaDisponivel - lado) / 2)
-
-  ctx.fillStyle = '#000'
-  for (let l = 0; l < modulos.length; l++) {
-    for (let c = 0; c < modulos.length; c++) {
-      if (modulos[l][c]) ctx.fillRect(esquerda + c * escala, topo + l * escala, escala, escala)
-    }
-  }
-  return lado
-}
-
-/**
  * Desenha a etiqueta num canvas na orientação de leitura.
  * O canvas volta no tamanho exato em pontos da impressora — nada de escalar
  * depois, que é onde o texto pequeno vira mancha.
@@ -235,15 +200,7 @@ export function desenharEtiqueta(
     x += desenharLogo(ctx, dados.logo, alturaUtil, margem, orcamento) + Math.round(PONTOS_POR_MM * 1.5)
   }
 
-  // O QR fica no fim da etiqueta, com o código do pacote dentro. É por ele que
-  // a auxiliar liga o pacote ao paciente na cadeira, sem digitar nada.
-  let larguraQr = 0
-  if (dados.pacote) {
-    const orcamentoQr = Math.round((comprimento * (formato.qrPorcento ?? 16)) / 100)
-    larguraQr = desenharQr(ctx, dados.pacote, alturaUtil, comprimento - margem, orcamentoQr, margem)
-  }
-
-  const larguraTexto = comprimento - x - margem - (larguraQr ? larguraQr + Math.round(PONTOS_POR_MM) : 0)
+  const larguraTexto = comprimento - x - margem
 
   // Três linhas dão conta do art. 81: lote, as duas datas e quem respondeu pelo
   // ciclo com qual equipamento. Cabe em 12 mm porque nenhuma é longa — e o que
@@ -251,7 +208,10 @@ export function desenharEtiqueta(
   const equipamento = dados.autoclave ? `${dados.autoclave} · ` : ''
   const conteudo = dados.conteudo ? ` · ${dados.conteudo}` : ''
   const linhas = [
-    { texto: dados.pacote ? dados.pacote : `LOTE ${dados.lote}`, tamanho: 24, peso: 'bold' },
+    // O código do pacote no lugar do lote: ele já contém o lote e acrescenta o
+    // número do pacote. É exatamente o que se digita na busca — imprimir uma
+    // coisa e procurar por outra seria pedir erro.
+    { texto: `LOTE ${dados.pacote || dados.lote}`, tamanho: 24, peso: 'bold' },
     { texto: `EST ${dados.data}  ·  VAL ${dados.validade}`, tamanho: 16, peso: 'normal' },
     { texto: `${equipamento}${dados.responsavel}${conteudo}`.toUpperCase(), tamanho: 16, peso: 'normal' },
   ]

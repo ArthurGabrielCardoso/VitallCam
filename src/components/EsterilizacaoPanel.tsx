@@ -41,7 +41,10 @@ import { Niimbot, VarianteProtocolo } from '@/lib/niimbot'
  * isso — e só por isso — que existe um botão de conectar nesta tela.
  */
 
-const AJUSTES_CHAVE = 'vitallcam:etiqueta-esterilizacao:ajustes'
+// A chave muda de versão quando os padrões mudam: o tamanho da logo guardado no
+// aparelho foi encolhido para caber o QR que não existe mais, e ajuste velho
+// sobrevivendo a um padrão novo é bug que só aparece em um tablet.
+const AJUSTES_CHAVE = 'vitallcam:etiqueta-esterilizacao:ajustes:v2'
 const QUANTIDADES = [5, 10, 20, 30]
 
 interface Ajustes extends FormatoEtiqueta {
@@ -145,7 +148,11 @@ export default function EsterilizacaoPanel() {
   const achados = useMemo(() => {
     const alvo = busca.replace(/\s/g, '').toLowerCase()
     if (alvo.length < 2) return null
-    return (ciclos || []).filter((c) => c.lote.toLowerCase().includes(alvo))
+    // Aceita tanto o lote (0901-02) quanto o código do pacote (0901-02-03): é o
+    // pacote que está impresso, e ninguém vai apagar mentalmente o final dele.
+    return (ciclos || []).filter(
+      (c) => c.lote.toLowerCase().includes(alvo) || alvo.startsWith(c.lote.toLowerCase()),
+    )
   }, [busca, ciclos])
 
   return (
@@ -718,7 +725,6 @@ function ModalEtiqueta({
       larguraMm: ajustes.larguraMm,
       margem: ajustes.margem,
       logoPorcento: ajustes.logoPorcento,
-      qrPorcento: ajustes.qrPorcento,
     })
   }, [dados, ajustes.comprimentoMm, ajustes.larguraMm, ajustes.margem])
 
@@ -782,8 +788,7 @@ function ModalEtiqueta({
         larguraMm: ajustes.larguraMm,
         margem: ajustes.margem,
         logoPorcento: ajustes.logoPorcento,
-        qrPorcento: ajustes.qrPorcento,
-      }
+        }
 
       for (let i = 0; i < codigos.length; i++) {
         const canvas = document.createElement('canvas')
@@ -1270,14 +1275,6 @@ function AjustesImpressora({
           <input
             type="number" min={0} max={60} value={ajustes.logoPorcento ?? 34}
             onChange={(e) => onMudar({ logoPorcento: Math.min(60, Math.max(0, Number(e.target.value) || 0)) })}
-            className={`${campo} w-full mt-1`}
-          />
-        </label>
-        <label className="text-[11px] text-gray-500">
-          Tamanho do QR (%)
-          <input
-            type="number" min={0} max={40} value={ajustes.qrPorcento ?? 17}
-            onChange={(e) => onMudar({ qrPorcento: Math.min(40, Math.max(0, Number(e.target.value) || 0)) })}
             className={`${campo} w-full mt-1`}
           />
         </label>

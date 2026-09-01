@@ -897,10 +897,6 @@ function ModalEtiqueta({
   }
 
   /**
-   * Saída sem Bluetooth: baixa o PNG no tamanho exato da etiqueta para imprimir
-   * pelo app da Niimbot. Não grava ciclo — o registro nasce da impressão.
-   */
-  /**
    * Saída em papel, quando a Niimbot não é opção.
    *
    * Manda a etiqueta para a impressora comum, no tamanho físico exato, repetida

@@ -212,8 +212,8 @@ export function desenharEtiqueta(
     // número do pacote. É exatamente o que se digita na busca — imprimir uma
     // coisa e procurar por outra seria pedir erro.
     { texto: `LOTE ${dados.pacote || dados.lote}`, tamanho: 24, peso: 'bold' },
-    { texto: `EST ${dados.data}  ·  VAL ${dados.validade}`, tamanho: 16, peso: 'normal' },
-    { texto: `${equipamento}${dados.responsavel}${conteudo}`.toUpperCase(), tamanho: 16, peso: 'normal' },
+    { texto: `EST ${dados.data}  ·  VAL ${dados.validade}`, tamanho: 17, peso: 'normal' },
+    { texto: `${equipamento}${dados.responsavel}${conteudo}`.toUpperCase(), tamanho: 17, peso: 'normal' },
   ]
 
   const tamanhos = linhas.map((linha) => ajustarFonte(ctx, linha.texto, larguraTexto, linha.tamanho, linha.peso))

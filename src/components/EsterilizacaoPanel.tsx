@@ -41,10 +41,17 @@ import { Niimbot, VarianteProtocolo } from '@/lib/niimbot'
  * isso — e só por isso — que existe um botão de conectar nesta tela.
  */
 
-// A chave muda de versão quando os padrões mudam: o tamanho da logo guardado no
-// aparelho foi encolhido para caber o QR que não existe mais, e ajuste velho
-// sobrevivendo a um padrão novo é bug que só aparece em um tablet.
-const AJUSTES_CHAVE = 'vitallcam:etiqueta-esterilizacao:ajustes:v2'
+/**
+ * Onde ficam os ajustes calibrados na bancada.
+ *
+ * A chave NÃO muda de versão. Cheguei a versioná-la para forçar um padrão novo e
+ * o efeito foi apagar a calibração da clínica — comprimento do rolo, giro,
+ * densidade, tudo o que tinha sido acertado etiqueta a etiqueta — e a impressão
+ * saiu cortada na manhã seguinte. Padrão novo vale para quem ainda não calibrou;
+ * quem já calibrou tem razão sobre o próprio rolo. Para recomeçar existe o botão
+ * de restaurar padrões, que é uma escolha de quem está lá, não minha.
+ */
+const AJUSTES_CHAVE = 'vitallcam:etiqueta-esterilizacao:ajustes'
 const QUANTIDADES = [5, 10, 20, 30]
 
 interface Ajustes extends FormatoEtiqueta {
@@ -674,6 +681,15 @@ function ModalEtiqueta({
 
   const [ajustes, setAjustes] = useState<Ajustes>(AJUSTES_PADRAO)
   useEffect(() => setAjustes(lerAjustes()), [])
+  const restaurarAjustes = () => {
+    try {
+      window.localStorage.removeItem(AJUSTES_CHAVE)
+    } catch {
+      // Sem storage: os padrões valem para esta sessão de qualquer jeito.
+    }
+    setAjustes(AJUSTES_PADRAO)
+  }
+
   const salvarAjustes = (novos: Partial<Ajustes>) => {
     setAjustes((atual) => {
       const proximos = { ...atual, ...novos }
@@ -1036,7 +1052,13 @@ function ModalEtiqueta({
             </div>
           </div>
 
-          <AjustesImpressora ajustes={ajustes} onMudar={salvarAjustes} onTestar={imprimirTeste} ocupado={ocupado} />
+          <AjustesImpressora
+            ajustes={ajustes}
+            onMudar={salvarAjustes}
+            onRestaurar={restaurarAjustes}
+            onTestar={imprimirTeste}
+            ocupado={ocupado}
+          />
 
           {ultimoErro && (
             <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-3">
@@ -1237,10 +1259,11 @@ function Campo({ rotulo, children }: { rotulo: string; children: React.ReactNode
 
 /** Ajustes do rolo e da impressora — muda de fornecedor, muda aqui. */
 function AjustesImpressora({
-  ajustes, onMudar, onTestar, ocupado,
+  ajustes, onMudar, onRestaurar, onTestar, ocupado,
 }: {
   ajustes: Ajustes
   onMudar: (a: Partial<Ajustes>) => void
+  onRestaurar: () => void
   onTestar: () => void
   ocupado: boolean
 }) {
@@ -1311,6 +1334,16 @@ function AjustesImpressora({
             comando de tamanho de página diferente. Teste as três.
           </span>
         </label>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm('Voltar todos os ajustes ao padrão de fábrica?')) onRestaurar()
+          }}
+          className="col-span-2 h-8 rounded border border-gray-200 bg-white text-xs text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-colors"
+        >
+          Restaurar ajustes padrão
+        </button>
 
         <button
           type="button"

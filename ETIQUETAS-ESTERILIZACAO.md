@@ -91,6 +91,37 @@ Se o Bluetooth não colaborar, **Baixar PNG** salva a etiqueta no tamanho exato
 para imprimir pelo app da Niimbot. Nesse caminho o ciclo não é registrado — o
 registro nasce da impressão pelo VitallCam.
 
+## O registro do ciclo (o que a fiscalização pede)
+
+A etiqueta prova que o ciclo existiu. Ela não prova que ele **deu certo** — e é
+isso que a inspeção verifica. O roteiro do fiscal é: pegar um pacote qualquer do
+estoque, ler o lote na etiqueta e pedir o registro daquele dia e ciclo, para
+conferir se o teste biológico foi feito e se deu negativo.
+
+Por isso a tela tem, além das etiquetas:
+
+- **Busca pelo lote.** Digite o número que está no pacote e o ciclo aparece
+  inteiro — é o caminho do fiscal, na mesma ordem em que ele pergunta.
+- **Resultado do ciclo.** Integrador químico classe 5 ou 6 (a norma pede em
+  pacote-teste a cada ciclo) e indicador biológico. A carga só é marcada como
+  **liberada** com integrador conforme e biológico negativo; reprovada, o app
+  avisa para recolher e reprocessar.
+- **Aviso do teste biológico.** A norma pede semanal, no primeiro ciclo do dia
+  programado. Os dias desde o último ficam sempre à vista, em vermelho depois de
+  sete — descobrir o atraso no dia da visita é tarde demais.
+- **Resumo do dia.** Ciclos e pacotes de hoje e do mês, e quantos ciclos ainda
+  estão sem conferência. Uma etiqueta é um pacote de grau cirúrgico, então
+  "10 pacotes hoje" é literalmente o que saiu da autoclave.
+
+Cada cartão mostra a hora do ciclo e o selo da situação: *Conferir*, *Liberado*
+ou *Reprovado*.
+
+### Validade dos pacotes
+
+A norma admite **até seis meses** para a validade da esterilização, com a
+embalagem íntegra, seca e bem guardada. A clínica usa três meses, que é mais
+conservador e força a recirculação — o campo é editável ciclo a ciclo.
+
 ## Reimpressão
 
 Clicar num cartão reabre aquele lote para imprimir mais etiquetas. Não abre

@@ -26,9 +26,35 @@ export interface CicloEsterilizacao {
   quantidade_etiquetas: number
   conteudo: string | null
   created_at: string
+  /** 'conforme' | 'nao_conforme'. Nulo = ciclo ainda não conferido. */
+  integrador_quimico: string | null
+  /** 'negativo' (aprovado) | 'positivo'. Nulo = não houve biológico no ciclo. */
+  indicador_biologico: string | null
+  temperatura: number | null
+  duracao_minutos: number | null
+  liberado_em: string | null
+  liberado_por: string | null
+  observacao: string | null
+}
+
+/** Situação do ciclo, do jeito que a bancada e a fiscalização enxergam. */
+export type SituacaoCiclo = 'pendente' | 'liberado' | 'reprovado'
+
+export function situacaoDoCiclo(ciclo: CicloEsterilizacao): SituacaoCiclo {
+  if (!ciclo.integrador_quimico) return 'pendente'
+  if (ciclo.liberado_em) return 'liberado'
+  return 'reprovado'
 }
 
 export const RESPONSAVEL_PADRAO = 'Jéssica Pádua'
+/**
+ * Dias entre um teste biológico e o seguinte.
+ *
+ * A RDC 1.002/2025 pede o indicador biológico semanal, no primeiro ciclo do dia
+ * programado. Sete dias é o teto; o aviso aparece antes disso para a clínica não
+ * descobrir o atraso no dia da inspeção.
+ */
+export const DIAS_ENTRE_BIOLOGICOS = 7
 export const AUTOCLAVE_PADRAO = 'Autoclave 01'
 /** Validade padrão do pacote embalado, em meses. */
 export const VALIDADE_MESES = 3
@@ -159,4 +185,115 @@ export const useAbrirCiclo = () => {
 export function proximoNumeroDoDia(ciclos: CicloEsterilizacao[], data: string): number {
   const doDia = ciclos.filter((c) => c.data === data)
   return doDia.reduce((maior, c) => Math.max(maior, c.numero), 0) + 1
+}
+
+/** Ciclos de um dia, na ordem em que saíram da autoclave. */
+export function ciclosDoDia(ciclos: CicloEsterilizacao[], data: string): CicloEsterilizacao[] {
+  return ciclos.filter((c) => c.data === data)
+}
+
+export interface ResumoEsterilizacao {
+  ciclosHoje: number
+  /** Etiquetas impressas hoje — uma por pacote de grau cirúrgico. */
+  pacotesHoje: number
+  ciclosMes: number
+  pacotesMes: number
+  /** Ciclos com o integrador ainda não conferido. */
+  pendentes: number
+  /** Data do último ciclo com teste biológico, ou null se nunca houve. */
+  ultimoBiologico: string | null
+  /** Dias desde o último biológico; null quando nunca foi feito. */
+  diasSemBiologico: number | null
+  /** Vencido = passou da semana que a norma pede. */
+  biologicoVencido: boolean
+}
+
+export function resumoEsterilizacao(ciclos: CicloEsterilizacao[]): ResumoEsterilizacao {
+  const hoje = hojeLocal()
+  const mes = hoje.slice(0, 7)
+  const soma = (lista: CicloEsterilizacao[]) =>
+    lista.reduce((total, c) => total + (c.quantidade_etiquetas || 0), 0)
+
+  const doDia = ciclos.filter((c) => c.data === hoje)
+  const doMes = ciclos.filter((c) => c.data.startsWith(mes))
+
+  // O biológico mais recente manda no aviso: a norma conta a semana a partir
+  // dele, não a partir do último ciclo qualquer.
+  const comBiologico = ciclos
+    .filter((c) => c.indicador_biologico)
+    .sort((a, b) => b.data.localeCompare(a.data))
+  const ultimoBiologico = comBiologico[0]?.data ?? null
+  const diasSemBiologico = ultimoBiologico ? diasEntre(ultimoBiologico, hoje) : null
+
+  return {
+    ciclosHoje: doDia.length,
+    pacotesHoje: soma(doDia),
+    ciclosMes: doMes.length,
+    pacotesMes: soma(doMes),
+    pendentes: ciclos.filter((c) => !c.integrador_quimico).length,
+    ultimoBiologico,
+    diasSemBiologico,
+    biologicoVencido: diasSemBiologico === null || diasSemBiologico >= DIAS_ENTRE_BIOLOGICOS,
+  }
+}
+
+/** Dias inteiros entre duas datas ISO. */
+export function diasEntre(de: string, ate: string): number {
+  const dia = (iso: string) => {
+    const [a, m, d] = iso.split('-').map(Number)
+    return Date.UTC(a, m - 1, d)
+  }
+  return Math.round((dia(ate) - dia(de)) / 86_400_000)
+}
+
+/** "2026-08-31T22:41:11Z" → "19:41", no fuso da clínica. */
+export function formatarHora(iso: string): string {
+  const quando = new Date(iso)
+  if (Number.isNaN(quando.getTime())) return ''
+  return quando.toLocaleTimeString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+export interface Monitoramento {
+  id: string
+  integrador: 'conforme' | 'nao_conforme'
+  biologico?: 'negativo' | 'positivo' | null
+  temperatura?: number | null
+  duracao?: number | null
+  observacao?: string | null
+  por?: string | null
+}
+
+/**
+ * Grava o resultado do ciclo e libera a carga quando os indicadores passam.
+ *
+ * É o registro que a fiscalização pede depois de ler o lote no pacote: sem ele,
+ * a etiqueta prova que o ciclo existiu e não prova que deu certo.
+ */
+export const useRegistrarMonitoramento = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (registro: Monitoramento): Promise<CicloEsterilizacao> => {
+      const { data, error } = await supabase.rpc('registrar_monitoramento_ciclo', {
+        p_id: registro.id,
+        p_integrador: registro.integrador,
+        p_biologico: registro.biologico ?? null,
+        p_temperatura: registro.temperatura ?? null,
+        p_duracao: registro.duracao ?? null,
+        p_observacao: registro.observacao ?? null,
+        p_por: registro.por ?? null,
+      })
+      if (error) {
+        if (ehMigrationPendente(error)) throw new MigrationPendenteError()
+        throw error
+      }
+      return (Array.isArray(data) ? data[0] : data) as CicloEsterilizacao
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['esterilizacao-ciclos'] })
+    },
+  })
 }

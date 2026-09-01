@@ -587,7 +587,7 @@ class MainActivity : AppCompatActivity() {
          * timeout sem ninguem entender por que.
          */
         @JavascriptInterface
-        fun versaoEtiqueta(): Int = 4
+        fun versaoEtiqueta(): Int = 5
 
         @JavascriptInterface
         fun imprimirEtiqueta(
@@ -708,6 +708,12 @@ class MainActivity : AppCompatActivity() {
         fun aquecerImpressora() {
             if (imprimindo) return
             Thread { runCatching { etiqueta.aquecer() } }.start()
+        }
+
+        /** Interrompe o lote em andamento. */
+        @JavascriptInterface
+        fun cancelarImpressao() {
+            etiqueta.cancelar()
         }
 
         /** Fixa a impressora que a pessoa escolheu na lista. */

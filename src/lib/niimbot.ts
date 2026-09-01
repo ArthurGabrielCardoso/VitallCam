@@ -65,6 +65,8 @@ export interface OpcoesImpressao {
   variante?: VarianteProtocolo
   /** Chamado a cada linha enviada, para a barra de progresso. */
   aoProgredir?: (enviadas: number, total: number) => void
+  /** Perguntado entre etiquetas e entre linhas: true encerra o trabalho. */
+  interrompido?: () => boolean
 }
 
 /** Web Bluetooth só existe em Chromium e em contexto seguro. */
@@ -340,6 +342,16 @@ export class Niimbot {
         for (let i = 0; i < pacote.length; i++) lote.push(pacote[i])
         if (lote.length >= 480) await despejar()
 
+        // Parada pedida no meio do desenho: o que já foi para a impressora sai,
+        // e o trabalho é encerrado direito em vez de largado pela metade — sem
+        // o fim de impressão ela ficaria esperando o resto do desenho.
+        if (opcoes.interrompido?.()) {
+          await despejar()
+          await this.enviar(COMANDO.FIM_PAGINA, [0x01], COMANDO.FIM_PAGINA + 1)
+          await this.enviar(COMANDO.FIM_IMPRESSAO, [0x01], COMANDO.FIM_IMPRESSAO + 1)
+          return
+        }
+
         enviadas++
         if (enviadas % 32 === 0) opcoes.aoProgredir?.(enviadas, totalLinhas)
       }
@@ -351,6 +363,11 @@ export class Niimbot {
       // buffer pequeno e imprime devagar, então mandar tudo de uma vez perde
       // etiqueta — pedimos três e saíram duas.
       await this.esperarEtiquetas(pagina + 1, msPorEtiqueta)
+
+      if (opcoes.interrompido?.()) {
+        await this.enviar(COMANDO.FIM_IMPRESSAO, [0x01], COMANDO.FIM_IMPRESSAO + 1)
+        return
+      }
     }
     opcoes.aoProgredir?.(totalLinhas, totalLinhas)
 

@@ -69,6 +69,8 @@ declare global {
       procurarImpressoras?: () => void
       /** Abre a conexão com a impressora sem imprimir, para aquecer o canal. */
       aquecerImpressora?: () => void
+      /** Interrompe o lote em andamento na impressora. */
+      cancelarImpressao?: () => void
       /** Fixa a impressora escolhida na lista. */
       escolherImpressora?: (mac: string, nome: string) => void
       /** Nome da impressora lembrada, ou "" enquanto nenhuma foi encontrada. */

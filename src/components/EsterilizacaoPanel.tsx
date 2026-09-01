@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Biohazard, Bluetooth, BookText, Calendar, CheckCircle2, ChevronLeft, ChevronRight,
-  Clock, FlaskConical, Loader2, Package, PackageCheck, Pencil, Plus, Printer, Search, X,
+  Clock, FlaskConical, Loader2, Package, PackageCheck, Pencil, Plus, Printer, Search, Square, X,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useToast } from '@/hooks/use-toast'
@@ -20,8 +20,8 @@ import {
 } from '@/lib/etiqueta-esterilizacao'
 import {
   ImpressoraEncontrada, ModoImpressao, aquecerImpressora, escolherImpressora, esquecerImpressora,
-  imprimirEtiqueta as enviarEtiqueta, impressoraLembrada, modoImpressao, podeListarImpressoras,
-  procurarImpressoras,
+  impressaoInterrompida, imprimirEtiqueta as enviarEtiqueta, impressoraLembrada, modoImpressao,
+  pararImpressao, podeListarImpressoras, procurarImpressoras,
 } from '@/lib/impressora-etiqueta'
 import { Niimbot, VarianteProtocolo } from '@/lib/niimbot'
 
@@ -816,6 +816,16 @@ function ModalEtiqueta({
         }
 
       for (let i = 0; i < codigos.length; i++) {
+        // Entre uma etiqueta e outra é onde a parada custa menos: a anterior
+        // saiu inteira e a próxima nem começou.
+        if (impressaoInterrompida()) {
+          toast({
+            title: 'Impressão interrompida',
+            description: `${i} de ${codigos.length} etiqueta(s) saíram. O lote ${alvo.lote} continua valendo.`,
+          })
+          break
+        }
+
         const canvas = document.createElement('canvas')
         desenharEtiqueta(canvas, { ...etiquetaDoCiclo(alvo, marca), pacote: codigos[i] }, formato)
         const bitmap = canvasParaBitmap(canvas, ajustes.rotacao)
@@ -841,7 +851,9 @@ function ModalEtiqueta({
       onFechar()
     } catch (erro: unknown) {
       const msg = erro instanceof Error ? erro.message : 'Falha ao imprimir'
-      if (!/cancel|user/i.test(msg)) {
+      if (/interrompid/i.test(msg)) {
+        toast({ title: 'Impressão interrompida', description: 'O que já saiu continua valendo.' })
+      } else if (!/cancel|user/i.test(msg)) {
         setUltimoErro(msg)
         toast({ variant: 'destructive', title: 'Não deu para imprimir', description: msg })
       }
@@ -1120,7 +1132,7 @@ function ModalEtiqueta({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-100">
+        <div className="flex items-center justify-between gap-2 px-5 py-4 border-t border-gray-100 flex-wrap">
           <button
             onClick={imprimirNaFolha}
             className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-teal-700"
@@ -1128,6 +1140,15 @@ function ModalEtiqueta({
           >
             <Printer className="w-3.5 h-3.5" /> Imprimir na folha
           </button>
+          {ocupado && (
+            <button
+              onClick={pararImpressao}
+              className="flex items-center gap-2 px-5 h-10 rounded text-sm font-semibold border border-red-300 text-red-700 bg-white hover:bg-red-50 transition-colors"
+              title="Para o lote: o que já saiu continua valendo"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" /> Parar
+            </button>
+          )}
           <button
             onClick={imprimir}
             disabled={ocupado}

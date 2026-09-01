@@ -9,8 +9,8 @@ import { useToast } from '@/hooks/use-toast'
 import {
   AUTOCLAVE_PADRAO, CicloEsterilizacao, DIAS_ENTRE_BIOLOGICOS, MigrationPendenteError,
   RESPONSAVEL_PADRAO, VALIDADE_MESES, formatarData, formatarHora, hojeLocal, montarLote,
-  proximoNumeroDoDia, resumoEsterilizacao, situacaoDoCiclo, somarMeses, useAbrirCiclo,
-  useCiclosEsterilizacao, useRegistrarMonitoramento,
+  garantirPacotes, proximoNumeroDoDia, resumoEsterilizacao, situacaoDoCiclo, somarMeses,
+  useAbrirCiclo, useCiclosEsterilizacao, useRegistrarMonitoramento,
 } from '@/hooks/useEsterilizacao'
 import {
   DadosEtiqueta, FORMATO_PADRAO, FormatoEtiqueta, bitmapDeTeste, canvasParaBitmap, carregarLogo,
@@ -674,6 +674,9 @@ function ModalEtiqueta({
     autoclave: autoclave.trim() || null,
     conteudo: conteudo.trim() || null,
     logo,
+    // Na prévia, o primeiro pacote do ciclo — para o QR aparecer do tamanho que
+    // vai sair, e não como uma surpresa na primeira etiqueta.
+    pacote: `${lote}-01`,
   }), [lote, data, validade, responsavel, autoclave, conteudo, logo])
 
   const desenhar = useCallback((alvo: HTMLCanvasElement) => {
@@ -682,6 +685,7 @@ function ModalEtiqueta({
       larguraMm: ajustes.larguraMm,
       margem: ajustes.margem,
       logoPorcento: ajustes.logoPorcento,
+      qrPorcento: ajustes.qrPorcento,
     })
   }, [dados, ajustes.comprimentoMm, ajustes.larguraMm, ajustes.margem])
 
@@ -726,25 +730,45 @@ function ModalEtiqueta({
       // e o lote sai batendo na borda.
       const [marca] = await Promise.all([logo ?? carregarLogo(), fontesProntas()])
 
-      const canvas = document.createElement('canvas')
-      desenharEtiqueta(canvas, etiquetaDoCiclo(alvo, marca), {
+      // Cada etiqueta é um pacote com identidade própria: dez etiquetas do mesmo
+      // ciclo viram dez códigos, porque cinco podem ir para um paciente e cinco
+      // para outro. Reimpressão acrescenta pacotes novos em vez de repetir os
+      // antigos — o pacote que já está na gaveta continua com o código dele.
+      let codigos: (string | null)[] = new Array(quantidade).fill(null)
+      try {
+        const existentes = await garantirPacotes(alvo.id, 0)
+        const todos = await garantirPacotes(alvo.id, existentes.length + quantidade)
+        codigos = todos.slice(existentes.length).map((p) => p.codigo)
+      } catch {
+        // Sem a migration dos pacotes a etiqueta sai como antes, só com o lote:
+        // rastreabilidade por ciclo é pior que por pacote e melhor que nenhuma.
+      }
+
+      const formato = {
         comprimentoMm: ajustes.comprimentoMm,
         larguraMm: ajustes.larguraMm,
         margem: ajustes.margem,
         logoPorcento: ajustes.logoPorcento,
-      })
-      const bitmap = canvasParaBitmap(canvas, ajustes.rotacao)
+        qrPorcento: ajustes.qrPorcento,
+      }
 
-      await enviarEtiqueta(
-        bitmap,
-        {
-          copias: quantidade,
-          densidade: ajustes.densidade,
-          variante: ajustes.variante,
-          aoProgredir: setProgresso,
-        },
-        { impressora: conectada, aoConectar: onImpressora },
-      )
+      for (let i = 0; i < codigos.length; i++) {
+        const canvas = document.createElement('canvas')
+        desenharEtiqueta(canvas, { ...etiquetaDoCiclo(alvo, marca), pacote: codigos[i] }, formato)
+        const bitmap = canvasParaBitmap(canvas, ajustes.rotacao)
+
+        await enviarEtiqueta(
+          bitmap,
+          {
+            copias: 1,
+            densidade: ajustes.densidade,
+            variante: ajustes.variante,
+            // Cada etiqueta é um envio; a barra soma o progresso das anteriores.
+            aoProgredir: (pct) => setProgresso(Math.round(((i + pct / 100) / codigos.length) * 100)),
+          },
+          { impressora: conectada, aoConectar: onImpressora },
+        )
+      }
 
       setUltimoErro(null)
       toast({
@@ -1213,6 +1237,14 @@ function AjustesImpressora({
           <input
             type="number" min={0} max={60} value={ajustes.logoPorcento ?? 34}
             onChange={(e) => onMudar({ logoPorcento: Math.min(60, Math.max(0, Number(e.target.value) || 0)) })}
+            className={`${campo} w-full mt-1`}
+          />
+        </label>
+        <label className="text-[11px] text-gray-500">
+          Tamanho do QR (%)
+          <input
+            type="number" min={0} max={40} value={ajustes.qrPorcento ?? 17}
+            onChange={(e) => onMudar({ qrPorcento: Math.min(40, Math.max(0, Number(e.target.value) || 0)) })}
             className={`${campo} w-full mt-1`}
           />
         </label>

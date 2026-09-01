@@ -18,6 +18,8 @@
  */
 
 /** Resolução da cabeça térmica: 203 dpi ≈ 8 pontos por milímetro. */
+import { gerarQrCode } from './qrcode'
+
 export const PONTOS_POR_MM = 8
 
 export interface FormatoEtiqueta {
@@ -33,6 +35,8 @@ export interface FormatoEtiqueta {
    * texto é o que a Vigilância lê, então o limite fica na tela, não no código.
    */
   logoPorcento?: number
+  /** Quanto do comprimento o QR do pacote pode ocupar, em porcentagem. */
+  qrPorcento?: number
 }
 
 /**
@@ -43,11 +47,12 @@ export const FORMATO_PADRAO: FormatoEtiqueta = {
   comprimentoMm: 50,
   larguraMm: 12,
   margem: 6,
-  logoPorcento: 34,
+  logoPorcento: 26,
+  qrPorcento: 17,
 }
 
 export interface DadosEtiqueta {
-  /** Código do lote no formato DDMMAA-NN. */
+  /** Código do lote no formato MMDD-NN. */
   lote: string
   /** Data do ciclo já formatada (dd/mm/aaaa). */
   data: string
@@ -61,6 +66,12 @@ export interface DadosEtiqueta {
    * igual sem ela, então uma imagem que não carregou nunca segura a impressão.
    */
   logo?: HTMLImageElement | null
+  /**
+   * Código do pacote (LOTE-NN). Vai impresso e dentro do QR: é o que dá
+   * identidade a cada um dos dez pacotes de um mesmo ciclo. Vazio imprime só o
+   * lote, como antes.
+   */
+  pacote?: string | null
 }
 
 /** Bitmap monocromático pronto para a impressora: uma linha por vez. */
@@ -157,6 +168,40 @@ function desenharLogo(
 }
 
 /**
+ * Desenha o QR encostado na direita e devolve a largura que ele ocupou.
+ *
+ * Escala inteira e nunca menor que três pontos por módulo: meio ponto de módulo
+ * em impressora térmica vira módulo borrado, e QR borrado é QR que não lê. Se o
+ * orçamento não comportar isso, o QR não é impresso — melhor a etiqueta sem ele
+ * do que com um quadrado que a câmera não decifra.
+ */
+function desenharQr(
+  ctx: CanvasRenderingContext2D,
+  conteudo: string,
+  alturaDisponivel: number,
+  direita: number,
+  orcamento: number,
+  margem: number,
+): number {
+  const modulos = gerarQrCode(conteudo, 'L')
+  const cabe = Math.min(alturaDisponivel, orcamento)
+  const escala = Math.floor(cabe / modulos.length)
+  if (escala < 3) return 0
+
+  const lado = escala * modulos.length
+  const esquerda = direita - lado
+  const topo = margem + Math.floor((alturaDisponivel - lado) / 2)
+
+  ctx.fillStyle = '#000'
+  for (let l = 0; l < modulos.length; l++) {
+    for (let c = 0; c < modulos.length; c++) {
+      if (modulos[l][c]) ctx.fillRect(esquerda + c * escala, topo + l * escala, escala, escala)
+    }
+  }
+  return lado
+}
+
+/**
  * Desenha a etiqueta num canvas na orientação de leitura.
  * O canvas volta no tamanho exato em pontos da impressora — nada de escalar
  * depois, que é onde o texto pequeno vira mancha.
@@ -190,7 +235,15 @@ export function desenharEtiqueta(
     x += desenharLogo(ctx, dados.logo, alturaUtil, margem, orcamento) + Math.round(PONTOS_POR_MM * 1.5)
   }
 
-  const larguraTexto = comprimento - x - margem
+  // O QR fica no fim da etiqueta, com o código do pacote dentro. É por ele que
+  // a auxiliar liga o pacote ao paciente na cadeira, sem digitar nada.
+  let larguraQr = 0
+  if (dados.pacote) {
+    const orcamentoQr = Math.round((comprimento * (formato.qrPorcento ?? 16)) / 100)
+    larguraQr = desenharQr(ctx, dados.pacote, alturaUtil, comprimento - margem, orcamentoQr, margem)
+  }
+
+  const larguraTexto = comprimento - x - margem - (larguraQr ? larguraQr + Math.round(PONTOS_POR_MM) : 0)
 
   // Três linhas dão conta do art. 81: lote, as duas datas e quem respondeu pelo
   // ciclo com qual equipamento. Cabe em 12 mm porque nenhuma é longa — e o que
@@ -198,9 +251,9 @@ export function desenharEtiqueta(
   const equipamento = dados.autoclave ? `${dados.autoclave} · ` : ''
   const conteudo = dados.conteudo ? ` · ${dados.conteudo}` : ''
   const linhas = [
-    { texto: `LOTE ${dados.lote}`, tamanho: 24, peso: 'bold' },
-    { texto: `EST ${dados.data}  ·  VAL ${dados.validade}`, tamanho: 17, peso: 'normal' },
-    { texto: `${equipamento}${dados.responsavel}${conteudo}`.toUpperCase(), tamanho: 17, peso: 'normal' },
+    { texto: dados.pacote ? dados.pacote : `LOTE ${dados.lote}`, tamanho: 24, peso: 'bold' },
+    { texto: `EST ${dados.data}  ·  VAL ${dados.validade}`, tamanho: 16, peso: 'normal' },
+    { texto: `${equipamento}${dados.responsavel}${conteudo}`.toUpperCase(), tamanho: 16, peso: 'normal' },
   ]
 
   const tamanhos = linhas.map((linha) => ajustarFonte(ctx, linha.texto, larguraTexto, linha.tamanho, linha.peso))

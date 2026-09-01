@@ -103,7 +103,7 @@ function ehMigrationPendente(error: { code?: string; message?: string }): boolea
     || error.code === 'PGRST202'
     || error.code === '42703'
     || error.code === '42883'
-    || /esterilizacao_ciclos|abrir_ciclo_esterilizacao/.test(error.message || '')
+    || /esterilizacao_ciclos|esterilizacao_pacotes|abrir_ciclo_esterilizacao|garantir_pacotes_do_ciclo|usar_pacote_esterilizacao/.test(error.message || '')
 }
 
 export class MigrationPendenteError extends Error {
@@ -294,6 +294,121 @@ export const useRegistrarMonitoramento = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['esterilizacao-ciclos'] })
+    },
+  })
+}
+
+/** Um pacote de grau cirúrgico, com identidade própria dentro do ciclo. */
+export interface PacoteEsterilizacao {
+  id: string
+  ciclo_id: string
+  sequencia: number
+  /** LOTE-NN, como sai impresso e dentro do QR: 0901-02-03. */
+  codigo: string
+  patient_id: string | null
+  usado_em: string | null
+  usado_por: string | null
+  created_at: string
+}
+
+/** Pacote com o ciclo junto — é assim que ele aparece na ficha do paciente. */
+export interface PacoteComCiclo extends PacoteEsterilizacao {
+  esterilizacao_ciclos: Pick<
+    CicloEsterilizacao,
+    'lote' | 'data' | 'validade' | 'responsavel' | 'autoclave' | 'conteudo'
+    | 'integrador_quimico' | 'indicador_biologico' | 'liberado_em'
+  > | null
+}
+
+/**
+ * Garante que o ciclo tenha os pacotes das etiquetas que vão sair.
+ *
+ * Chamado antes de imprimir: cada etiqueta precisa do seu código, e a
+ * reimpressão acrescenta pacotes novos em vez de repetir os antigos.
+ */
+export async function garantirPacotes(cicloId: string, quantidade: number): Promise<PacoteEsterilizacao[]> {
+  const { data, error } = await supabase.rpc('garantir_pacotes_do_ciclo', {
+    p_ciclo_id: cicloId,
+    p_quantidade: quantidade,
+  })
+  if (error) {
+    if (ehMigrationPendente(error)) throw new MigrationPendenteError()
+    throw error
+  }
+  return (data || []) as PacoteEsterilizacao[]
+}
+
+/** Pacotes usados num paciente, do mais recente para o mais antigo. */
+export const usePacotesDoPaciente = (patientId: string | null) => {
+  return useQuery({
+    queryKey: ['esterilizacao-pacotes', patientId],
+    queryFn: async (): Promise<PacoteComCiclo[]> => {
+      if (!patientId) return []
+      const { data, error } = await supabase
+        .from('esterilizacao_pacotes')
+        .select('*, esterilizacao_ciclos(lote, data, validade, responsavel, autoclave, conteudo, integrador_quimico, indicador_biologico, liberado_em)')
+        .eq('patient_id', patientId)
+        .order('usado_em', { ascending: false })
+      if (error) {
+        if (ehMigrationPendente(error)) return []
+        throw error
+      }
+      return (data || []) as PacoteComCiclo[]
+    },
+    enabled: !!patientId,
+    retry: false,
+    staleTime: 30_000,
+  })
+}
+
+/** Pacotes de um ciclo — quem recebeu material dele, para o caso de recall. */
+export const usePacotesDoCiclo = (cicloId: string | null) => {
+  return useQuery({
+    queryKey: ['esterilizacao-pacotes-ciclo', cicloId],
+    queryFn: async (): Promise<(PacoteEsterilizacao & { patients: { name: string } | null })[]> => {
+      if (!cicloId) return []
+      const { data, error } = await supabase
+        .from('esterilizacao_pacotes')
+        .select('*, patients(name)')
+        .eq('ciclo_id', cicloId)
+        .order('sequencia', { ascending: true })
+      if (error) {
+        if (ehMigrationPendente(error)) return []
+        throw error
+      }
+      return (data || []) as (PacoteEsterilizacao & { patients: { name: string } | null })[]
+    },
+    enabled: !!cicloId,
+    retry: false,
+    staleTime: 15_000,
+  })
+}
+
+/**
+ * Registra o pacote usado no paciente — o elo que faltava.
+ *
+ * É esta linha que responde, num biológico positivo, quais pacientes receberam
+ * material do ciclo. Sem ela a resposta é "todos os do dia", que na prática
+ * significa ligar para todo mundo.
+ */
+export const useUsarPacote = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (uso: { codigo: string; patientId: string; por?: string }): Promise<PacoteEsterilizacao> => {
+      const { data, error } = await supabase.rpc('usar_pacote_esterilizacao', {
+        p_codigo: uso.codigo.trim().toUpperCase(),
+        p_patient_id: uso.patientId,
+        p_por: uso.por ?? null,
+      })
+      if (error) {
+        if (ehMigrationPendente(error)) throw new MigrationPendenteError()
+        throw error
+      }
+      return (Array.isArray(data) ? data[0] : data) as PacoteEsterilizacao
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['esterilizacao-pacotes'] })
+      queryClient.invalidateQueries({ queryKey: ['esterilizacao-pacotes-ciclo'] })
     },
   })
 }

@@ -87,9 +87,12 @@ Nesta ordem, que é a dos casos que realmente acontecem:
 4. **Permissão negada com "não perguntar de novo"?** Ajustes do Android → Apps →
    VitallCam → Permissões → Dispositivos por perto.
 
-Se o Bluetooth não colaborar, **Baixar PNG** salva a etiqueta no tamanho exato
-para imprimir pelo app da Niimbot. Nesse caminho o ciclo não é registrado — o
-registro nasce da impressão pelo VitallCam.
+Se o Bluetooth não colaborar, **Imprimir na folha** manda a etiqueta para a
+impressora comum, no tamanho físico exato, repetida pela quantidade pedida e com
+um fio de contorno para cortar. Serve para rolo acabado, impressora sem bateria
+ou Bluetooth teimoso — e para folha adesiva, quando for o caso. Nesse caminho o
+ciclo não é registrado: quem imprime em papel está resolvendo um problema, não
+abrindo um lote.
 
 ## Cada pacote tem identidade própria
 

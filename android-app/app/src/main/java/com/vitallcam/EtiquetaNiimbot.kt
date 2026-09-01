@@ -62,6 +62,17 @@ class EtiquetaNiimbot(private val context: Context) {
      */
     private val trilha = StringBuilder()
 
+    /**
+     * Pedido de parada vindo da tela.
+     *
+     * Volatil porque quem pede e a thread da interface e quem obedece e a thread
+     * da impressao — sem isso o laco poderia nunca enxergar a mudanca.
+     */
+    @Volatile private var cancelado = false
+
+    /** Interrompe o lote em andamento; o que ja foi para a impressora sai. */
+    fun cancelar() { cancelado = true }
+
     private fun anotar(passo: String) {
         if (trilha.length < 4000) trilha.append(passo).append('\n')
     }
@@ -556,6 +567,7 @@ class EtiquetaNiimbot(private val context: Context) {
         progresso: (Int) -> Unit,
     ): String {
         trilha.setLength(0)
+        cancelado = false
         anotar("v$VERSAO imprimir linhas=${linhas.size} largura=$largura copias=$copias variante=$variante")
         if (linhas.isEmpty()) return "Etiqueta vazia."
         if (permissoesFaltando().isNotEmpty()) {
@@ -585,7 +597,7 @@ class EtiquetaNiimbot(private val context: Context) {
      * so troca a espera por outra igual.
      */
     private fun reconectavel(erro: String): Boolean =
-        erro.startsWith("A conexao caiu") || erro.startsWith("A impressora nao respondeu") ||
+        erro != "interrompido" && erro.startsWith("A conexao caiu") || erro.startsWith("A impressora nao respondeu") ||
             erro.startsWith("A impressora conectou")
 
     private fun enviarTrabalho(
@@ -679,6 +691,17 @@ class EtiquetaNiimbot(private val context: Context) {
                     }
                     lote.reset()
                 }
+
+                // Parada pedida no meio do desenho: manda o que sobrou no lote e
+                // encerra o trabalho direito. Sem o fim de impressao a Niimbot
+                // ficaria esperando o resto do desenho que nao vem mais.
+                if (cancelado) {
+                    if (lote.size() > 0) escrever(lote.toByteArray())
+                    comando(FIM_PAGINA, byteArrayOf(1), FIM_PAGINA + 1)
+                    comando(FIM_IMPRESSAO, byteArrayOf(1), FIM_IMPRESSAO + 1)
+                    anotar("interrompido na etiqueta ${pagina + 1}, linha $y")
+                    return "interrompido"
+                }
                 enviadas++
                 if (enviadas % 32 == 0) progresso(enviadas * 100 / totalLinhas)
             }
@@ -697,6 +720,12 @@ class EtiquetaNiimbot(private val context: Context) {
             // (uns 20 mm por segundo), entao a ultima chegava enquanto ela ainda
             // estava na anterior. Pedimos tres e sairam duas.
             esperarEtiquetas(pagina + 1, msPorEtiqueta)
+
+            if (cancelado) {
+                comando(FIM_IMPRESSAO, byteArrayOf(1), FIM_IMPRESSAO + 1)
+                anotar("interrompido depois da etiqueta ${pagina + 1}")
+                return "interrompido"
+            }
         }
         progresso(100)
 
@@ -735,7 +764,7 @@ class EtiquetaNiimbot(private val context: Context) {
         private const val BATIDA = 0xDC
 
         /** Marca da build, para saber no log qual versao gerou a trilha. */
-        private const val VERSAO = 7
+        private const val VERSAO = 8
 
         /** Familia D11/D110/D101: tamanho da pagina em 2 bytes (so as linhas). */
         const val VARIANTE_D11 = 1

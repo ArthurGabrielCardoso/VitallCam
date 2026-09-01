@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Biohazard, Bluetooth, BookText, Calendar, CheckCircle2, ChevronLeft, ChevronRight,
-  Clock, Download, FlaskConical, Loader2, Package, PackageCheck, Pencil, Plus, Printer, Search, X,
+  Clock, FlaskConical, Loader2, Package, PackageCheck, Pencil, Plus, Printer, Search, Square, X,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useToast } from '@/hooks/use-toast'
@@ -20,8 +20,8 @@ import {
 } from '@/lib/etiqueta-esterilizacao'
 import {
   ImpressoraEncontrada, ModoImpressao, aquecerImpressora, escolherImpressora, esquecerImpressora,
-  imprimirEtiqueta as enviarEtiqueta, impressoraLembrada, modoImpressao, podeListarImpressoras,
-  procurarImpressoras,
+  impressaoInterrompida, imprimirEtiqueta as enviarEtiqueta, impressoraLembrada, modoImpressao,
+  pararImpressao, podeListarImpressoras, procurarImpressoras,
 } from '@/lib/impressora-etiqueta'
 import { Niimbot, VarianteProtocolo } from '@/lib/niimbot'
 
@@ -570,7 +570,7 @@ function EstadoImpressora({
         <a href="/vitallcam-android.apk" className="font-semibold underline underline-offset-2">
           app da clínica
         </a>{' '}
-        ou pelo Chrome — ou baixe o PNG e imprima pelo app da impressora.
+        ou pelo Chrome — ou use "Imprimir na folha" e recorte.
       </p>
     )
   }
@@ -816,6 +816,16 @@ function ModalEtiqueta({
         }
 
       for (let i = 0; i < codigos.length; i++) {
+        // Entre uma etiqueta e outra é onde a parada custa menos: a anterior
+        // saiu inteira e a próxima nem começou.
+        if (impressaoInterrompida()) {
+          toast({
+            title: 'Impressão interrompida',
+            description: `${i} de ${codigos.length} etiqueta(s) saíram. O lote ${alvo.lote} continua valendo.`,
+          })
+          break
+        }
+
         const canvas = document.createElement('canvas')
         desenharEtiqueta(canvas, { ...etiquetaDoCiclo(alvo, marca), pacote: codigos[i] }, formato)
         const bitmap = canvasParaBitmap(canvas, ajustes.rotacao)
@@ -841,7 +851,9 @@ function ModalEtiqueta({
       onFechar()
     } catch (erro: unknown) {
       const msg = erro instanceof Error ? erro.message : 'Falha ao imprimir'
-      if (!/cancel|user/i.test(msg)) {
+      if (/interrompid/i.test(msg)) {
+        toast({ title: 'Impressão interrompida', description: 'O que já saiu continua valendo.' })
+      } else if (!/cancel|user/i.test(msg)) {
         setUltimoErro(msg)
         toast({ variant: 'destructive', title: 'Não deu para imprimir', description: msg })
       }
@@ -897,16 +909,63 @@ function ModalEtiqueta({
   }
 
   /**
-   * Saída sem Bluetooth: baixa o PNG no tamanho exato da etiqueta para imprimir
-   * pelo app da Niimbot. Não grava ciclo — o registro nasce da impressão.
+   * Saída em papel, quando a Niimbot não é opção.
+   *
+   * Manda a etiqueta para a impressora comum, no tamanho físico exato, repetida
+   * pela quantidade pedida e com um fio de contorno para cortar. Serve para
+   * impressora sem bateria, rolo acabado ou Bluetooth teimoso — e para colar em
+   * folha adesiva quando for o caso.
+   *
+   * Não grava ciclo: quem imprime em papel está resolvendo um problema, não
+   * abrindo um lote. O registro nasce da impressão na etiquetadora.
+   *
+   * Por iframe e não por janela nova: WebView costuma bloquear pop-up, e a
+   * impressão morreria calada dentro do app da clínica.
    */
-  const baixarPng = () => {
+  const imprimirNaFolha = () => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const link = document.createElement('a')
-    link.download = `etiqueta-${lote}.png`
-    link.href = canvas.toDataURL('image/png')
-    link.click()
+    const imagem = canvas.toDataURL('image/png')
+    const quantas = Math.max(1, quantidade)
+
+    const moldura = document.createElement('iframe')
+    moldura.setAttribute('aria-hidden', 'true')
+    moldura.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
+    document.body.appendChild(moldura)
+
+    const doc = moldura.contentDocument
+    if (!doc) {
+      moldura.remove()
+      return
+    }
+
+    doc.open()
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>Etiquetas ${lote}</title>
+      <style>
+        @page { margin: 8mm; }
+        body { margin: 0; font-family: Arial, sans-serif; }
+        .etiqueta {
+          width: ${ajustes.comprimentoMm}mm;
+          height: ${ajustes.larguraMm}mm;
+          border: 0.2mm dashed #999;
+          margin: 0 0 2mm 0;
+          page-break-inside: avoid;
+        }
+        .etiqueta img { width: 100%; height: 100%; display: block; }
+      </style></head><body>
+      ${Array.from({ length: quantas }, () => `<div class="etiqueta"><img src="${imagem}" alt=""></div>`).join('')}
+      </body></html>`)
+    doc.close()
+
+    // Espera a imagem decodificar: mandar imprimir antes disso sai em branco.
+    const janela = moldura.contentWindow
+    const mandar = () => {
+      janela?.focus()
+      janela?.print()
+      setTimeout(() => moldura.remove(), 1000)
+    }
+    if (janela) janela.onload = mandar
+    else setTimeout(mandar, 300)
   }
 
   const ocupado = progresso !== null || abrirCiclo.isPending
@@ -1073,14 +1132,23 @@ function ModalEtiqueta({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-100">
+        <div className="flex items-center justify-between gap-2 px-5 py-4 border-t border-gray-100 flex-wrap">
           <button
-            onClick={baixarPng}
+            onClick={imprimirNaFolha}
             className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-teal-700"
-            title="Para imprimir pelo app da Niimbot, se o Bluetooth não colaborar"
+            title="Manda para a impressora comum, no tamanho real, com contorno para cortar"
           >
-            <Download className="w-3.5 h-3.5" /> Baixar PNG
+            <Printer className="w-3.5 h-3.5" /> Imprimir na folha
           </button>
+          {ocupado && (
+            <button
+              onClick={pararImpressao}
+              className="flex items-center gap-2 px-5 h-10 rounded text-sm font-semibold border border-red-300 text-red-700 bg-white hover:bg-red-50 transition-colors"
+              title="Para o lote: o que já saiu continua valendo"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" /> Parar
+            </button>
+          )}
           <button
             onClick={imprimir}
             disabled={ocupado}

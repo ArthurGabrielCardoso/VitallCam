@@ -22,11 +22,35 @@ export interface OpcoesImpressaoEtiqueta {
   aoProgredir?: (porcentagem: number) => void
 }
 
+/**
+ * Pedido de parada da impressão em curso.
+ *
+ * Mora fora das telas porque a impressão atravessa caminhos diferentes — app
+ * nativo e navegador — e quem aperta "parar" não deveria precisar saber por qual
+ * deles a etiqueta está saindo.
+ */
+let paradaPedida = false
+
+/** Interrompe o lote em andamento: as etiquetas já enviadas saem, o resto não. */
+export function pararImpressao(): void {
+  paradaPedida = true
+  try {
+    window.VitallCam?.cancelarImpressao?.()
+  } catch {
+    // APK sem o método: o laço da web ainda respeita a parada.
+  }
+}
+
+export function impressaoInterrompida(): boolean {
+  return paradaPedida
+}
+
 /** Mensagens que o bridge devolve em vez de texto pronto para a tela. */
 /** Números que a ponte nativa entende, na ordem das famílias conhecidas. */
 const VARIANTE_NATIVA: Record<VarianteProtocolo, number> = { d11: 1, b21: 2, b1: 3 }
 
 const RECADOS: Record<string, string> = {
+  'interrompido': 'Impressão interrompida. As etiquetas que já saíram continuam válidas.',
   'sem-permissao': 'O app precisa da permissão de Bluetooth. Se a caixa não aparecer mais, libere em Ajustes do Android → Apps → VitallCam → Permissões.',
   'ja-imprimindo': 'Já tem uma etiqueta saindo. Espere terminar.',
   'etiqueta-invalida': 'O desenho da etiqueta não chegou inteiro no app.',
@@ -231,6 +255,8 @@ export async function imprimirEtiqueta(
   opcoes: OpcoesImpressaoEtiqueta,
   navegador?: { impressora: Niimbot | null; aoConectar: (i: Niimbot) => void },
 ): Promise<void> {
+  paradaPedida = false
+
   if (modoImpressao() === 'app') {
     await imprimirPeloApp(bitmap, opcoes)
     return
@@ -249,5 +275,6 @@ export async function imprimirEtiqueta(
     densidade: opcoes.densidade,
     variante: opcoes.variante,
     aoProgredir: (feitas, total) => opcoes.aoProgredir?.(Math.round((feitas / total) * 100)),
+    interrompido: () => paradaPedida,
   })
 }

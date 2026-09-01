@@ -272,7 +272,12 @@ function Resumo({
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      {/* No celular os números viram uma faixa que rola de lado, como os
+          carrosséis do resto do app: cinco cartões empilhados em duas colunas
+          empurravam os ciclos para fora da tela, e o que interessa ali embaixo é
+          a lista, não o resumo. No desktop sobra largura, então ficam os cinco
+          lado a lado. */}
+      <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory scroll-smooth [&::-webkit-scrollbar]:hidden [scrollbar-width:none] sm:grid sm:grid-cols-5 sm:overflow-visible sm:mx-0 sm:px-0 sm:pb-0">
         <Indicador icone={<Biohazard className="w-4 h-4" />} valor={resumo.ciclosHoje} rotulo="ciclos hoje" />
         <Indicador icone={<Package className="w-4 h-4" />} valor={resumo.pacotesHoje} rotulo="pacotes hoje" />
         <Indicador icone={<Calendar className="w-4 h-4" />} valor={resumo.ciclosMes} rotulo="ciclos no mês" />
@@ -331,9 +336,13 @@ function Indicador({
   alerta?: boolean
 }) {
   return (
-    <div className={`rounded border p-3 ${alerta ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200'}`}>
+    <div
+      className={`snap-start shrink-0 w-32 sm:w-auto rounded border p-3 ${
+        alerta ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200'
+      }`}
+    >
       <div className={`flex items-center gap-1.5 text-[11px] uppercase tracking-wider ${alerta ? 'text-amber-700' : 'text-gray-400'}`}>
-        {icone} {rotulo}
+        {icone} <span className="truncate">{rotulo}</span>
       </div>
       <p className={`text-2xl font-semibold mt-1 ${alerta ? 'text-amber-800' : 'text-gray-800'}`}>{valor}</p>
     </div>

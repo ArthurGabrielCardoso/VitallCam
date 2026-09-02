@@ -62,6 +62,11 @@ declare global {
         repetirPagina: boolean,
         /** Família da impressora (1 D11/D110, 2 B21, 3 B1). Só da versão 2 da ponte. */
         variante?: number,
+        /**
+         * Em quantos desenhos fatiar o payload — o lote inteiro vai num
+         * trabalho só. Só da versão 6 da ponte.
+         */
+        paginas?: number,
       ) => void
       /** Versão da ponte de impressão; ausente = APK anterior à variante. */
       versaoEtiqueta?: () => number

@@ -564,11 +564,15 @@ class EtiquetaNiimbot(private val context: Context) {
         densidade: Int,
         @Suppress("UNUSED_PARAMETER") repetirPagina: Boolean,
         variante: Int,
+        paginasDistintas: Int,
         progresso: (Int) -> Unit,
     ): String {
         trilha.setLength(0)
         cancelado = false
-        anotar("v$VERSAO imprimir linhas=${linhas.size} largura=$largura copias=$copias variante=$variante")
+        anotar(
+            "v$VERSAO imprimir linhas=${linhas.size} largura=$largura copias=$copias" +
+                " paginas=$paginasDistintas variante=$variante",
+        )
         if (linhas.isEmpty()) return "Etiqueta vazia."
         if (permissoesFaltando().isNotEmpty()) {
             anotar("permissoes faltando: " + permissoesFaltando().joinToString())
@@ -581,12 +585,14 @@ class EtiquetaNiimbot(private val context: Context) {
         // perceber. E por isso que a segunda etiqueta do dia "nao saia nada":
         // mandavamos o trabalho por um cano que ja nao existia. Uma tentativa
         // com conexao nova resolve, e custa os dois segundos de reconectar.
-        val primeira = enviarTrabalho(linhas, largura, copias, densidade, repetirPagina, variante, progresso)
+        val primeira =
+            enviarTrabalho(linhas, largura, copias, densidade, repetirPagina, variante, paginasDistintas, progresso)
         if (primeira.isEmpty() || !reconectavel(primeira)) return primeira
 
         anotar("primeira tentativa falhou ($primeira) — reconectando")
         desconectar()
-        val segunda = enviarTrabalho(linhas, largura, copias, densidade, repetirPagina, variante, progresso)
+        val segunda =
+            enviarTrabalho(linhas, largura, copias, densidade, repetirPagina, variante, paginasDistintas, progresso)
         anotar(if (segunda.isEmpty()) "ok na segunda" else "falhou de novo: $segunda")
         return segunda
     }
@@ -607,6 +613,7 @@ class EtiquetaNiimbot(private val context: Context) {
         densidade: Int,
         repetirPagina: Boolean,
         variante: Int,
+        paginasDistintas: Int,
         progresso: (Int) -> Unit,
     ): String {
         val erro = conectar()
@@ -624,13 +631,27 @@ class EtiquetaNiimbot(private val context: Context) {
         // ignora: pedimos tres e saiu uma. Mandar o desenho uma vez por etiqueta
         // e determinista e funciona em qualquer modelo — e, com as linhas em
         // lote, o envio some perto do tempo que a impressora leva para imprimir.
-        val paginas = copias
+        //
+        // Desde que cada pacote ganhou codigo proprio as etiquetas do lote sao
+        // desenhos DIFERENTES: chegam emendadas num payload so e `paginas` diz
+        // em quantas fatiar. Um payload de um desenho so continua repetindo o
+        // mesmo `copias` vezes, como sempre foi.
+        val fatias = paginasDistintas.coerceAtLeast(1)
+        val distintas = fatias > 1
+        if (distintas && (linhas.size % fatias != 0 || linhas.size / fatias == 0)) {
+            // Payload que nao fecha com o numero de paginas so poderia sair
+            // como desenho picado — e picado ele gasta o rolo inteiro antes de
+            // alguem perceber. Melhor nao imprimir nada.
+            anotar("paginas=$fatias nao divide ${linhas.size} linhas")
+            return "etiqueta-invalida"
+        }
+        val altura = if (distintas) linhas.size / fatias else linhas.size
+        val paginas = if (distintas) fatias else copias
         // 8 pontos por milimetro na cabeca termica, e a D110 anda perto de
         // 20 mm/s: o proprio desenho diz quanto tempo cada etiqueta leva.
-        val msPorEtiqueta = ((linhas.size / 8.0) * 50).toLong().coerceIn(800, 6_000)
-        val totalLinhas = linhas.size * paginas
+        val msPorEtiqueta = ((altura / 8.0) * 50).toLong().coerceIn(800, 6_000)
+        val totalLinhas = altura * paginas
         var enviadas = 0
-        val altura = linhas.size
 
         // O primeiro comando e o teste do cano: se nem ele passa, o trabalho
         // inteiro sairia no vazio — melhor falhar aqui e deixar a tentativa com
@@ -672,8 +693,9 @@ class EtiquetaNiimbot(private val context: Context) {
             val lote = java.io.ByteArrayOutputStream()
             val limiteLote = ((mtu - 3).coerceIn(20, 512)) * 4
 
-            for (y in linhas.indices) {
-                val linha = linhas[y]
+            val inicio = if (distintas) pagina * altura else 0
+            for (y in 0 until altura) {
+                val linha = linhas[inicio + y]
                 // Cabecalho: numero da linha, tres contadores de pontos pretos
                 // (a impressora aceita zeros) e quantas linhas repetem o desenho.
                 val corpo = ByteArray(6 + linha.size)
@@ -731,7 +753,7 @@ class EtiquetaNiimbot(private val context: Context) {
 
         // O papel ainda anda quando a ultima linha chega: encerrar agora corta a
         // etiqueta pela metade.
-        esperarEtiquetas(copias, msPorEtiqueta)
+        esperarEtiquetas(paginas, msPorEtiqueta)
 
         comando(FIM_IMPRESSAO, byteArrayOf(1), FIM_IMPRESSAO + 1)
         return ""
@@ -764,7 +786,7 @@ class EtiquetaNiimbot(private val context: Context) {
         private const val BATIDA = 0xDC
 
         /** Marca da build, para saber no log qual versao gerou a trilha. */
-        private const val VERSAO = 8
+        private const val VERSAO = 9
 
         /** Familia D11/D110/D101: tamanho da pagina em 2 bytes (so as linhas). */
         const val VARIANTE_D11 = 1

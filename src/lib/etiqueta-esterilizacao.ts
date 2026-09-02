@@ -21,6 +21,13 @@
  * zebrada — esta etiqueta cuida da rastreabilidade, o pacote cuida do indicador.
  */
 
+/**
+ * Quanto a cabeça da D110 cobre, em milímetros. É a régua da régua: o teste
+ * desenha um degrau por milímetro daqui, sempre, para o resultado impresso poder
+ * ser contado contra um número que não muda com o ajuste.
+ */
+const LARGURA_CABECA_MM = 12
+
 /** Resolução da cabeça térmica: 203 dpi ≈ 8 pontos por milímetro. */
 export const PONTOS_POR_MM = 8
 
@@ -344,7 +351,10 @@ export function bitmapDeTeste(
   formato: FormatoEtiqueta = FORMATO_PADRAO,
   rotacao: 0 | 90 | 180 | 270 = 90,
 ): BitmapImpressao {
-  const { comprimento, largura } = dimensoesEmPontos(formato)
+  const { comprimento } = dimensoesEmPontos(formato)
+  // A régua vai na cabeça inteira, não na largura ajustada: se a cabeça só
+  // estiver pegando parte do adesivo, é isso que precisa aparecer.
+  const largura = LARGURA_CABECA_MM * PONTOS_POR_MM
   const trocaEixos = rotacao === 90 || rotacao === 270
   const larguraFinal = trocaEixos ? largura : comprimento
   const alturaFinal = trocaEixos ? comprimento : largura
@@ -354,8 +364,15 @@ export function bitmapDeTeste(
   // O eixo da largura da etiqueta é o que a cabeça cobre de uma vez; depois do
   // giro ele é o x do bitmap quando os eixos trocam, e o y quando não trocam.
   // A escada mora nesse eixo, que é justamente onde o corte aparece.
-  const degraus = Math.max(1, Math.round(formato.larguraMm))
-  const pontosPorDegrau = Math.max(1, Math.floor(largura / degraus))
+  // SEMPRE 12 degraus de 1 mm, e não `larguraMm` degraus.
+  //
+  // A primeira versão desta régua tirava o número de degraus do ajuste de
+  // largura — ou seja, as marcas dependiam justamente do que estava sendo
+  // medido. Com a largura mal ajustada a régua saía com menos degraus e
+  // "saíram 6 de 6" ficava igualzinho a "saíram 6 de 12" na etiqueta. Régua não
+  // pode depender da peça: ela mede a cabeça, que cobre 12 mm na D110.
+  const degraus = LARGURA_CABECA_MM
+  const pontosPorDegrau = PONTOS_POR_MM
   const eixoLargura = trocaEixos ? larguraFinal : alturaFinal
   const eixoComprimento = trocaEixos ? alturaFinal : larguraFinal
 

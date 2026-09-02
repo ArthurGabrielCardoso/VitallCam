@@ -1425,13 +1425,14 @@ function AjustesImpressora({
             onChange={(e) => onMudar({ variante: e.target.value as VarianteProtocolo })}
             className={`${campo} w-full mt-1`}
           >
-            <option value="d11">D110 / D11 / D101</option>
-            <option value="b21">B21 / B3</option>
-            <option value="b1">B1</option>
+            <option value="d11">D110 / D11 / D101 — só as linhas</option>
+            <option value="b21">B21 / B3 — linhas e largura</option>
+            <option value="b1">B1 — linhas, largura e cópias</option>
           </select>
           <span className="block mt-1 text-gray-400">
-            Etiqueta andando em branco é quase sempre isto: cada família espera um
-            comando de tamanho de página diferente. Teste as três.
+            Cada família manda um comando de tamanho de página diferente. Se a régua
+            sair com METADE dos degraus, a impressora não está sabendo a largura da
+            linha e está cortando: troque para uma opção que mande a largura.
           </span>
         </label>
 

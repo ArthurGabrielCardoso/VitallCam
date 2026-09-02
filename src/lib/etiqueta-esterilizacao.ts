@@ -37,6 +37,20 @@ export interface FormatoEtiqueta {
    * texto é o que a Vigilância lê, então o limite fica na tela, não no código.
    */
   logoPorcento?: number
+  /**
+   * Quanto descer (ou subir, se negativo) TODO o desenho dentro da etiqueta, em
+   * milímetros.
+   *
+   * Existe porque o desenho pode estar centrado e ainda assim sair alto no
+   * adesivo: onde o rolo para debaixo da cabeça térmica é físico, muda com o
+   * lote de etiqueta e com o jeito que o rolo foi colocado. O comprimento sai
+   * certo e a largura sai fora de centro — foi assim que apareceu na bancada,
+   * cortando o topo da logo e do lote com folga sobrando embaixo.
+   *
+   * Fica na tela e não no código porque quem enxerga o resultado é quem está com
+   * a etiqueta na mão.
+   */
+  deslocamentoMm?: number
 }
 
 /**
@@ -48,6 +62,7 @@ export const FORMATO_PADRAO: FormatoEtiqueta = {
   larguraMm: 12,
   margem: 6,
   logoPorcento: 34,
+  deslocamentoMm: 0,
 }
 
 export interface DadosEtiqueta {
@@ -140,6 +155,8 @@ function desenharLogo(
   alturaDisponivel: number,
   margem: number,
   larguraMaxima: number,
+  /** Desce a marca junto com o texto; `margem` continua mandando no lado. */
+  descer: number,
 ): number {
   const proporcao = logo.naturalWidth > 0 && logo.naturalHeight > 0
     ? logo.naturalWidth / logo.naturalHeight
@@ -149,19 +166,26 @@ function desenharLogo(
   // altura da etiqueta. Cresce até o limite pedido e para na altura útil.
   const largura = Math.max(1, Math.round(Math.min(larguraMaxima, alturaDisponivel * proporcao)))
   const altura = Math.max(1, Math.round(largura / proporcao))
-  const topo = margem + Math.floor((alturaDisponivel - altura) / 2)
+  const topo = margem + descer + Math.floor((alturaDisponivel - altura) / 2)
 
   ctx.drawImage(logo, margem, topo, largura, altura)
 
-  const area = ctx.getImageData(margem, topo, largura, altura)
-  for (let i = 0; i < area.data.length; i += 4) {
-    const alfa = area.data[i + 3]
-    const luz = (area.data[i] + area.data[i + 1] + area.data[i + 2]) / 3
-    const tinta = alfa >= ALFA_MINIMO_LOGO && luz < LUZ_MAXIMA_LOGO
-    area.data[i] = area.data[i + 1] = area.data[i + 2] = tinta ? 0 : 255
-    area.data[i + 3] = 255
+  // Binarizar só o pedaço que caiu dentro do canvas: com o deslocamento a marca
+  // pode nascer meio para fora, e ler fora da tela devolve pixel transparente
+  // que viraria uma faixa branca por cima do desenho.
+  const alto = Math.max(0, topo)
+  const baixo = Math.min(ctx.canvas.height, topo + altura)
+  if (baixo > alto) {
+    const area = ctx.getImageData(margem, alto, largura, baixo - alto)
+    for (let i = 0; i < area.data.length; i += 4) {
+      const alfa = area.data[i + 3]
+      const luz = (area.data[i] + area.data[i + 1] + area.data[i + 2]) / 3
+      const tinta = alfa >= ALFA_MINIMO_LOGO && luz < LUZ_MAXIMA_LOGO
+      area.data[i] = area.data[i + 1] = area.data[i + 2] = tinta ? 0 : 255
+      area.data[i + 3] = 255
+    }
+    ctx.putImageData(area, margem, alto)
   }
-  ctx.putImageData(area, margem, topo)
 
   return largura
 }
@@ -191,13 +215,22 @@ export function desenharEtiqueta(
   const margem = formato.margem
   const alturaUtil = largura - margem * 2
 
+  // O desenho inteiro desce (ou sobe) junto — logo e texto. Preso à etiqueta
+  // para o ajuste nunca empurrar o conteúdo para fora dela: passar do limite
+  // trocaria um corte por outro.
+  const limite = Math.floor(largura / 2)
+  const desloc = Math.max(
+    -limite,
+    Math.min(limite, Math.round(PONTOS_POR_MM * (formato.deslocamentoMm ?? 0))),
+  )
+
   // A logo abre espaço à esquerda; o texto começa depois dela, com uma folga
   // maior do que a de antes — pedido de quem lê a etiqueta na bancada, para o
   // lote não nascer colado na marca.
   let x = margem
   if (dados.logo) {
     const orcamento = Math.round((comprimento * (formato.logoPorcento ?? 34)) / 100)
-    x += desenharLogo(ctx, dados.logo, alturaUtil, margem, orcamento) + Math.round(PONTOS_POR_MM * 1.5)
+    x += desenharLogo(ctx, dados.logo, alturaUtil, margem, orcamento, desloc) + Math.round(PONTOS_POR_MM * 1.5)
   }
 
   const larguraTexto = comprimento - x - margem
@@ -224,7 +257,7 @@ export function desenharEtiqueta(
   // em relação à marca, e a etiqueta parece torta mesmo estando certa.
   const respiro = Math.round(PONTOS_POR_MM * 0.5)
   const sobra = Math.max(0, alturaUtil - alturaTotal)
-  let y = margem + Math.min(sobra, Math.floor(sobra / 2) + respiro)
+  let y = margem + desloc + Math.min(sobra, Math.floor(sobra / 2) + respiro)
 
   // Recorte na área do texto: se a medida ainda escapar, a linha para na margem
   // em vez de sair pela borda do adesivo. Cortar é ruim; vazar é pior, porque

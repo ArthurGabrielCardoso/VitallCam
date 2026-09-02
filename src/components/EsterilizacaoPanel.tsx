@@ -739,8 +739,8 @@ function ModalEtiqueta({
     autoclave: autoclave.trim() || null,
     conteudo: conteudo.trim() || null,
     logo,
-    // Na prévia, o primeiro pacote do ciclo — para o QR aparecer do tamanho que
-    // vai sair, e não como uma surpresa na primeira etiqueta.
+    // Na prévia, o primeiro pacote do ciclo: o código sai mais comprido que o
+    // lote sozinho, e é ele que decide o tamanho da fonte na etiqueta impressa.
     pacote: `${lote}-01`,
   }), [lote, data, validade, responsavel, autoclave, conteudo, logo])
 
@@ -750,8 +750,12 @@ function ModalEtiqueta({
       larguraMm: ajustes.larguraMm,
       margem: ajustes.margem,
       logoPorcento: ajustes.logoPorcento,
+      deslocamentoMm: ajustes.deslocamentoMm,
     })
-  }, [dados, ajustes.comprimentoMm, ajustes.larguraMm, ajustes.margem])
+  }, [
+    dados, ajustes.comprimentoMm, ajustes.larguraMm, ajustes.margem,
+    ajustes.logoPorcento, ajustes.deslocamentoMm,
+  ])
 
   // A prévia também precisa esperar a fonte: desenhada antes, ela mostra um
   // texto mais largo do que o que vai sair, e a tela deixaria de avisar.
@@ -813,6 +817,7 @@ function ModalEtiqueta({
         larguraMm: ajustes.larguraMm,
         margem: ajustes.margem,
         logoPorcento: ajustes.logoPorcento,
+        deslocamentoMm: ajustes.deslocamentoMm,
         }
 
       // Todos os desenhos antes de mandar, e UM envio para o lote inteiro.
@@ -1358,6 +1363,24 @@ function AjustesImpressora({
           <input
             type="number" min={6} max={15} value={ajustes.larguraMm}
             onChange={(e) => onMudar({ larguraMm: Number(e.target.value) || 12 })}
+            className={`${campo} w-full mt-1`}
+          />
+        </label>
+        <label className="text-[11px] text-gray-500" title="Folga branca em volta, em pontos da cabeça (8 pontos = 1 mm). Aumentar abre espaço para o ajuste de centralizar.">
+          Margem (pontos)
+          <input
+            type="number" min={0} max={32} value={ajustes.margem}
+            onChange={(e) => onMudar({ margem: Math.min(32, Math.max(0, Number(e.target.value) || 0)) })}
+            className={`${campo} w-full mt-1`}
+          />
+        </label>
+        <label className="text-[11px] text-gray-500" title="Positivo desce o desenho na etiqueta; negativo sobe.">
+          Centralizar (mm)
+          <input
+            type="number" min={-6} max={6} step={0.25} value={ajustes.deslocamentoMm ?? 0}
+            onChange={(e) => onMudar({
+              deslocamentoMm: Math.min(6, Math.max(-6, Number(e.target.value) || 0)),
+            })}
             className={`${campo} w-full mt-1`}
           />
         </label>

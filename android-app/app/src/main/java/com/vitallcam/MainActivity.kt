@@ -587,7 +587,7 @@ class MainActivity : AppCompatActivity() {
          * timeout sem ninguem entender por que.
          */
         @JavascriptInterface
-        fun versaoEtiqueta(): Int = 5
+        fun versaoEtiqueta(): Int = 6
 
         @JavascriptInterface
         fun imprimirEtiqueta(
@@ -606,6 +606,26 @@ class MainActivity : AppCompatActivity() {
             densidade: Int,
             repetirPagina: Boolean,
             variante: Int,
+        ) = imprimirEtiqueta(linhasBase64, largura, copias, densidade, repetirPagina, variante, 1)
+
+        /**
+         * O lote inteiro numa chamada so.
+         *
+         * `paginas` diz em quantos desenhos fatiar o payload: desde que cada
+         * pacote tem codigo proprio, as etiquetas de um lote sao diferentes umas
+         * das outras. Uma chamada por etiqueta seria um TRABALHO por etiqueta, e
+         * a Niimbot recolhe o papel no fim de cada trabalho — a seguinte nascia
+         * fora de posicao e saia cortada.
+         */
+        @JavascriptInterface
+        fun imprimirEtiqueta(
+            linhasBase64: String,
+            largura: Int,
+            copias: Int,
+            densidade: Int,
+            repetirPagina: Boolean,
+            variante: Int,
+            paginas: Int,
         ) {
             if (imprimindo) { responderEtiqueta("ja-imprimindo"); return }
 
@@ -624,7 +644,9 @@ class MainActivity : AppCompatActivity() {
                 imprimindo = true
                 Thread {
                     val erro = runCatching {
-                        etiqueta.imprimir(linhas, largura, copias, densidade, repetirPagina, variante) { pct ->
+                        etiqueta.imprimir(
+                            linhas, largura, copias, densidade, repetirPagina, variante, paginas,
+                        ) { pct ->
                             runOnUiThread {
                                 webView.evaluateJavascript(
                                     "if(typeof window.__onEtiquetaProgresso==='function'){window.__onEtiquetaProgresso($pct);}",

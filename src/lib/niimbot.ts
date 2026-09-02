@@ -282,20 +282,32 @@ export class Niimbot {
   }
 
   /**
-   * Imprime o bitmap. Uma chamada = um ciclo de esterilização, com quantas
-   * etiquetas iguais a Jéssica pedir.
+   * Imprime o lote inteiro em UM trabalho.
+   *
+   * Aceita um desenho só (repetido `copias` vezes) ou um por etiqueta, que é o
+   * caso desde que cada pacote passou a ter código próprio. O que não pode é
+   * virar um trabalho por etiqueta: a Niimbot recolhe o papel no fim de cada
+   * trabalho e a etiqueta seguinte nasce fora de posição — sai cortada e subindo
+   * a cada uma. Um trabalho, N páginas, o rolo anda direto.
    */
-  async imprimir(bitmap: BitmapImpressao, opcoes: OpcoesImpressao = {}): Promise<void> {
+  async imprimir(
+    entrada: BitmapImpressao | BitmapImpressao[],
+    opcoes: OpcoesImpressao = {},
+  ): Promise<void> {
     const copias = Math.max(1, Math.floor(opcoes.copias ?? 1))
     const densidade = Math.min(5, Math.max(1, Math.floor(opcoes.densidade ?? 3)))
     // Uma página por etiqueta, sempre: o contador de cópias do protocolo existe
     // mas a D110 ignora — pedimos três e saiu uma. Mandar o desenho uma vez por
     // etiqueta é determinista e funciona em qualquer modelo.
-    const paginas = copias
+    const desenhos = Array.isArray(entrada)
+      ? entrada
+      : Array.from({ length: copias }, () => entrada)
+    if (desenhos.length === 0) return
+    const paginas = desenhos.length
     // 8 pontos por milímetro na cabeça térmica, e a D110 anda perto de 20 mm/s:
     // o próprio desenho diz quanto tempo cada etiqueta leva.
-    const msPorEtiqueta = Math.min(6000, Math.max(800, Math.round((bitmap.altura / 8) * 50)))
-    const totalLinhas = bitmap.linhas.length * paginas
+    const msPorEtiqueta = Math.min(6000, Math.max(800, Math.round((desenhos[0].altura / 8) * 50)))
+    const totalLinhas = desenhos.reduce((soma, d) => soma + d.linhas.length, 0)
     let enviadas = 0
 
     await this.enviar(COMANDO.TIPO_ETIQUETA, [opcoes.tipoEtiqueta ?? 1], COMANDO.TIPO_ETIQUETA + 1)
@@ -303,6 +315,7 @@ export class Niimbot {
     await this.enviar(COMANDO.INICIAR_IMPRESSAO, [0x01], COMANDO.INICIAR_IMPRESSAO + 1)
 
     for (let pagina = 0; pagina < paginas; pagina++) {
+      const bitmap = desenhos[pagina]
       await this.enviar(COMANDO.INICIAR_PAGINA, [0x01], COMANDO.INICIAR_PAGINA + 1)
 
       const linhas = [(bitmap.altura >> 8) & 0xff, bitmap.altura & 0xff]
@@ -373,7 +386,7 @@ export class Niimbot {
 
     // O papel ainda está andando quando a última linha chega: encerrar agora
     // corta a etiqueta pela metade.
-    await this.esperarEtiquetas(copias, msPorEtiqueta)
+    await this.esperarEtiquetas(paginas, msPorEtiqueta)
 
     await this.enviar(COMANDO.FIM_IMPRESSAO, [0x01], COMANDO.FIM_IMPRESSAO + 1)
   }

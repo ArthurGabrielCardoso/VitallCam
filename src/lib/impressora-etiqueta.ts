@@ -157,14 +157,23 @@ export function esquecerImpressora(): void {
   }
 }
 
-/** Linhas concatenadas em base64, do jeito que o bridge do app espera. */
-export function bitmapParaBase64(bitmap: BitmapImpressao): string {
-  const bytesPorLinha = bitmap.linhas[0]?.length ?? 0
+/**
+ * Linhas concatenadas em base64, do jeito que o bridge do app espera.
+ *
+ * Vários desenhos saem emendados, um atrás do outro: o lado nativo sabe o
+ * tamanho de cada página e fatia de volta. É assim que o lote inteiro cabe em
+ * uma chamada só — e um trabalho só na impressora.
+ */
+export function bitmapParaBase64(entrada: BitmapImpressao | BitmapImpressao[]): string {
+  const desenhos = Array.isArray(entrada) ? entrada : [entrada]
   let binario = ''
-  for (const linha of bitmap.linhas) {
-    // String.fromCharCode espalhado por pedaços: com 400 linhas de uma vez o
-    // spread estoura a pilha de argumentos em WebView antiga.
-    for (let i = 0; i < bytesPorLinha; i++) binario += String.fromCharCode(linha[i])
+  for (const bitmap of desenhos) {
+    const bytesPorLinha = bitmap.linhas[0]?.length ?? 0
+    for (const linha of bitmap.linhas) {
+      // String.fromCharCode espalhado por pedaços: com 400 linhas de uma vez o
+      // spread estoura a pilha de argumentos em WebView antiga.
+      for (let i = 0; i < bytesPorLinha; i++) binario += String.fromCharCode(linha[i])
+    }
   }
   return btoa(binario)
 }
@@ -175,9 +184,11 @@ export function bitmapParaBase64(bitmap: BitmapImpressao): string {
  * vez (o lado nativo recusa a segunda com "ja-imprimindo").
  */
 export function imprimirPeloApp(
-  bitmap: BitmapImpressao,
+  entrada: BitmapImpressao | BitmapImpressao[],
   opcoes: OpcoesImpressaoEtiqueta,
 ): Promise<void> {
+  const desenhos = Array.isArray(entrada) ? entrada : [entrada]
+  const bitmap = desenhos[0]
   return new Promise((resolve, reject) => {
     const ponte = window.VitallCam
     if (typeof ponte?.imprimirEtiqueta !== 'function') {
@@ -210,14 +221,26 @@ export function imprimirPeloApp(
       // parâmetro extra em silêncio — a tela ficaria girando até o timeout.
       // A versão da ponte diz qual chamada esse aparelho entende.
       const versao = ponte.versaoEtiqueta?.() ?? 1
+
+      // Desenhos diferentes por etiqueta só cabem numa chamada a partir da ponte
+      // 6, que sabe fatiar o lote pelo número de páginas. APK anterior imprime
+      // uma etiqueta por chamada — cortada, mas é o que ele sabe fazer, e a tela
+      // não fica girando à toa.
+      const varias = desenhos.length > 1
+      if (varias && versao < 6) {
+        reject(new Error('Este app ainda imprime uma etiqueta por vez e o lote sairia cortado. Atualize o APK.'))
+        return
+      }
+
       const argumentos: [string, number, number, number, boolean] = [
-        bitmapParaBase64(bitmap),
+        bitmapParaBase64(desenhos),
         bitmap.largura,
-        Math.max(1, Math.floor(opcoes.copias)),
+        varias ? desenhos.length : Math.max(1, Math.floor(opcoes.copias)),
         opcoes.densidade,
         false,
       ]
-      if (versao >= 2) ponte.imprimirEtiqueta(...argumentos, VARIANTE_NATIVA[opcoes.variante])
+      if (versao >= 6) ponte.imprimirEtiqueta(...argumentos, VARIANTE_NATIVA[opcoes.variante], desenhos.length)
+      else if (versao >= 2) ponte.imprimirEtiqueta(...argumentos, VARIANTE_NATIVA[opcoes.variante])
       else ponte.imprimirEtiqueta(...argumentos)
     } catch (erro) {
       limpar()
@@ -251,14 +274,16 @@ function registrar(texto: string): void {
 }
 
 export async function imprimirEtiqueta(
-  bitmap: BitmapImpressao,
+  entrada: BitmapImpressao | BitmapImpressao[],
   opcoes: OpcoesImpressaoEtiqueta,
   navegador?: { impressora: Niimbot | null; aoConectar: (i: Niimbot) => void },
 ): Promise<void> {
   paradaPedida = false
+  const desenhos = Array.isArray(entrada) ? entrada : [entrada]
+  const bitmap = desenhos[0]
 
   if (modoImpressao() === 'app') {
-    await imprimirPeloApp(bitmap, opcoes)
+    await imprimirPeloApp(desenhos, opcoes)
     return
   }
 
@@ -266,11 +291,12 @@ export async function imprimirEtiqueta(
   const conectada = atual?.conectado ? atual : await Niimbot.conectar(false)
   if (conectada !== atual) navegador?.aoConectar(conectada)
   registrar(
-    `imprimir linhas=${bitmap.altura} largura=${bitmap.largura} copias=${opcoes.copias}` +
+    `imprimir linhas=${bitmap.altura} largura=${bitmap.largura} paginas=${desenhos.length}` +
+    ` copias=${opcoes.copias}` +
     ` variante=${opcoes.variante} conexao=${conectada === atual ? 'reaproveitada' : 'nova'}`,
   )
 
-  await conectada.imprimir(bitmap, {
+  await conectada.imprimir(desenhos.length > 1 ? desenhos : bitmap, {
     copias: opcoes.copias,
     densidade: opcoes.densidade,
     variante: opcoes.variante,

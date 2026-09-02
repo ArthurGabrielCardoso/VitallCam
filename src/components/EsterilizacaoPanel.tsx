@@ -815,35 +815,39 @@ function ModalEtiqueta({
         logoPorcento: ajustes.logoPorcento,
         }
 
-      for (let i = 0; i < codigos.length; i++) {
-        // Entre uma etiqueta e outra é onde a parada custa menos: a anterior
-        // saiu inteira e a próxima nem começou.
-        if (impressaoInterrompida()) {
-          toast({
-            title: 'Impressão interrompida',
-            description: `${i} de ${codigos.length} etiqueta(s) saíram. O lote ${alvo.lote} continua valendo.`,
-          })
-          break
-        }
-
+      // Todos os desenhos antes de mandar, e UM envio para o lote inteiro.
+      //
+      // Já foi um envio por etiqueta, e isso é um TRABALHO por etiqueta na
+      // impressora: a Niimbot recolhe o papel no fim de cada trabalho, então a
+      // seguinte nascia fora de posição e saía cortada, subindo a cada uma.
+      const bitmaps = codigos.map((codigo) => {
         const canvas = document.createElement('canvas')
-        desenharEtiqueta(canvas, { ...etiquetaDoCiclo(alvo, marca), pacote: codigos[i] }, formato)
-        const bitmap = canvasParaBitmap(canvas, ajustes.rotacao)
+        desenharEtiqueta(canvas, { ...etiquetaDoCiclo(alvo, marca), pacote: codigo }, formato)
+        return canvasParaBitmap(canvas, ajustes.rotacao)
+      })
 
-        await enviarEtiqueta(
-          bitmap,
-          {
-            copias: 1,
-            densidade: ajustes.densidade,
-            variante: ajustes.variante,
-            // Cada etiqueta é um envio; a barra soma o progresso das anteriores.
-            aoProgredir: (pct) => setProgresso(Math.round(((i + pct / 100) / codigos.length) * 100)),
-          },
-          { impressora: conectada, aoConectar: onImpressora },
-        )
-      }
+      await enviarEtiqueta(
+        bitmaps,
+        {
+          copias: bitmaps.length,
+          densidade: ajustes.densidade,
+          variante: ajustes.variante,
+          aoProgredir: setProgresso,
+        },
+        { impressora: conectada, aoConectar: onImpressora },
+      )
 
       setUltimoErro(null)
+      // O caminho do navegador encerra o trabalho e volta sem erro quando a
+      // parada é pedida; dizer "lote impresso" aí seria mentir sobre quantas
+      // etiquetas existem na bancada.
+      if (impressaoInterrompida()) {
+        toast({
+          title: 'Impressão interrompida',
+          description: `O que já saiu continua valendo — o lote ${alvo.lote} segue aberto.`,
+        })
+        return
+      }
       toast({
         title: `Lote ${alvo.lote} impresso`,
         description: `${quantidade} etiqueta${quantidade > 1 ? 's' : ''} — cole no papel grau cirúrgico, que já traz o indicador químico.`,

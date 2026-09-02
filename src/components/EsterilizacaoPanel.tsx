@@ -872,10 +872,15 @@ function ModalEtiqueta({
   }
 
   /**
-   * Imprime o padrão de teste: tarjas e xadrez, sem texto e sem QR.
+   * Imprime a régua: uma escada de degraus de 1 mm ao longo da largura.
    *
-   * É o que separa "a impressora não recebeu nada" de "o desenho saiu errado" —
-   * e não abre ciclo nenhum, então dá para tentar as variantes do protocolo à
+   * Responde o que a prévia não responde: a prévia mostra o desenho centrado e a
+   * etiqueta sai cortada em cima, porque quem está fora de centro é o rolo
+   * debaixo da cabeça térmica, não o desenho. Contando quantos degraus saíram
+   * inteiros sai o quanto descer, medido em vez de chutado.
+   *
+   * Continua separando "a impressora não recebeu nada" de "o desenho saiu
+   * errado", e não abre ciclo nenhum: dá para tentar as variantes do protocolo à
    * vontade sem sujar o histórico da CME com lotes que não existem.
    */
   const imprimirTeste = async () => {
@@ -910,7 +915,7 @@ function ModalEtiqueta({
       const msg = erro instanceof Error ? erro.message : 'Falha ao imprimir'
       if (!/cancel|user/i.test(msg)) {
         setUltimoErro(msg)
-        toast({ variant: 'destructive', title: 'Não deu para imprimir o teste', description: msg })
+        toast({ variant: 'destructive', title: 'Não deu para imprimir a régua', description: msg })
       }
     } finally {
       setProgresso(null)
@@ -1446,7 +1451,7 @@ function AjustesImpressora({
           disabled={ocupado}
           className="col-span-2 flex items-center justify-center gap-1.5 h-8 rounded border border-gray-200 bg-white text-xs text-gray-600 hover:text-teal-700 hover:border-teal-500 transition-colors disabled:opacity-60"
         >
-          <Printer className="w-3.5 h-3.5" /> Imprimir teste (tarja e xadrez, sem gravar ciclo)
+          <Printer className="w-3.5 h-3.5" /> Imprimir régua (mede o corte, sem gravar ciclo)
         </button>
 
       </div>

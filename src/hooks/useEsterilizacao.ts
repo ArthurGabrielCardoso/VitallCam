@@ -425,6 +425,15 @@ export interface Estoque {
   vencendo: PacoteEmEstoque[]
   /** Total de pacotes esterilizados ainda não usados. */
   total: number
+  /**
+   * A tabela dos pacotes ainda não existe no banco.
+   *
+   * Antes isto voltava como estoque zerado, que na tela é indistinguível de "não
+   * tem pacote na gaveta" — e a etiqueta saía só com o lote, sem ninguém
+   * entender por quê. Estoque vazio e tabela ausente são coisas diferentes e
+   * precisam aparecer diferentes.
+   */
+  semTabela: boolean
 }
 
 /** Dias de antecedência do aviso de vencimento. */
@@ -447,7 +456,7 @@ export const useEstoquePacotes = () => {
         .is('usado_em', null)
         .order('created_at', { ascending: true })
       if (error) {
-        if (ehMigrationPendente(error)) return { vencidos: [], vencendo: [], total: 0 }
+        if (ehMigrationPendente(error)) return { vencidos: [], vencendo: [], total: 0, semTabela: true }
         throw error
       }
 
@@ -456,6 +465,7 @@ export const useEstoquePacotes = () => {
       const pacotes = (data || []) as PacoteEmEstoque[]
 
       return {
+        semTabela: false,
         total: pacotes.length,
         vencidos: pacotes.filter((p) => (p.esterilizacao_ciclos?.validade ?? '9999') < hoje),
         vencendo: pacotes.filter((p) => {

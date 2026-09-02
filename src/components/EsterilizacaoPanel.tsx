@@ -194,6 +194,17 @@ export default function EsterilizacaoPanel() {
         </p>
       )}
 
+      {!migrationPendente && estoque?.semTabela && (
+        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
+          A tabela <code>esterilizacao_pacotes</code> ainda não existe no banco, então cada
+          etiqueta sai <strong>só com o lote</strong> — sem o número que identifica pacote por
+          pacote. Rode a migration
+          <code className="mx-1">20260902_add_pacotes_esterilizacao.sql</code> no Supabase e as
+          próximas etiquetas já saem numeradas. As que já foram impressas continuam válidas pelo
+          lote.
+        </p>
+      )}
+
       {isLoading && (
         <div className="flex items-center gap-2 text-sm text-gray-400">
           <Loader2 className="w-4 h-4 animate-spin" /> Carregando ciclos…
@@ -803,6 +814,7 @@ function ModalEtiqueta({
       // para outro. Reimpressão acrescenta pacotes novos em vez de repetir os
       // antigos — o pacote que já está na gaveta continua com o código dele.
       let codigos: (string | null)[] = new Array(quantidade).fill(null)
+      let semPacotes = false
       try {
         const existentes = await garantirPacotes(alvo.id, 0)
         const todos = await garantirPacotes(alvo.id, existentes.length + quantidade)
@@ -810,6 +822,9 @@ function ModalEtiqueta({
       } catch {
         // Sem a migration dos pacotes a etiqueta sai como antes, só com o lote:
         // rastreabilidade por ciclo é pior que por pacote e melhor que nenhuma.
+        // Mas cair para o lote em silêncio foi o que fez a numeração sumir sem
+        // ninguém saber por quê — a etiqueta sai, e o aviso sai junto.
+        semPacotes = true
       }
 
       const formato = {
@@ -855,7 +870,9 @@ function ModalEtiqueta({
       }
       toast({
         title: `Lote ${alvo.lote} impresso`,
-        description: `${quantidade} etiqueta${quantidade > 1 ? 's' : ''} — cole no papel grau cirúrgico, que já traz o indicador químico.`,
+        description: semPacotes
+          ? `${quantidade} etiqueta${quantidade > 1 ? 's' : ''} — saíram só com o lote, sem o número do pacote: falta rodar a migration 20260902_add_pacotes_esterilizacao.sql no Supabase.`
+          : `${quantidade} etiqueta${quantidade > 1 ? 's' : ''} — cole no papel grau cirúrgico, que já traz o indicador químico.`,
       })
       onFechar()
     } catch (erro: unknown) {

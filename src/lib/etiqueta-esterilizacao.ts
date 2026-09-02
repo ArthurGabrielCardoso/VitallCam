@@ -324,12 +324,20 @@ export function canvasParaBitmap(canvas: HTMLCanvasElement, rotacao: 0 | 90 | 18
 }
 
 /**
- * Padrão de teste: duas tarjas pretas e um quadriculado, sem texto e sem QR.
+ * Régua: uma escada de degraus de 1 mm ao longo da LARGURA da etiqueta.
  *
- * Serve para separar dois problemas que na bancada parecem o mesmo: "a etiqueta
- * saiu em branco". Se a tarja preta sai, os dados chegam à cabeça térmica e o
- * que falta é o desenho ou o tamanho; se nem a tarja sai, o problema está no
- * comando de tamanho de página (a variante do protocolo) ou no rolo, que pode
+ * Serve para responder a pergunta que nenhuma prévia responde: onde a etiqueta
+ * para debaixo da cabeça térmica. A prévia mostra o desenho centrado e a
+ * impressa sai cortada em cima — a diferença não está no desenho, está em qual
+ * pedaço da cabeça cai sobre o adesivo, e isso é físico.
+ *
+ * Cada degrau é 1 mm de largura, e o comprimento dele diz o número: o degrau 1 é
+ * o mais curto, o último é o mais comprido. Basta contar quantos degraus saíram
+ * inteiros e quais faltaram nas pontas — a conta de quanto descer o desenho sai
+ * daí, medida em vez de chutada.
+ *
+ * Continua servindo para o diagnóstico antigo: se nenhum degrau sai, o problema
+ * é o comando de tamanho de página (a variante do protocolo) ou o rolo, que pode
  * não ser térmico.
  */
 export function bitmapDeTeste(
@@ -342,18 +350,32 @@ export function bitmapDeTeste(
   const alturaFinal = trocaEixos ? comprimento : largura
 
   const bytesPorLinha = Math.ceil(larguraFinal / 8)
-  const tarja = Math.max(4, Math.round(alturaFinal * 0.12))
-  const quadro = Math.max(4, Math.round(PONTOS_POR_MM))
+
+  // O eixo da largura da etiqueta é o que a cabeça cobre de uma vez; depois do
+  // giro ele é o x do bitmap quando os eixos trocam, e o y quando não trocam.
+  // A escada mora nesse eixo, que é justamente onde o corte aparece.
+  const degraus = Math.max(1, Math.round(formato.larguraMm))
+  const pontosPorDegrau = Math.max(1, Math.floor(largura / degraus))
+  const eixoLargura = trocaEixos ? larguraFinal : alturaFinal
+  const eixoComprimento = trocaEixos ? alturaFinal : larguraFinal
+
+  // Um vão branco de 1 ponto entre degraus, para dois degraus vizinhos não
+  // virarem uma mancha só na hora de contar.
+  const cheio = (aoLongo: number, naLargura: number): boolean => {
+    const degrau = Math.floor(naLargura / pontosPorDegrau)
+    if (degrau >= degraus) return false
+    if (naLargura % pontosPorDegrau === pontosPorDegrau - 1) return false
+    const comprimentoDoDegrau = Math.round((eixoComprimento * (degrau + 1)) / degraus)
+    return aoLongo < comprimentoDoDegrau
+  }
 
   const linhas: Uint8Array[] = []
   for (let y = 0; y < alturaFinal; y++) {
     const linha = new Uint8Array(bytesPorLinha)
-    const naTarja = y < tarja || y >= alturaFinal - tarja
     for (let x = 0; x < larguraFinal; x++) {
-      // Tarjas cheias nas pontas e xadrez no meio: o xadrez mostra se a
-      // impressora está perdendo linhas, o que a tarja sozinha esconderia.
-      const preto = naTarja || (Math.floor(x / quadro) + Math.floor(y / quadro)) % 2 === 0
-      if (preto) linha[x >> 3] |= 0x80 >> (x & 7)
+      const naLargura = trocaEixos ? x : y
+      const aoLongo = trocaEixos ? y : x
+      if (naLargura < eixoLargura && cheio(aoLongo, naLargura)) linha[x >> 3] |= 0x80 >> (x & 7)
     }
     linhas.push(linha)
   }

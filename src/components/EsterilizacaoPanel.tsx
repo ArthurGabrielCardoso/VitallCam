@@ -900,10 +900,14 @@ function ModalEtiqueta({
               o que estiver ilegível aqui vai sair ilegível no adesivo. */}
           {/* O lápis mora no canto da prévia: é aquilo ali que ele muda, e uma
               linha inteira de texto para uma exceção era peso demais. */}
-          <div className="relative rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3 flex justify-center">
+          <div className="relative rounded-xl border-2 border-dashed border-dourado-300 bg-dourado-50 p-4 flex justify-center">
+            {/* A moldura é da casa; o adesivo é branco.
+                O pontilhado cinza em fundo cinza fazia a etiqueta desaparecer
+                dentro da própria moldura — o branco dela é o que precisa saltar,
+                porque é o adesivo de verdade. */}
             <canvas
               ref={canvasRef}
-              className="max-w-full h-auto bg-white shadow-sm"
+              className="max-w-full h-auto bg-white rounded shadow-md"
               style={{ imageRendering: 'pixelated' }}
             />
             {!ciclo && (
@@ -912,8 +916,8 @@ function ModalEtiqueta({
                 title={editando ? 'Pronto' : 'Editar os dados desta etiqueta'}
                 className={`absolute top-2 right-2 h-9 w-9 flex items-center justify-center rounded-lg border transition-colors ${
                   editando
-                    ? 'bg-teal-700 border-teal-700 text-white'
-                    : 'bg-white border-gray-200 text-gray-400 hover:text-teal-700 hover:border-teal-500'
+                    ? 'bg-dourado-500 border-dourado-500 text-white'
+                    : 'bg-white border-dourado-200 text-dourado-600 hover:bg-dourado-100 hover:border-dourado-400'
                 }`}
               >
                 <Pencil className="w-4 h-4" />

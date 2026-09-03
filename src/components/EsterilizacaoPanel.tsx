@@ -1000,7 +1000,10 @@ function ModalEtiqueta({
   }
 
   const ocupado = progresso !== null || abrirCiclo.isPending || buscandoImpressora
-  const campoClasse = 'w-full h-9 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-500'
+  // Mesmo raio, mesma altura de toque e mesmo foco dourado do resto da tela.
+  // Estes campos tinham ficado no desenho antigo — 36px, canto pequeno, foco
+  // teal — e destoavam de tudo o que passou a ser 48px e arredondado.
+  const campoClasse = 'w-full h-12 px-3 rounded-lg border border-gray-200 text-base sm:text-sm text-gray-700 focus:border-dourado-400 focus:ring-2 focus:ring-dourado-100 focus:outline-none transition-all disabled:bg-gray-50 disabled:text-gray-500'
   const bloqueado = !!ciclo || !editando
 
   // No celular a caixa sobe do rodapé: é onde o polegar está, e é no celular
@@ -1093,13 +1096,10 @@ function ModalEtiqueta({
 
 
           {editando && !ciclo && (
-          <div className="grid grid-cols-2 gap-3">
-            <Campo rotulo="Lote">
-              <input value={lote} readOnly className={`${campoClasse} font-semibold bg-gray-50`} />
-            </Campo>
-            <Campo rotulo="Ciclo do dia">
-              <input value={String(numero).padStart(2, '0')} readOnly className={`${campoClasse} bg-gray-50`} />
-            </Campo>
+          <div className="rounded-xl border border-dourado-200 bg-dourado-50/40 p-4 grid grid-cols-2 gap-3">
+            {/* Lote e ciclo não entram aqui: quem numera é o banco, na hora de
+                gravar, e mostrar os dois em campo cinza só ensinava que dava
+                para mexer. Eles já aparecem na prévia, que é o que vai sair. */}
             <Campo rotulo="Esterilizado em">
               <input
                 type="date"

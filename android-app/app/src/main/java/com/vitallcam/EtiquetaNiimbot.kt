@@ -44,7 +44,7 @@ import java.util.concurrent.TimeUnit
  * O comando de tamanho da pagina (0x13) muda de formato entre as familias, e e
  * ai que a etiqueta sai em branco quando erra: a impressora aceita o trabalho,
  * anda o papel e descarta as linhas. Sao tres formatos conhecidos (VARIANTE_*),
- * escolhidos na tela — a D110 usa o de 2 bytes.
+ * escolhidos na tela — a D110_M usa o de 4 bytes, com a largura junto.
  */
 @SuppressLint("MissingPermission")
 class EtiquetaNiimbot(private val context: Context) {
@@ -69,6 +69,22 @@ class EtiquetaNiimbot(private val context: Context) {
      * da impressao — sem isso o laco poderia nunca enxergar a mudanca.
      */
     @Volatile private var cancelado = false
+
+    /**
+     * Ja rodou o trabalho vazio nesta conexao.
+     *
+     * O PRIMEIRO trabalho depois de conectar sempre saia em branco, e com uma
+     * etiqueta a mais: pedia 1 e andavam 2 em branco, pedia 3 e andavam 4. A
+     * segunda tentativa, e todas as seguintes, saiam certas. Uma etiqueta a mais
+     * e branco e o desenho da calibracao de vao que a impressora faz quando um
+     * trabalho chega numa sessao nova — o desenho da gente chega enquanto ela
+     * ainda esta se achando no rolo, e vira papel andando.
+     *
+     * A saida e gastar esse primeiro trabalho de proposito: um trabalho SEM
+     * pagina nenhuma, que abre e fecha na hora de conectar. Sem pagina nao ha
+     * papel andando, e o trabalho de verdade deixa de ser o primeiro.
+     */
+    @Volatile private var preparado = false
 
     /** Interrompe o lote em andamento; o que ja foi para a impressora sai. */
     fun cancelar() { cancelado = true }
@@ -246,7 +262,27 @@ class EtiquetaNiimbot(private val context: Context) {
      */
     fun aquecer(): String {
         if (permissoesFaltando().isNotEmpty()) return "Falta a permissao de Bluetooth."
-        return conectar()
+        val erro = conectar()
+        if (erro.isEmpty()) prepararSessao()
+        return erro
+    }
+
+    /**
+     * Gasta o primeiro trabalho da sessao sem gastar etiqueta.
+     *
+     * Abre e fecha um trabalho sem nenhuma pagina: a impressora faz o que faz no
+     * primeiro trabalho — se acertar no vao do rolo — e o trabalho de verdade
+     * chega com ela ja pronta. Silencioso de proposito: se nao der, a impressao
+     * segue como antes, que e o comportamento que ja existia.
+     */
+    private fun prepararSessao() {
+        if (preparado) return
+        preparado = true
+        anotar("preparando a sessao com um trabalho vazio")
+        comando(TIPO_ETIQUETA, byteArrayOf(1), TIPO_ETIQUETA + 1)
+        comando(INICIAR_IMPRESSAO, byteArrayOf(1), INICIAR_IMPRESSAO + 1)
+        comando(FIM_IMPRESSAO, byteArrayOf(1), FIM_IMPRESSAO + 1)
+        Thread.sleep(300)
     }
 
     /** Fixa a impressora escolhida na tela; a próxima impressão vai direto nela. */
@@ -421,6 +457,7 @@ class EtiquetaNiimbot(private val context: Context) {
     }
 
     fun desconectar() {
+        preparado = false
         canal = null
         runCatching { gatt?.close() }
         gatt = null
@@ -625,6 +662,10 @@ class EtiquetaNiimbot(private val context: Context) {
         respostas.clear()
         recebidos.clear()
 
+        // Imprimir sem ter passado pelo aquecer — tela aberta direto no cartao,
+        // ou conexao refeita no meio — cairia de novo no primeiro trabalho.
+        prepararSessao()
+
         // Uma pagina por etiqueta, sempre.
         //
         // O contador de copias (0x15) existe no protocolo e a D110 simplesmente
@@ -786,7 +827,7 @@ class EtiquetaNiimbot(private val context: Context) {
         private const val BATIDA = 0xDC
 
         /** Marca da build, para saber no log qual versao gerou a trilha. */
-        private const val VERSAO = 9
+        private const val VERSAO = 10
 
         /** Familia D11/D110/D101: tamanho da pagina em 2 bytes (so as linhas). */
         const val VARIANTE_D11 = 1

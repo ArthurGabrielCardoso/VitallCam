@@ -70,7 +70,11 @@ const AJUSTES_PADRAO: Ajustes = {
   ...FORMATO_PADRAO,
   rotacao: 90,
   densidade: 3,
-  variante: 'd11',
+  // A D110_M da clínica precisa do comando de 4 bytes, com a largura junto.
+  // Com o de 2 bytes ela imprime só os primeiros 48 pontos de cada linha — a
+  // régua saiu com 6 degraus dos 12 e metade da etiqueta em branco. O nome
+  // "D110" estava do lado errado da lista, e ninguém tinha como adivinhar isso.
+  variante: 'b21',
 }
 
 function lerAjustes(): Ajustes {
@@ -1442,8 +1446,8 @@ function AjustesImpressora({
             onChange={(e) => onMudar({ variante: e.target.value as VarianteProtocolo })}
             className={`${campo} w-full mt-1`}
           >
-            <option value="d11">D110 / D11 / D101 — só as linhas</option>
-            <option value="b21">B21 / B3 — linhas e largura</option>
+            <option value="b21">D110 / D110_M / B21 / B3 — linhas e largura</option>
+            <option value="d11">D11 / D101 — só as linhas</option>
             <option value="b1">B1 — linhas, largura e cópias</option>
           </select>
           <span className="block mt-1 text-gray-400">

@@ -211,11 +211,17 @@ class EtiquetaNiimbot(private val context: Context) {
      */
     fun procurar(segundos: Long = SEGUNDOS_VARREDURA): List<Encontrada> {
         val adapter = adaptador() ?: return emptyList()
+        // Chave pelo NOME, não pelo endereço: muita Niimbot expõe um endereço
+        // para o pareamento clássico e outro, diferente, para o BLE — o mesmo
+        // aparelho físico aparecia duas vezes na lista, com o clássico nunca
+        // conectando (connectGatt precisa do endereço BLE). A varredura roda
+        // DEPOIS e pisa na entrada pareada com o mesmo nome, então quando os
+        // dois existem fica valendo o endereço que de fato conecta.
         val achados = LinkedHashMap<String, Encontrada>()
 
         adapter.bondedDevices.orEmpty().forEach { pareada ->
             val nome = pareada.name
-            if (!nome.isNullOrBlank()) achados[pareada.address] = Encontrada(nome, pareada.address, ehNiimbot(nome))
+            if (!nome.isNullOrBlank()) achados[nome.uppercase()] = Encontrada(nome, pareada.address, ehNiimbot(nome))
         }
 
         val scanner = adapter.bluetoothLeScanner
@@ -225,7 +231,7 @@ class EtiquetaNiimbot(private val context: Context) {
                     val device = resultado.device ?: return
                     val nome = device.name ?: resultado.scanRecord?.deviceName ?: return
                     val anunciaServico = resultado.scanRecord?.serviceUuids?.any { it.uuid == SERVICO } == true
-                    achados[device.address] = Encontrada(nome, device.address, ehNiimbot(nome) || anunciaServico)
+                    achados[nome.uppercase()] = Encontrada(nome, device.address, ehNiimbot(nome) || anunciaServico)
                 }
             }
             val ajustes = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
@@ -253,6 +259,19 @@ class EtiquetaNiimbot(private val context: Context) {
     fun escolher(mac: String, nome: String) {
         desconectar()
         prefs().edit().putString(CHAVE_MAC, mac).putString(CHAVE_NOME, nome).apply()
+    }
+
+    /**
+     * Fixa a impressora e testa a conexão na hora.
+     *
+     * `escolher` sozinho só grava o MAC — a tela dizia "conectada" sem saber
+     * se aquele aparelho de fato aceita conexão, e o erro só aparecia na hora
+     * de imprimir. Aqui a escolha já vem com a resposta de verdade.
+     */
+    fun escolherEConectar(mac: String, nome: String): String {
+        escolher(mac, nome)
+        if (permissoesFaltando().isNotEmpty()) return "Falta a permissao de Bluetooth."
+        return conectar()
     }
 
     private fun ehNiimbot(nome: String?): Boolean {

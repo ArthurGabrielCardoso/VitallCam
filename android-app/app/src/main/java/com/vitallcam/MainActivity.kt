@@ -587,7 +587,7 @@ class MainActivity : AppCompatActivity() {
          * timeout sem ninguem entender por que.
          */
         @JavascriptInterface
-        fun versaoEtiqueta(): Int = 6
+        fun versaoEtiqueta(): Int = 7
 
         @JavascriptInterface
         fun imprimirEtiqueta(
@@ -742,6 +742,27 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun escolherImpressora(mac: String, nome: String) {
             Thread { etiqueta.escolher(mac, nome) }.start()
+        }
+
+        /**
+         * Fixa a impressora escolhida e testa a conexão na hora, respondendo
+         * por __onImpressoraConectada — quem escolhe na tela vê se aquele
+         * aparelho de fato conecta, em vez de só descobrir na hora de imprimir.
+         */
+        @JavascriptInterface
+        fun conectarImpressora(mac: String, nome: String) {
+            Thread {
+                val erro = etiqueta.escolherEConectar(mac, nome)
+                runOnUiThread {
+                    webView.evaluateJavascript(
+                        "if(typeof window.__onImpressoraConectada==='function')" +
+                            "{window.__onImpressoraConectada(${erro.isEmpty()},${
+                                if (erro.isEmpty()) "null" else jsString(erro)
+                            });}",
+                        null,
+                    )
+                }
+            }.start()
         }
 
         /** Esquece a impressora salva — trocou de aparelho na clinica. */

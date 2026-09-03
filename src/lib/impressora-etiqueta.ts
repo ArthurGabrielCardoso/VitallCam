@@ -149,6 +149,48 @@ export function escolherImpressora(impressora: ImpressoraEncontrada): void {
   window.VitallCam?.escolherImpressora?.(impressora.mac, impressora.nome)
 }
 
+/**
+ * Fixa a impressora escolhida e testa a conexão na hora.
+ *
+ * `escolherImpressora` sozinho só grava o MAC — dizia "conectada" sem saber
+ * se aquele aparelho de fato aceita conexão, e o erro só aparecia na hora de
+ * imprimir. Aqui a escolha vem com a resposta de verdade, do jeito que
+ * `procurarImpressoras` já faz para a busca.
+ */
+export function conectarImpressora(impressora: ImpressoraEncontrada): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const ponte = window.VitallCam
+    if (typeof ponte?.conectarImpressora !== 'function') {
+      // App anterior a esta confirmação: mantém o comportamento antigo.
+      escolherImpressora(impressora)
+      resolve()
+      return
+    }
+
+    const limpar = () => {
+      clearTimeout(cronometro)
+      delete window.__onImpressoraConectada
+    }
+    const cronometro = setTimeout(() => {
+      limpar()
+      reject(new Error('A impressora não respondeu a tempo.'))
+    }, 20_000)
+
+    window.__onImpressoraConectada = (ok, erro) => {
+      limpar()
+      if (ok) resolve()
+      else reject(new Error(erro || 'Não deu para conectar'))
+    }
+
+    try {
+      ponte.conectarImpressora(impressora.mac, impressora.nome)
+    } catch (erro) {
+      limpar()
+      reject(erro instanceof Error ? erro : new Error('Falha ao chamar o app'))
+    }
+  })
+}
+
 export function esquecerImpressora(): void {
   try {
     window.VitallCam?.esquecerImpressoraEtiqueta?.()

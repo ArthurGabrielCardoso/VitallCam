@@ -21,7 +21,7 @@ import {
   desenharEtiqueta, fontesProntas,
 } from '@/lib/etiqueta-esterilizacao'
 import {
-  ImpressoraEncontrada, ModoImpressao, aquecerImpressora, escolherImpressora, esquecerImpressora,
+  ImpressoraEncontrada, ModoImpressao, aquecerImpressora, conectarImpressora, esquecerImpressora,
   impressaoInterrompida, imprimirEtiqueta as enviarEtiqueta, impressoraLembrada, modoImpressao,
   pararImpressao, podeListarImpressoras, procurarImpressoras,
 } from '@/lib/impressora-etiqueta'
@@ -663,11 +663,12 @@ function Cartao({ ciclo, onAbrir }: { ciclo: CicloEsterilizacao; onAbrir: (c: Ci
  * de um clique — por isso lá continua havendo um botão.
  */
 function PassoImpressora({
-  modo, achadas, buscando, erro, onBuscar, onEscolher, onConectarNavegador, onPular,
+  modo, achadas, buscando, conectando, erro, onBuscar, onEscolher, onConectarNavegador, onPular,
 }: {
   modo: ModoImpressao
   achadas: ImpressoraEncontrada[] | null
   buscando: boolean
+  conectando: boolean
   erro: string | null
   onBuscar: () => void
   onEscolher: (i: ImpressoraEncontrada) => void
@@ -729,9 +730,12 @@ function PassoImpressora({
               <button
                 key={impressora.mac}
                 onClick={() => onEscolher(impressora)}
-                className="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:bg-teal-50 hover:border-teal-500 transition-colors flex items-center gap-3"
+                disabled={conectando}
+                className="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:bg-teal-50 hover:border-teal-500 transition-colors flex items-center gap-3 disabled:opacity-60"
               >
-                <Printer className={`w-4 h-4 shrink-0 ${impressora.provavel ? 'text-teal-600' : 'text-gray-300'}`} />
+                {conectando
+                  ? <Loader2 className="w-4 h-4 shrink-0 animate-spin text-teal-600" />
+                  : <Printer className={`w-4 h-4 shrink-0 ${impressora.provavel ? 'text-teal-600' : 'text-gray-300'}`} />}
                 <span className="min-w-0">
                   <span className="block text-sm font-medium text-gray-800 truncate">{impressora.nome}</span>
                   <span className="block text-[11px] text-gray-400">
@@ -797,6 +801,7 @@ function ModalEtiqueta({
   // direto para a impressão, que é o que se quer deles.
   const [impressorasAchadas, setImpressorasAchadas] = useState<ImpressoraEncontrada[] | null>(null)
   const [buscandoImpressora, setBuscandoImpressora] = useState(false)
+  const [conectandoImpressora, setConectandoImpressora] = useState(false)
 
   /**
    * Impressora antes de tudo.
@@ -1144,11 +1149,20 @@ function ModalEtiqueta({
             buscando={buscandoImpressora}
             erro={ultimoErro}
             onBuscar={buscarImpressoras}
-            onEscolher={(escolhida) => {
-              escolherImpressora(escolhida)
-              setImpressorasAchadas(null)
-              setPasso(proximoPasso)
-              toast({ title: `${escolhida.nome} conectada`, description: 'Fica salva para as próximas.' })
+            conectando={conectandoImpressora}
+            onEscolher={async (escolhida) => {
+              setConectandoImpressora(true)
+              setUltimoErro(null)
+              try {
+                await conectarImpressora(escolhida)
+                setImpressorasAchadas(null)
+                setPasso(proximoPasso)
+                toast({ title: `${escolhida.nome} conectada` })
+              } catch (erro: unknown) {
+                setUltimoErro(erro instanceof Error ? erro.message : 'Não deu para conectar')
+              } finally {
+                setConectandoImpressora(false)
+              }
             }}
             onConectarNavegador={async () => {
               try {

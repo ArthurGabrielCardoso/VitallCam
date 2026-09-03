@@ -596,16 +596,20 @@ function Cartao({ ciclo, onAbrir }: { ciclo: CicloEsterilizacao; onAbrir: (c: Ci
   return (
     <button
       onClick={() => onAbrir(ciclo)}
-      // A tarja da esquerda é reta e o resto do cartão é arredondado: a borda
-      // acompanhando o canto virava contorno, e contorno se lê como moldura. Reta
-      // ela vira marcador — dá para varrer a fileira e ver onde tem pendência sem
-      // ler nada. Verde conferido, amarelo a conferir, vermelho reprovado.
-      className={`w-full h-full text-left bg-white border border-gray-200 border-l-[5px] rounded-l-none rounded-r-xl shadow-sm p-4 hover:shadow-md active:scale-[0.99] transition-all group ${
-        situacao === 'reprovado' ? 'border-l-red-500'
-        : situacao === 'pendente' ? 'border-l-amber-400'
-        : 'border-l-teal-600'
-      }`}
+      className="relative w-full h-full text-left bg-white border border-gray-200 rounded-xl shadow-sm p-4 pl-5 hover:shadow-md active:scale-[0.99] transition-all group overflow-hidden"
     >
+      {/* Marcador de situação: reto, colado à esquerda, mas SEM ir de ponta a
+          ponta. Ocupando a altura inteira ele virava a lateral do cartão e se
+          lia como moldura; recuado em cima e embaixo, volta a ser um sinal.
+          Verde conferido, amarelo a conferir, vermelho reprovado. */}
+      <span
+        className={`absolute left-0 top-4 bottom-4 w-[5px] ${
+          situacao === 'reprovado' ? 'bg-red-500'
+          : situacao === 'pendente' ? 'bg-amber-400'
+          : 'bg-teal-600'
+        }`}
+      />
+
       {/* O lote é o que se procura, então é o que se lê primeiro e grande — é o
           número impresso no pacote que está na mão de quem consulta. Antes ele
           dividia a linha com um ícone e vinha no mesmo corpo do resto. */}
@@ -797,6 +801,20 @@ function ModalEtiqueta({
   useEffect(() => {
     if (canvasRef.current) desenhar(canvasRef.current)
   }, [desenhar, comFontes])
+
+  /**
+   * Desenha no momento em que o canvas entra na tela.
+   *
+   * O efeito acima só roda quando os dados mudam, e para um ciclo já existente o
+   * modal abre no passo da conferência — o canvas ainda não existe, o efeito
+   * desenha em `null` e, quando o passo vira "imprimir" e o canvas aparece,
+   * nada mais o redesenha: prévia em branco. Um ref de função resolve na raiz,
+   * porque ele é chamado exatamente quando o elemento monta.
+   */
+  const montarCanvas = useCallback((el: HTMLCanvasElement | null) => {
+    canvasRef.current = el
+    if (el) desenhar(el)
+  }, [desenhar])
 
   const imprimir = async () => {
     if (quantidadeInvalida) {
@@ -1054,7 +1072,7 @@ function ModalEtiqueta({
                 dentro da própria moldura — o branco dela é o que precisa saltar,
                 porque é o adesivo de verdade. */}
             <canvas
-              ref={canvasRef}
+              ref={montarCanvas}
               className="max-w-full h-auto bg-white rounded shadow-md"
               style={{ imageRendering: 'pixelated' }}
             />

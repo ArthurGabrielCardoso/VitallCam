@@ -1,9 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   AlertTriangle, Biohazard, BookText, Calendar, CheckCircle2, ChevronLeft, ChevronRight,
-  Clock, FileText, FlaskConical, Loader2, Package, PackageCheck, Pencil, Plus, Printer, Search,
+  Clock, FileText, Loader2, Package, PackageCheck, Pencil, Plus, Printer, Search,
   Square, X,
 } from 'lucide-react'
 import Link from 'next/link'
@@ -16,7 +17,7 @@ import {
   useEstoquePacotes, useRegistrarMonitoramento,
 } from '@/hooks/useEsterilizacao'
 import {
-  DadosEtiqueta, FORMATO_PADRAO, FormatoEtiqueta, bitmapDeTeste, canvasParaBitmap, carregarLogo,
+  DadosEtiqueta, FORMATO_PADRAO, FormatoEtiqueta, canvasParaBitmap, carregarLogo,
   desenharEtiqueta, fontesProntas,
 } from '@/lib/etiqueta-esterilizacao'
 import {
@@ -167,36 +168,9 @@ export default function EsterilizacaoPanel() {
   }, [busca, ciclos])
 
   return (
-    <div className="space-y-6">
+    // Espaço no fim para a barra do rodapé não tapar o último cartão.
+    <div className="space-y-6 pb-24 sm:pb-6">
       {!migrationPendente && <Resumo resumo={resumo} estoque={estoque} />}
-
-      {/* No celular "Novo ciclo" é a ação da tela e ocupa a linha inteira; o
-          livro de registro é para a inspeção, que acontece de vez em quando, e
-          recua para um ícone. No notebook os dois cabem lado a lado. */}
-      {/* A impressora não é assunto até a hora de imprimir.
-          Havia um "Conectar impressora" fixo no topo, mais o aviso de qual está
-          pronta — decisão de bastidor ocupando o lugar da lista. Agora quem
-          pergunta é o botão Imprimir: se já está conectada, imprime; se não
-          está, o seletor aparece ali, no momento em que ele faz sentido. */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <button
-            onClick={() => setAberto('novo')}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 h-11 sm:h-9 rounded-lg text-sm font-semibold bg-teal-700 text-white hover:bg-teal-800 transition-colors shadow-sm"
-          >
-            <Plus className="h-4 w-4" />
-            Novo ciclo
-          </button>
-          <Link
-            href="/patients/esterilizacao/livro"
-            className="flex items-center justify-center gap-2 h-11 sm:h-9 w-11 sm:w-auto sm:px-4 rounded-lg border border-gray-200 bg-white text-sm text-gray-600 hover:text-teal-700 hover:border-teal-500 transition-colors shrink-0"
-            title="Um ciclo por linha, para entregar na inspeção"
-          >
-            <BookText className="h-4 w-4" />
-            <span className="hidden sm:inline">Livro de registro</span>
-          </Link>
-        </div>
-      </div>
 
       {migrationPendente && (
         <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
@@ -269,6 +243,28 @@ export default function EsterilizacaoPanel() {
         <Trilha key={data} titulo={tituloDoDia(data)} ciclos={doDia} onAbrir={setAberto} />
       ))}
 
+      {/* As duas acoes da tela moram no rodape, presas.
+          No topo elas empurravam a lista para baixo e ficavam longe do polegar;
+          aqui estao onde a mao ja esta, e a lista comeca no primeiro dado. */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 sm:sticky sm:bottom-4 sm:left-auto sm:right-auto">
+        <div className="bg-white/95 backdrop-blur border-t sm:border border-gray-200 sm:rounded-xl sm:shadow-lg px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:py-3 flex items-center gap-2 max-w-6xl mx-auto">
+          <button
+            onClick={() => setAberto('novo')}
+            className="flex-1 flex items-center justify-center gap-2 h-12 rounded-lg text-base font-semibold bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white transition-all"
+          >
+            <Plus className="h-5 w-5" />
+            Novo ciclo
+          </button>
+          <Link
+            href="/patients/esterilizacao/livro"
+            className="h-12 w-12 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 transition-colors shrink-0"
+            title="Livro de registro — um ciclo por linha, para a inspeção"
+          >
+            <BookText className="h-5 w-5" />
+          </Link>
+        </div>
+      </div>
+
       {aberto && (
         <ModalEtiqueta
           ciclo={aberto === 'novo' ? null : aberto}
@@ -298,16 +294,15 @@ function Resumo({
   resumo: ReturnType<typeof resumoEsterilizacao>
   estoque?: { vencidos: unknown[]; vencendo: unknown[]; total: number }
 }) {
-  const biologico = resumo.diasSemBiologico === null
-    ? { texto: 'Teste biológico nunca registrado', urgente: true }
-    : resumo.biologicoVencido
-      ? { texto: `Teste biológico há ${resumo.diasSemBiologico} dias — a norma pede semanal`, urgente: true }
-      : {
-        texto: resumo.diasSemBiologico === 0
-          ? 'Teste biológico feito hoje'
-          : `Teste biológico há ${resumo.diasSemBiologico} dia(s) — em dia`,
-        urgente: false,
-      }
+  // Só avisa quando está atrasado.
+  //
+  // "Teste biológico há 2 dias — em dia" era uma faixa colorida permanente
+  // dizendo que estava tudo certo, e faixa que aparece sempre para de ser lida.
+  // O que precisa de espaço na tela é o problema, não a ausência dele.
+  const biologicoAtrasado = resumo.diasSemBiologico === null || resumo.biologicoVencido
+  const textoBiologico = resumo.diasSemBiologico === null
+    ? 'Teste biológico nunca registrado'
+    : `Teste biológico há ${resumo.diasSemBiologico} dias — a norma pede semanal`
 
   return (
     <div className="space-y-3">
@@ -349,19 +344,13 @@ function Resumo({
         </p>
       )}
 
-      <p
-        className={`text-xs rounded px-3 py-2 border flex items-center gap-2 ${
-          biologico.urgente
-            ? 'text-red-700 bg-red-50 border-red-200'
-            : 'text-teal-700 bg-teal-50 border-teal-200'
-        }`}
-      >
-        {biologico.urgente ? <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> : <FlaskConical className="w-3.5 h-3.5 shrink-0" />}
-        {biologico.texto}
-        {biologico.urgente && (
-          <span className="text-gray-500">· faça no primeiro ciclo do próximo dia</span>
-        )}
-      </p>
+      {biologicoAtrasado && (
+        <p className="text-xs rounded-lg px-3 py-2 border flex items-center gap-2 text-red-700 bg-red-50 border-red-200">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+          {textoBiologico}
+          <span className="text-red-500">· faça no primeiro ciclo do próximo dia</span>
+        </p>
+      )}
     </div>
   )
 }
@@ -585,7 +574,6 @@ function ModalEtiqueta({
   //
   // Ciclo por conferir abre na conferência; ciclo já conferido e ciclo novo vão
   // direto para a impressão, que é o que se quer deles.
-  const [avancado, setAvancado] = useState(false)
   const [impressorasAchadas, setImpressorasAchadas] = useState<ImpressoraEncontrada[] | null>(null)
   const [buscandoImpressora, setBuscandoImpressora] = useState(false)
   const [passo, setPasso] = useState<'conferir' | 'imprimir'>(
@@ -594,27 +582,6 @@ function ModalEtiqueta({
 
   const [ajustes, setAjustes] = useState<Ajustes>(AJUSTES_PADRAO)
   useEffect(() => setAjustes(lerAjustes()), [])
-  const restaurarAjustes = () => {
-    try {
-      window.localStorage.removeItem(AJUSTES_CHAVE)
-    } catch {
-      // Sem storage: os padrões valem para esta sessão de qualquer jeito.
-    }
-    setAjustes(AJUSTES_PADRAO)
-  }
-
-  const salvarAjustes = (novos: Partial<Ajustes>) => {
-    setAjustes((atual) => {
-      const proximos = { ...atual, ...novos }
-      try {
-        window.localStorage.setItem(AJUSTES_CHAVE, JSON.stringify(proximos))
-      } catch {
-        // Modo anônimo sem storage: os ajustes valem só para esta sessão.
-      }
-      return proximos
-    })
-  }
-
   const [editando, setEditando] = useState(false)
   const [data, setData] = useState(ciclo?.data ?? hojeLocal())
   const [validade, setValidade] = useState(ciclo?.validade ?? somarMeses(hojeLocal(), VALIDADE_MESES))
@@ -807,73 +774,6 @@ function ModalEtiqueta({
   }
 
   /**
-   * Imprime a régua: uma escada de degraus de 1 mm ao longo da largura.
-   *
-   * Responde o que a prévia não responde: a prévia mostra o desenho centrado e a
-   * etiqueta sai cortada em cima, porque quem está fora de centro é o rolo
-   * debaixo da cabeça térmica, não o desenho. Contando quantos degraus saíram
-   * inteiros sai o quanto descer, medido em vez de chutado.
-   *
-   * Continua separando "a impressora não recebeu nada" de "o desenho saiu
-   * errado", e não abre ciclo nenhum: dá para tentar as variantes do protocolo à
-   * vontade sem sujar o histórico da CME com lotes que não existem.
-   */
-  const imprimirTeste = async () => {
-    setProgresso(0)
-    try {
-      let conectada = impressora
-      if (modo === 'navegador' && !conectada?.conectado) {
-        conectada = await Niimbot.conectar(false)
-        onImpressora(conectada)
-      }
-
-      // No app, primeira impressão do aparelho: em vez de exigir um "conectar"
-      // antes, a lista aparece agora — e antes de gravar o ciclo, para não
-      // deixar lote aberto por causa de uma escolha que ainda não foi feita.
-      if (modo === 'app' && !impressoraLembrada() && podeListarImpressoras()) {
-        setProgresso(null)
-        setBuscandoImpressora(true)
-        try {
-          setImpressorasAchadas(await procurarImpressoras())
-        } catch (erro: unknown) {
-          setUltimoErro(erro instanceof Error ? erro.message : 'Não deu para procurar a impressora')
-        } finally {
-          setBuscandoImpressora(false)
-        }
-        return
-      }
-      setUltimoErro(null)
-      await fontesProntas()
-      await enviarEtiqueta(
-        bitmapDeTeste({
-          comprimentoMm: ajustes.comprimentoMm,
-          larguraMm: ajustes.larguraMm,
-          margem: ajustes.margem,
-        }, ajustes.rotacao),
-        {
-          copias: 1,
-          densidade: ajustes.densidade,
-          variante: ajustes.variante,
-          aoProgredir: setProgresso,
-        },
-        { impressora: conectada, aoConectar: onImpressora },
-      )
-      toast({
-        title: 'Teste enviado',
-        description: 'Saiu tarja preta e xadrez? Então os dados chegam. Em branco, troque a família da impressora nos ajustes.',
-      })
-    } catch (erro: unknown) {
-      const msg = erro instanceof Error ? erro.message : 'Falha ao imprimir'
-      if (!/cancel|user/i.test(msg)) {
-        setUltimoErro(msg)
-        toast({ variant: 'destructive', title: 'Não deu para imprimir a régua', description: msg })
-      }
-    } finally {
-      setProgresso(null)
-    }
-  }
-
-  /**
    * Saída em papel, quando a Niimbot não é opção.
    *
    * Manda a etiqueta para a impressora comum, no tamanho físico exato, repetida
@@ -937,15 +837,23 @@ function ModalEtiqueta({
   const campoClasse = 'w-full h-9 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-500'
   const bloqueado = !!ciclo || !editando
 
-  // No celular a caixa sobe do rodapé e ocupa a tela: é onde o polegar está, e
-  // é no celular que esta tela vai ser usada de verdade. No notebook, centrada.
-  return (
+  // No celular a caixa sobe do rodapé: é onde o polegar está, e é no celular
+  // que esta tela vai ser usada de verdade. No notebook, centrada.
+  //
+  // Vai num portal para o body porque a tela mora dentro do <main>, e o header
+  // do app é um `sticky z-40` irmão dele: sem o portal a pelicula preta comecava
+  // abaixo do header, que ficava aceso por cima do modal — e tocar nele nao
+  // fechava nada, porque aquilo nao era o fundo do modal.
+  //
+  // A altura acompanha o conteudo em vez de ser fixa: com uma pergunta so na
+  // tela, 88dvh deixava meia folha em branco embaixo.
+  const caixa = (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 animate-fade-in"
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 animate-fade-in"
       onClick={() => !ocupado && onFechar()}
     >
       <div
-        className="w-full sm:max-w-lg h-[88dvh] sm:h-auto sm:max-h-[90vh] flex flex-col bg-white rounded-t-2xl sm:rounded-xl shadow-2xl"
+        className="w-full sm:max-w-lg max-h-[92dvh] sm:max-h-[90vh] flex flex-col bg-white rounded-t-2xl sm:rounded-xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Puxador: no celular a caixa parece arrastável, e sem ele fica com
@@ -959,11 +867,9 @@ function ModalEtiqueta({
             <h2 className="text-base font-semibold text-gray-800 truncate">
               {ciclo ? `Lote ${ciclo.lote}` : 'Novo ciclo'}
             </h2>
-            <p className="text-xs text-gray-400">
-              {passo === 'conferir'
-                ? 'Antes de imprimir: o ciclo deu certo?'
-                : ciclo ? 'Imprimir etiquetas deste lote' : 'Já vem preenchido — só dizer quantas'}
-            </p>
+            {passo === 'conferir' && (
+              <p className="text-xs text-gray-400">Antes de imprimir: o ciclo deu certo?</p>
+            )}
           </div>
           <button onClick={onFechar} disabled={ocupado} className="text-gray-400 hover:text-gray-600 disabled:opacity-40">
             <X className="w-5 h-5" />
@@ -992,26 +898,29 @@ function ModalEtiqueta({
         <div className="p-5 space-y-4 overflow-y-auto flex-1">
           {/* A prévia é o próprio desenho que vai para a impressora, em 203 dpi:
               o que estiver ilegível aqui vai sair ilegível no adesivo. */}
-          <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3 flex justify-center">
+          {/* O lápis mora no canto da prévia: é aquilo ali que ele muda, e uma
+              linha inteira de texto para uma exceção era peso demais. */}
+          <div className="relative rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3 flex justify-center">
             <canvas
               ref={canvasRef}
               className="max-w-full h-auto bg-white shadow-sm"
               style={{ imageRendering: 'pixelated' }}
             />
+            {!ciclo && (
+              <button
+                onClick={() => setEditando((v) => !v)}
+                title={editando ? 'Pronto' : 'Editar os dados desta etiqueta'}
+                className={`absolute top-2 right-2 h-9 w-9 flex items-center justify-center rounded-lg border transition-colors ${
+                  editando
+                    ? 'bg-teal-700 border-teal-700 text-white'
+                    : 'bg-white border-gray-200 text-gray-400 hover:text-teal-700 hover:border-teal-500'
+                }`}
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
-          {/* A prévia JÁ mostra lote, datas, autoclave e responsável — repetir
-              tudo embaixo em campos era dizer duas vezes a mesma coisa. Fica só
-              a porta para o dia que foge do padrão. */}
-          {!ciclo && (
-            <button
-              onClick={() => setEditando((v) => !v)}
-              className="flex items-center gap-1.5 text-sm text-teal-700 hover:text-teal-800 font-medium"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              {editando ? 'Pronto' : 'Editar os dados deste ciclo'}
-            </button>
-          )}
 
           {editando && !ciclo && (
           <div className="grid grid-cols-2 gap-3">
@@ -1074,14 +983,14 @@ function ModalEtiqueta({
               inteira para adivinhar um número que a pessoa já sabe. Os botões de
               menos e mais existem porque no celular acertar um dígito com o
               polegar é pior do que tocar duas vezes. */}
-          <div>
-            <p className="text-sm text-gray-700 mb-2 text-center">
+          <div className="py-2">
+            <p className="text-sm text-gray-700 mb-3 text-center">
               Quantas etiquetas? <span className="text-gray-400">(uma por pacote)</span>
             </p>
             <div className="flex items-center justify-center gap-3">
               <button
                 onClick={() => { setQuantidadeTexto(String(Math.max(1, quantidade - 1))); setAvisouQuantidade(false) }}
-                className="h-14 w-14 rounded-full border border-gray-200 text-2xl text-gray-500 hover:border-teal-500 hover:text-teal-700 transition-colors shrink-0"
+                className="h-14 w-14 rounded-full border-2 border-teal-600 text-3xl leading-none text-teal-700 hover:bg-teal-50 active:scale-95 transition-all shrink-0"
                 aria-label="uma a menos"
               >
                 −
@@ -1103,7 +1012,7 @@ function ModalEtiqueta({
               />
               <button
                 onClick={() => { setQuantidadeTexto(String(Math.min(999, quantidade + 1))); setAvisouQuantidade(false) }}
-                className="h-14 w-14 rounded-full border border-gray-200 text-2xl text-gray-500 hover:border-teal-500 hover:text-teal-700 transition-colors shrink-0"
+                className="h-14 w-14 rounded-full border-2 border-teal-600 text-3xl leading-none text-teal-700 hover:bg-teal-50 active:scale-95 transition-all shrink-0"
                 aria-label="uma a mais"
               >
                 +
@@ -1146,31 +1055,6 @@ function ModalEtiqueta({
             </div>
           )}
 
-          {/* Os ajustes do rolo ficam guardados, não removidos.
-              Depois de calibrados ninguém mexe neles de novo, e eles enchiam a
-              tela de decisões que não são do dia a dia. Mas apagar seria trocar
-              "tela cheia" por "sem saída" no dia que o rolo mudar de
-              fornecedor — aí só um deploy resolveria. */}
-          {!ocupado && (
-            <div className="pt-1">
-              {avancado ? (
-                <AjustesImpressora
-                  ajustes={ajustes}
-                  onMudar={salvarAjustes}
-                  onRestaurar={restaurarAjustes}
-                  onTestar={imprimirTeste}
-                  ocupado={ocupado}
-                />
-              ) : (
-                <button
-                  onClick={() => setAvancado(true)}
-                  className="text-[11px] text-gray-300 hover:text-gray-500 transition-colors"
-                >
-                  ajustes do rolo e da impressora
-                </button>
-              )}
-            </div>
-          )}
         </div>
 
         <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-100 shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
@@ -1219,6 +1103,9 @@ function ModalEtiqueta({
       </div>
     </div>
   )
+
+  // No servidor não há body para receber o portal.
+  return typeof document === 'undefined' ? caixa : createPortal(caixa, document.body)
 }
 
 /**
@@ -1452,126 +1339,5 @@ function Campo({ rotulo, children }: { rotulo: string; children: React.ReactNode
       <span className="block text-[11px] font-medium text-gray-500 mb-1">{rotulo}</span>
       {children}
     </label>
-  )
-}
-
-/** Ajustes do rolo e da impressora — muda de fornecedor, muda aqui. */
-function AjustesImpressora({
-  ajustes, onMudar, onRestaurar, onTestar, ocupado,
-}: {
-  ajustes: Ajustes
-  onMudar: (a: Partial<Ajustes>) => void
-  onRestaurar: () => void
-  onTestar: () => void
-  ocupado: boolean
-}) {
-  const campo = 'h-8 px-2 rounded border border-gray-200 text-xs text-gray-700 focus:border-teal-500 focus:outline-none'
-
-  return (
-    <details className="rounded border border-gray-100 bg-gray-50 px-3 py-2">
-      <summary className="text-xs text-gray-500 cursor-pointer select-none">Ajustes do rolo e da impressora</summary>
-      <div className="grid grid-cols-2 gap-3 mt-3">
-        <label className="text-[11px] text-gray-500">
-          Comprimento (mm)
-          <input
-            type="number" min={10} max={100} value={ajustes.comprimentoMm}
-            onChange={(e) => onMudar({ comprimentoMm: Number(e.target.value) || 50 })}
-            className={`${campo} w-full mt-1`}
-          />
-        </label>
-        <label className="text-[11px] text-gray-500">
-          Largura útil (mm)
-          <input
-            type="number" min={6} max={15} value={ajustes.larguraMm}
-            onChange={(e) => onMudar({ larguraMm: Number(e.target.value) || 12 })}
-            className={`${campo} w-full mt-1`}
-          />
-        </label>
-        <label className="text-[11px] text-gray-500" title="Folga branca em volta, em pontos da cabeça (8 pontos = 1 mm). Aumentar abre espaço para o ajuste de centralizar.">
-          Margem (pontos)
-          <input
-            type="number" min={0} max={32} value={ajustes.margem}
-            onChange={(e) => onMudar({ margem: Math.min(32, Math.max(0, Number(e.target.value) || 0)) })}
-            className={`${campo} w-full mt-1`}
-          />
-        </label>
-        <label className="text-[11px] text-gray-500" title="Positivo desce o desenho na etiqueta; negativo sobe.">
-          Centralizar (mm)
-          <input
-            type="number" min={-6} max={6} step={0.25} value={ajustes.deslocamentoMm ?? 0}
-            onChange={(e) => onMudar({
-              deslocamentoMm: Math.min(6, Math.max(-6, Number(e.target.value) || 0)),
-            })}
-            className={`${campo} w-full mt-1`}
-          />
-        </label>
-        <label className="text-[11px] text-gray-500">
-          Giro na impressora
-          <select
-            value={ajustes.rotacao}
-            onChange={(e) => onMudar({ rotacao: Number(e.target.value) as Ajustes['rotacao'] })}
-            className={`${campo} w-full mt-1`}
-          >
-            <option value={0}>0°</option>
-            <option value={90}>90°</option>
-            <option value={180}>180°</option>
-            <option value={270}>270°</option>
-          </select>
-        </label>
-        <label className="text-[11px] text-gray-500">
-          Tamanho da logo (%)
-          <input
-            type="number" min={0} max={60} value={ajustes.logoPorcento ?? 34}
-            onChange={(e) => onMudar({ logoPorcento: Math.min(60, Math.max(0, Number(e.target.value) || 0)) })}
-            className={`${campo} w-full mt-1`}
-          />
-        </label>
-        <label className="text-[11px] text-gray-500">
-          Densidade (1 a 5)
-          <input
-            type="number" min={1} max={5} value={ajustes.densidade}
-            onChange={(e) => onMudar({ densidade: Number(e.target.value) || 3 })}
-            className={`${campo} w-full mt-1`}
-          />
-        </label>
-        <label className="text-[11px] text-gray-500 col-span-2">
-          Família da impressora
-          <select
-            value={ajustes.variante}
-            onChange={(e) => onMudar({ variante: e.target.value as VarianteProtocolo })}
-            className={`${campo} w-full mt-1`}
-          >
-            <option value="b21">D110 / D110_M / B21 / B3 — linhas e largura</option>
-            <option value="d11">D11 / D101 — só as linhas</option>
-            <option value="b1">B1 — linhas, largura e cópias</option>
-          </select>
-          <span className="block mt-1 text-gray-400">
-            Cada família manda um comando de tamanho de página diferente. Se a régua
-            sair com METADE dos degraus, a impressora não está sabendo a largura da
-            linha e está cortando: troque para uma opção que mande a largura.
-          </span>
-        </label>
-
-        <button
-          type="button"
-          onClick={() => {
-            if (confirm('Voltar todos os ajustes ao padrão de fábrica?')) onRestaurar()
-          }}
-          className="col-span-2 h-8 rounded border border-gray-200 bg-white text-xs text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-colors"
-        >
-          Restaurar ajustes padrão
-        </button>
-
-        <button
-          type="button"
-          onClick={onTestar}
-          disabled={ocupado}
-          className="col-span-2 flex items-center justify-center gap-1.5 h-8 rounded border border-gray-200 bg-white text-xs text-gray-600 hover:text-teal-700 hover:border-teal-500 transition-colors disabled:opacity-60"
-        >
-          <Printer className="w-3.5 h-3.5" /> Imprimir régua (mede o corte, sem gravar ciclo)
-        </button>
-
-      </div>
-    </details>
   )
 }

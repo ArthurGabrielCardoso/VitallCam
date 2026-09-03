@@ -78,6 +78,12 @@ declare global {
       cancelarImpressao?: () => void
       /** Fixa a impressora escolhida na lista. */
       escolherImpressora?: (mac: string, nome: string) => void
+      /**
+       * Fixa a impressora e testa a conexão na hora, respondendo por
+       * __onImpressoraConectada — diferente de `escolherImpressora`, que só
+       * grava e nunca confirma se aquele MAC de fato conecta.
+       */
+      conectarImpressora?: (mac: string, nome: string) => void
       /** Nome da impressora lembrada, ou "" enquanto nenhuma foi encontrada. */
       impressoraEtiqueta?: () => string
       esquecerImpressoraEtiqueta?: () => void
@@ -93,6 +99,7 @@ declare global {
     __onEtiquetaImpressa?: (erro: string | null) => void
     __onEtiquetaProgresso?: (porcentagem: number) => void
     __onImpressorasEncontradas?: (lista: ImpressoraEncontrada[], impedimento: string | null) => void
+    __onImpressoraConectada?: (ok: boolean, erro: string | null) => void
   }
 }
 

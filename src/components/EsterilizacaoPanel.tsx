@@ -313,15 +313,7 @@ export default function EsterilizacaoPanel() {
   )
 }
 
-/**
- * O que a clínica precisa saber antes de abrir mais um ciclo.
- *
- * O aviso do teste biológico é o que evita a não conformidade mais cara: a RDC
- * 1.002/2025 pede o indicador biológico semanal, no primeiro ciclo do dia
- * programado, e na inspeção é isso que o fiscal vai conferir depois de ler o
- * lote de um pacote qualquer do estoque. Descobrir o atraso no dia da visita é
- * tarde demais — então o número de dias fica na cara, sempre.
- */
+/** O que a clínica precisa saber antes de abrir mais um ciclo. */
 /**
  * Os cinco números da faixa, com o que cada um quer dizer.
  *
@@ -382,11 +374,6 @@ function Resumo({
   const [detalhe, setDetalhe] = useState<string | null>(null)
   const aberto = NUMEROS.find((n) => n.rotulo === detalhe) ?? null
 
-  const biologicoAtrasado = resumo.diasSemBiologico === null || resumo.biologicoVencido
-  const textoBiologico = resumo.diasSemBiologico === null
-    ? 'Teste biológico nunca registrado'
-    : `Teste biológico há ${resumo.diasSemBiologico} dias — a norma pede semanal`
-
   return (
     <div className="space-y-3">
       {/* No celular os números viram uma faixa que rola de lado, como os
@@ -433,14 +420,6 @@ function Resumo({
           <Clock className="w-3.5 h-3.5 shrink-0" />
           {estoque.vencendo.length} pacote(s) vencem nos próximos {DIAS_AVISO_VENCIMENTO} dias — use
           esses primeiro.
-        </p>
-      )}
-
-      {biologicoAtrasado && (
-        <p className="text-xs rounded-lg px-3 py-2 border flex items-center gap-2 text-red-700 bg-red-50 border-red-200">
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-          {textoBiologico}
-          <span className="text-red-500">· faça no primeiro ciclo do próximo dia</span>
         </p>
       )}
     </div>

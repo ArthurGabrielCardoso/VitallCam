@@ -23,7 +23,6 @@ type NavItem = {
 }
 
 const navigation: NavItem[] = [
-  { name: "Início",        href: "/patients",               icon: Home          },
   { name: "Pacientes",     href: "/patients",               icon: UserRound     },
   { name: "Radiografias",  href: "/patients/radiografias",  icon: ScanLine      },
   { name: "Esterilização", href: "/patients/esterilizacao", icon: Biohazard     },

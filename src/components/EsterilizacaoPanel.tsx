@@ -1197,7 +1197,7 @@ function ModalEtiqueta({
               className="max-w-full h-auto bg-white rounded shadow-md"
               style={{ imageRendering: 'pixelated' }}
             />
-            {(!ciclo || modo === 'app') && (
+            {(!ciclo || modo === 'app' || modo === 'navegador') && (
               <button
                 onClick={() => setEditando((v) => !v)}
                 title={editando ? 'Pronto' : 'Editar os dados desta etiqueta'}
@@ -1268,20 +1268,35 @@ function ModalEtiqueta({
             </div>
             )}
 
-            {modo === 'app' && (
-              <button
-                onClick={() => {
-                  esquecerImpressora()
-                  setImpressorasAchadas(null)
-                  setUltimoErro(null)
-                  setEditando(false)
-                  setPasso('impressora')
-                  toast({ title: 'Impressora desconectada', description: 'Escolha outra na próxima tela.' })
-                }}
-                className="w-full h-10 rounded-lg text-sm font-medium border border-red-200 text-red-700 hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
-              >
-                <Printer className="w-4 h-4" /> Desconectar impressora
-              </button>
+            {(modo === 'app' || modo === 'navegador') && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setImpressorasAchadas(null)
+                    setUltimoErro(null)
+                    setEditando(false)
+                    setPasso('impressora')
+                  }}
+                  className="flex-1 h-10 rounded-lg text-sm font-medium border border-teal-200 text-teal-700 hover:bg-teal-50 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Printer className="w-4 h-4" /> Conectar impressora
+                </button>
+                {modo === 'app' && (
+                  <button
+                    onClick={() => {
+                      esquecerImpressora()
+                      setImpressorasAchadas(null)
+                      setUltimoErro(null)
+                      setEditando(false)
+                      setPasso('impressora')
+                      toast({ title: 'Impressora desconectada', description: 'Escolha outra na próxima tela.' })
+                    }}
+                    className="flex-1 h-10 rounded-lg text-sm font-medium border border-red-200 text-red-700 hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Printer className="w-4 h-4" /> Desconectar
+                  </button>
+                )}
+              </div>
             )}
           </div>
           )}

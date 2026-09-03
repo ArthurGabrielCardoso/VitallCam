@@ -694,6 +694,10 @@ function ModalEtiqueta({
   const abrirCiclo = useAbrirCiclo()
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
+  // Sai da mesma lista que já está na tela: a conferência avisa que o biológico
+  // da semana está atrasado em vez de esperar alguém lembrar.
+  const biologicoVencido = useMemo(() => resumoEsterilizacao(ciclos).biologicoVencido, [ciclos])
+
   const [ajustes, setAjustes] = useState<Ajustes>(AJUSTES_PADRAO)
   useEffect(() => setAjustes(lerAjustes()), [])
   const restaurarAjustes = () => {
@@ -1095,7 +1099,13 @@ function ModalEtiqueta({
             </div>
           </div>
 
-          {ciclo && <ResultadoDoCiclo ciclo={ciclo} responsavelPadrao={responsavel} />}
+          {ciclo && (
+            <ResultadoDoCiclo
+              ciclo={ciclo}
+              responsavelPadrao={responsavel}
+              biologicoVencido={biologicoVencido}
+            />
+          )}
 
           {!ciclo && (
             <button
@@ -1199,23 +1209,30 @@ function ModalEtiqueta({
 }
 
 /**
- * Registro do resultado do ciclo — o que a fiscalização pede depois de ler o
- * lote no pacote.
+ * "Deu certo?" — a conferência do ciclo, do jeito que ela acontece na bancada.
  *
  * A RDC 1.002/2025 exige integrador químico classe 5 ou 6 em pacote-teste a cada
  * ciclo e indicador biológico semanal, no primeiro ciclo do dia programado, com
- * registro formal dos resultados. A etiqueta prova que o ciclo existiu; isto
- * aqui prova que ele deu certo.
+ * registro formal. A etiqueta prova que o ciclo existiu; isto prova que ele deu
+ * certo, e a liberação da carga sai daqui — integrador não conforme ou biológico
+ * positivo não libera nada, volta para o reprocessamento.
  *
- * A liberação da carga sai do resultado, não de um botão separado: carga com
- * integrador não conforme, ou com biológico positivo, não é liberada — volta
- * para o reprocessamento.
+ * A tela pergunta o que a pessoa acabou de OLHAR — "a fita virou?" — e deixa o
+ * nome técnico embaixo, pequeno, para quem precisa dele. A versão anterior fazia
+ * o contrário: abria com "Integrador químico classe 5 ou 6 (pacote-teste, todo
+ * ciclo)", que é o texto da norma, não a pergunta.
+ *
+ * Ciclo já conferido não reabre o formulário: vira um resumo de uma linha com
+ * "Corrigir" do lado. O que está resolvido tem que PARECER resolvido, senão a
+ * tela pede a mesma coisa todo dia.
  */
 function ResultadoDoCiclo({
-  ciclo, responsavelPadrao,
+  ciclo, responsavelPadrao, biologicoVencido,
 }: {
   ciclo: CicloEsterilizacao
   responsavelPadrao: string
+  /** O biológico da semana está em atraso — a tela avisa em vez de cobrar memória. */
+  biologicoVencido: boolean
 }) {
   const { toast } = useToast()
   const registrar = useRegistrarMonitoramento()
@@ -1228,6 +1245,12 @@ function ResultadoDoCiclo({
   )
   const [temperatura, setTemperatura] = useState(ciclo.temperatura ? String(ciclo.temperatura) : '')
   const [observacao, setObservacao] = useState(ciclo.observacao ?? '')
+  const [detalhes, setDetalhes] = useState(false)
+
+  // Conferido é o que já tem integrador registrado — o biológico é semanal e a
+  // temperatura é opcional, então nenhum dos dois serve de marca.
+  const conferido = !!ciclo.integrador_quimico
+  const [corrigindo, setCorrigindo] = useState(false)
 
   const reprovado = integrador === 'nao_conforme' || biologico === 'positivo'
 
@@ -1242,10 +1265,11 @@ function ResultadoDoCiclo({
         observacao,
         por: responsavelPadrao,
       })
+      setCorrigindo(false)
       toast({
-        title: reprovado ? 'Ciclo reprovado registrado' : 'Carga liberada',
+        title: reprovado ? 'Ciclo reprovado' : 'Carga liberada',
         description: reprovado
-          ? 'A carga não pode ser usada: reprocesse os pacotes deste lote.'
+          ? 'Os pacotes deste lote não podem ser usados — recolha e reprocesse.'
           : `Lote ${ciclo.lote} conferido e liberado para uso.`,
         variant: reprovado ? 'destructive' : undefined,
       })
@@ -1258,94 +1282,149 @@ function ResultadoDoCiclo({
     }
   }
 
-  const opcao = (ativo: boolean, tom: 'bom' | 'ruim') =>
-    `h-9 px-3 rounded text-xs font-semibold border transition-colors ${
+  // Ciclo já conferido: resumo de uma linha. Reabrir é escolha, não obrigação.
+  if (conferido && !corrigindo) {
+    const negado = ciclo.integrador_quimico === 'nao_conforme' || ciclo.indicador_biologico === 'positivo'
+    return (
+      <div
+        className={`rounded-lg border p-4 flex items-start gap-3 ${
+          negado ? 'border-red-200 bg-red-50' : 'border-teal-200 bg-teal-50'
+        }`}
+      >
+        {negado
+          ? <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+          : <CheckCircle2 className="w-4 h-4 text-teal-700 mt-0.5 shrink-0" />}
+        <div className="flex-1 min-w-0">
+          <p className={`text-sm font-semibold ${negado ? 'text-red-800' : 'text-teal-800'}`}>
+            {negado ? 'Ciclo reprovado' : 'Carga liberada'}
+          </p>
+          <p className={`text-xs mt-0.5 ${negado ? 'text-red-700' : 'text-teal-700'}`}>
+            {negado
+              ? 'Os pacotes deste lote não podem ser usados — recolha e reprocesse.'
+              : `Conferido por ${ciclo.liberado_por || 'equipe'}.`}
+            {ciclo.indicador_biologico && ` Biológico ${ciclo.indicador_biologico}.`}
+            {ciclo.temperatura ? ` ${ciclo.temperatura} °C.` : ''}
+          </p>
+        </div>
+        <button
+          onClick={() => setCorrigindo(true)}
+          className={`text-xs shrink-0 underline underline-offset-2 ${
+            negado ? 'text-red-700' : 'text-teal-700'
+          }`}
+        >
+          Corrigir
+        </button>
+      </div>
+    )
+  }
+
+  const escolha = (ativo: boolean, tom: 'bom' | 'ruim' | 'neutro') =>
+    `flex-1 h-11 px-3 rounded-lg text-sm font-semibold border transition-colors ${
       ativo
-        ? tom === 'bom'
-          ? 'bg-teal-700 text-white border-teal-700'
-          : 'bg-red-600 text-white border-red-600'
+        ? tom === 'bom' ? 'bg-teal-700 text-white border-teal-700'
+        : tom === 'ruim' ? 'bg-red-600 text-white border-red-600'
+        : 'bg-gray-700 text-white border-gray-700'
         : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
     }`
 
   return (
-    <div className="rounded-lg border border-gray-200 p-4 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-gray-800">Resultado do ciclo</h3>
-        {ciclo.liberado_em && (
-          <span className="text-[11px] text-teal-700 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            liberado por {ciclo.liberado_por || 'equipe'}
-          </span>
-        )}
-      </div>
+    <div className="rounded-lg border border-gray-200 p-4 space-y-4">
+      <h3 className="text-sm font-semibold text-gray-800">O ciclo deu certo?</h3>
 
       <div>
-        <p className="text-[11px] font-medium text-gray-500 mb-1.5">
-          Integrador químico classe 5 ou 6 (pacote-teste, todo ciclo)
-        </p>
+        <p className="text-sm text-gray-700 mb-2">A fita do pacote-teste virou?</p>
         <div className="flex gap-2">
-          <button onClick={() => setIntegrador('conforme')} className={opcao(integrador === 'conforme', 'bom')}>
-            Conforme
+          <button onClick={() => setIntegrador('conforme')} className={escolha(integrador === 'conforme', 'bom')}>
+            Virou
           </button>
-          <button onClick={() => setIntegrador('nao_conforme')} className={opcao(integrador === 'nao_conforme', 'ruim')}>
-            Não conforme
+          <button onClick={() => setIntegrador('nao_conforme')} className={escolha(integrador === 'nao_conforme', 'ruim')}>
+            Não virou
           </button>
         </div>
+        <p className="text-[11px] text-gray-400 mt-1.5">
+          Integrador químico classe 5 ou 6, no pacote-teste, a cada ciclo.
+        </p>
       </div>
 
       <div>
-        <p className="text-[11px] font-medium text-gray-500 mb-1.5">
-          Indicador biológico (semanal, no primeiro ciclo do dia)
-        </p>
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={() => setBiologico(null)} className={opcao(biologico === null, 'bom')}>
-            Não fiz neste ciclo
+        <div className="flex items-center gap-2 mb-2">
+          <p className="text-sm text-gray-700">Fez o teste biológico neste ciclo?</p>
+          {biologicoVencido && !ciclo.indicador_biologico && (
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
+              está na hora
+            </span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {/* Cinza, não verde: "não fiz" não é um resultado bom, é ausência de
+              resultado. Antes vinha marcado em verde já na abertura, o que dava
+              à tela o ar de pergunta respondida. */}
+          <button onClick={() => setBiologico(null)} className={escolha(biologico === null, 'neutro')}>
+            Não fiz
           </button>
-          <button onClick={() => setBiologico('negativo')} className={opcao(biologico === 'negativo', 'bom')}>
+          <button onClick={() => setBiologico('negativo')} className={escolha(biologico === 'negativo', 'bom')}>
             Negativo
           </button>
-          <button onClick={() => setBiologico('positivo')} className={opcao(biologico === 'positivo', 'ruim')}>
+          <button onClick={() => setBiologico('positivo')} className={escolha(biologico === 'positivo', 'ruim')}>
             Positivo
           </button>
         </div>
+        <p className="text-[11px] text-gray-400 mt-1.5">
+          Indicador biológico: uma vez por semana, no primeiro ciclo do dia.
+        </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block">
-          <span className="block text-[11px] font-medium text-gray-500 mb-1">Temperatura (°C)</span>
-          <input
-            value={temperatura}
-            onChange={(e) => setTemperatura(e.target.value.replace(/\D/g, '').slice(0, 3))}
-            inputMode="numeric"
-            placeholder="134"
-            className="w-full h-9 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none"
-          />
-        </label>
-        <label className="block">
-          <span className="block text-[11px] font-medium text-gray-500 mb-1">Observação</span>
-          <input
-            value={observacao}
-            onChange={(e) => setObservacao(e.target.value)}
-            placeholder="opcional"
-            className="w-full h-9 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none"
-          />
-        </label>
-      </div>
+      {/* Temperatura e observação não decidem nada — ficam fora do caminho de
+          quem só quer conferir e liberar. */}
+      {detalhes ? (
+        <div className="grid grid-cols-2 gap-3">
+          <Campo rotulo="Temperatura (°C)">
+            <input
+              value={temperatura}
+              onChange={(e) => setTemperatura(e.target.value.replace(/\D/g, '').slice(0, 3))}
+              inputMode="numeric"
+              placeholder="134"
+              className="w-full h-9 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none"
+            />
+          </Campo>
+          <Campo rotulo="Observação">
+            <input
+              value={observacao}
+              onChange={(e) => setObservacao(e.target.value)}
+              placeholder="opcional"
+              className="w-full h-9 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none"
+            />
+          </Campo>
+        </div>
+      ) : (
+        <button
+          onClick={() => setDetalhes(true)}
+          className="text-xs text-gray-500 hover:text-teal-700 flex items-center gap-1.5"
+        >
+          <Pencil className="w-3.5 h-3.5" /> Anotar temperatura ou observação
+        </button>
+      )}
 
       {reprovado && (
         <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-3 flex items-start gap-2">
           <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-          Ciclo reprovado: os pacotes deste lote não podem ser usados. Recolha o que já saiu para o
-          estoque e reprocesse.
+          Os pacotes deste lote não poderão ser usados. Recolha o que já foi para o estoque e
+          reprocesse.
         </p>
       )}
 
       <button
         onClick={salvar}
         disabled={!integrador || registrar.isPending}
-        className="w-full h-9 rounded text-sm font-semibold bg-gray-800 text-white hover:bg-gray-900 transition-colors disabled:opacity-50"
+        className={`w-full h-11 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50 ${
+          reprovado ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-700 hover:bg-teal-800'
+        }`}
       >
-        {registrar.isPending ? 'Registrando…' : reprovado ? 'Registrar reprovação' : 'Registrar e liberar carga'}
+        {registrar.isPending
+          ? 'Registrando…'
+          : !integrador ? 'Responda a fita do pacote-teste'
+          : reprovado ? 'Registrar reprovação'
+          : 'Liberar carga'}
       </button>
     </div>
   )

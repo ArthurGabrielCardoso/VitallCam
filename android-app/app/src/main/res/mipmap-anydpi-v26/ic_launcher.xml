@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Ícone adaptativo (Android 8+). Sem isto cada fabricante decide sozinho como
+  encaixar o ícone quadrado antigo na própria máscara — foi assim que a
+  Motorola passou a mostrar uma borda branca ao redor com o desenho encolhido
+  no centro, enquanto o tablet e outros aparelhos mostravam certo.
+
+  A camada de fundo (background) preenche o ícone de ponta a ponta, sem a
+  margem de segurança que só vale para a camada de frente (foreground) — é
+  por isso que ela vai vazia aqui: o desenho já ocupa a imagem inteira, e
+  colocá-lo também como foreground faria a própria máscara do sistema cortar
+  as bordas dele.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@android:color/transparent" />
+</adaptive-icon>

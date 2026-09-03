@@ -46,26 +46,25 @@ export default function LivroEsterilizacaoPage() {
         <div className="flex items-center gap-3 mb-6 print:hidden">
           <button
             onClick={() => router.push('/patients/esterilizacao')}
-            className="h-9 w-9 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 transition-colors"
+            className="h-11 w-11 sm:h-9 sm:w-9 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:text-teal-700 hover:border-teal-500 transition-colors shrink-0"
             title="Voltar"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <div className="flex-1">
-            <h1 className="text-2xl font-semibold text-gray-700">Livro de registro</h1>
-            <p className="text-sm text-gray-400">Um ciclo por linha, para a inspeção folhear</p>
-          </div>
+          {/* Só o necessário: voltar, escolher o mês, imprimir. O título e o
+              subtítulo repetiam o que a folha já diz no próprio cabeçalho. */}
           <input
             type="month"
             value={mes}
             onChange={(e) => setMes(e.target.value)}
-            className="h-9 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none"
+            className="flex-1 h-11 sm:h-9 px-3 rounded-lg border border-gray-200 text-base sm:text-sm text-gray-700 focus:border-teal-500 focus:outline-none"
           />
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-2 h-9 px-5 rounded text-sm font-semibold bg-teal-700 text-white hover:bg-teal-800 transition-colors"
+            title="Imprimir o livro deste mês"
+            className="h-11 w-11 sm:h-9 sm:w-9 flex items-center justify-center rounded-lg bg-teal-700 text-white hover:bg-teal-800 transition-colors shrink-0"
           >
-            <Printer className="w-4 h-4" /> Imprimir
+            <Printer className="w-4 h-4" />
           </button>
         </div>
 
@@ -94,20 +93,23 @@ export default function LivroEsterilizacaoPage() {
             <p className="text-sm text-gray-500 py-8 text-center">Nenhum ciclo neste mês.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-[11px] border-collapse">
+              <table className="w-full text-[11px] border-collapse text-center">
                 <thead>
-                  <tr className="text-left text-dourado-800 bg-dourado-50 border-b-2 border-dourado-300">
-                    <th className="py-1.5 pr-2">Data</th>
-                    <th className="py-1.5 pr-2">Hora</th>
-                    <th className="py-1.5 pr-2">Lote</th>
-                    <th className="py-1.5 pr-2">Autoclave</th>
-                    <th className="py-1.5 pr-2">Pacotes</th>
-                    <th className="py-1.5 pr-2">Validade</th>
-                    <th className="py-1.5 pr-2">Temp.</th>
-                    <th className="py-1.5 pr-2">Integrador</th>
-                    <th className="py-1.5 pr-2">Biológico</th>
-                    <th className="py-1.5 pr-2">Responsável</th>
-                    <th className="py-1.5">Liberação</th>
+                  {/* Tudo centralizado: são onze colunas estreitas, e texto
+                      alinhado à esquerda em coluna estreita deixa cada célula
+                      começando num lugar diferente. */}
+                  <tr className="text-center text-dourado-800 bg-dourado-50 border-b-2 border-dourado-300">
+                    <th className="py-1.5 px-2">Data</th>
+                    <th className="py-1.5 px-2">Hora</th>
+                    <th className="py-1.5 px-2">Lote</th>
+                    <th className="py-1.5 px-2">Autoclave</th>
+                    <th className="py-1.5 px-2">Pacotes</th>
+                    <th className="py-1.5 px-2">Validade</th>
+                    <th className="py-1.5 px-2">Temp.</th>
+                    <th className="py-1.5 px-2">Integrador</th>
+                    <th className="py-1.5 px-2">Biológico</th>
+                    <th className="py-1.5 px-2">Responsável</th>
+                    <th className="py-1.5 px-2">Liberação</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -150,17 +152,17 @@ function Linha({ ciclo, par }: { ciclo: CicloEsterilizacao; par: boolean }) {
         situacao === 'reprovado' ? 'text-red-700 font-medium bg-red-50' : 'text-gray-700'
       } ${par && situacao !== 'reprovado' ? 'bg-dourado-50/60' : ''}`}
     >
-      <td className="py-1.5 pr-2 whitespace-nowrap">{formatarData(ciclo.data)}</td>
-      <td className="py-1.5 pr-2">{formatarHora(ciclo.created_at)}</td>
-      <td className="py-1.5 pr-2 font-semibold">{ciclo.lote}</td>
-      <td className="py-1.5 pr-2">{ciclo.autoclave || '—'}</td>
-      <td className="py-1.5 pr-2">{ciclo.quantidade_etiquetas}</td>
-      <td className="py-1.5 pr-2 whitespace-nowrap">{formatarData(ciclo.validade)}</td>
-      <td className="py-1.5 pr-2">{ciclo.temperatura ? `${ciclo.temperatura}°C` : '—'}</td>
-      <td className="py-1.5 pr-2">{rotulo(ciclo.integrador_quimico)}</td>
-      <td className="py-1.5 pr-2">{rotulo(ciclo.indicador_biologico)}</td>
-      <td className="py-1.5 pr-2">{ciclo.responsavel}</td>
-      <td className="py-1.5">{texto[situacao]}</td>
+      <td className="py-1.5 px-2 whitespace-nowrap">{formatarData(ciclo.data)}</td>
+      <td className="py-1.5 px-2">{formatarHora(ciclo.created_at)}</td>
+      <td className="py-1.5 px-2 font-semibold">{ciclo.lote}</td>
+      <td className="py-1.5 px-2">{ciclo.autoclave || '—'}</td>
+      <td className="py-1.5 px-2">{ciclo.quantidade_etiquetas}</td>
+      <td className="py-1.5 px-2 whitespace-nowrap">{formatarData(ciclo.validade)}</td>
+      <td className="py-1.5 px-2">{ciclo.temperatura ? `${ciclo.temperatura}°C` : '—'}</td>
+      <td className="py-1.5 px-2">{rotulo(ciclo.integrador_quimico)}</td>
+      <td className="py-1.5 px-2">{rotulo(ciclo.indicador_biologico)}</td>
+      <td className="py-1.5 px-2">{ciclo.responsavel}</td>
+      <td className="py-1.5 px-2">{texto[situacao]}</td>
     </tr>
   )
 }

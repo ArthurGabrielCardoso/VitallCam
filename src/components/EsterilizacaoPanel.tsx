@@ -650,54 +650,122 @@ function Cartao({ ciclo, onAbrir }: { ciclo: CicloEsterilizacao; onAbrir: (c: Ci
 }
 
 /** Escolha da Niimbot, aberta pelo botão Imprimir quando ainda não há uma. */
-function ListaImpressoras({
-  lista, onEscolher, onFechar,
+/**
+ * Primeiro passo do modal: qual Niimbot vai imprimir.
+ *
+ * Antes isto era uma caixa que aparecia DEPOIS do "imprimir", quando o trabalho
+ * já tinha falhado. Sem impressora não há nada a fazer nesta tela, então a
+ * pergunta vem antes da quantidade — e com impressora salva o passo nem existe.
+ *
+ * No app a busca dispara sozinha ao entrar: quem chegou aqui já pediu para
+ * imprimir, e um botão "procurar" seria um toque a mais para dizer a mesma
+ * coisa. No navegador quem lista é o Chrome, e o seletor dele só abre a partir
+ * de um clique — por isso lá continua havendo um botão.
+ */
+function PassoImpressora({
+  modo, achadas, buscando, erro, onBuscar, onEscolher, onConectarNavegador, onPular,
 }: {
-  lista: ImpressoraEncontrada[]
+  modo: ModoImpressao
+  achadas: ImpressoraEncontrada[] | null
+  buscando: boolean
+  erro: string | null
+  onBuscar: () => void
   onEscolher: (i: ImpressoraEncontrada) => void
-  onFechar: () => void
+  onConectarNavegador: () => void
+  onPular: () => void
 }) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in"
-      onClick={onFechar}
-    >
-      <div
-        className="clean-dialog w-full max-w-sm max-h-[80vh] overflow-y-auto bg-white rounded-xl shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
-          <div>
-            <h2 className="text-base font-semibold text-gray-800">Escolha a impressora</h2>
-            <p className="text-xs text-gray-400">Toque na sua Niimbot. Fica salva para as próximas.</p>
-          </div>
-          <button onClick={onFechar} className="text-gray-400 hover:text-gray-600">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+  const podeListar = podeListarImpressoras()
 
-        <div className="p-3 space-y-2">
-          {lista.length === 0 && (
-            <p className="text-sm text-gray-500 p-4 text-center">
-              Nenhum aparelho apareceu. Confira se a Niimbot está ligada, perto do tablet e não conectada
-              no app dela — ela aceita uma conexão por vez.
+  useEffect(() => {
+    if (modo === 'app' && podeListar && !achadas && !buscando) onBuscar()
+    // Uma vez ao entrar. Repetir a cada render viraria varredura sem fim.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <div className="p-5 space-y-4 overflow-y-auto flex-1">
+      {modo === 'navegador' && (
+        <>
+          <p className="text-sm text-gray-600">
+            O Chrome pede para você apontar a impressora a cada sessão — é regra do navegador, não
+            escolha nossa.
+          </p>
+          <button
+            onClick={onConectarNavegador}
+            className="w-full h-12 rounded-lg text-base font-semibold bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white transition-all flex items-center justify-center gap-2"
+          >
+            <Printer className="w-4 h-4" /> Escolher a impressora
+          </button>
+        </>
+      )}
+
+      {modo === 'app' && !podeListar && (
+        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+          Este app é anterior à lista de impressoras.{' '}
+          <a href="/vitallcam-android.apk" className="font-semibold underline underline-offset-2">
+            Baixe o app atualizado
+          </a>{' '}
+          e instale por cima.
+        </p>
+      )}
+
+      {modo === 'app' && podeListar && (
+        <>
+          {buscando && (
+            <p className="text-sm text-gray-500 flex items-center gap-2 py-4">
+              <Loader2 className="w-4 h-4 animate-spin text-teal-600" /> Procurando a impressora…
             </p>
           )}
-          {lista.map((impressora) => (
+
+          {achadas?.length === 0 && !buscando && (
+            <p className="text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-3">
+              Nenhum aparelho apareceu. Confira se a Niimbot está ligada, perto do aparelho e
+              <strong> não conectada no app dela</strong> — ela aceita uma conexão por vez.
+            </p>
+          )}
+
+          <div className="space-y-2">
+            {(achadas ?? []).map((impressora) => (
+              <button
+                key={impressora.mac}
+                onClick={() => onEscolher(impressora)}
+                className="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:bg-teal-50 hover:border-teal-500 transition-colors flex items-center gap-3"
+              >
+                <Printer className={`w-4 h-4 shrink-0 ${impressora.provavel ? 'text-teal-600' : 'text-gray-300'}`} />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-gray-800 truncate">{impressora.nome}</span>
+                  <span className="block text-[11px] text-gray-400">
+                    {impressora.mac}
+                    {impressora.provavel ? ' · parece uma Niimbot' : ''}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {!buscando && (
             <button
-              key={impressora.mac}
-              onClick={() => onEscolher(impressora)}
-              className="w-full text-left px-4 py-3 rounded border border-gray-200 hover:bg-teal-50 hover:border-teal-500 transition-colors"
+              onClick={onBuscar}
+              className="text-xs text-teal-700 hover:text-teal-800 font-medium"
             >
-              <span className="block text-sm font-medium text-gray-800">{impressora.nome}</span>
-              <span className="block text-[11px] text-gray-400">
-                {impressora.mac}
-                {impressora.provavel ? ' · parece uma Niimbot' : ''}
-              </span>
+              Procurar de novo
             </button>
-          ))}
-        </div>
-      </div>
+          )}
+        </>
+      )}
+
+      {erro && (
+        <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{erro}</p>
+      )}
+
+      {/* Sem impressora ainda dá para usar a saída de papel, e ninguém deve
+          ficar preso neste passo por causa de um Bluetooth teimoso. */}
+      <button
+        onClick={onPular}
+        className="w-full h-10 rounded-lg text-sm font-medium text-gray-500 hover:text-teal-700 hover:bg-gray-50 transition-colors"
+      >
+        Seguir sem a impressora
+      </button>
     </div>
   )
 }
@@ -714,7 +782,8 @@ function ModalEtiqueta({
 }) {
   const { toast } = useToast()
   const abrirCiclo = useAbrirCiclo()
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  // Mutável de propósito: quem preenche é o ref de função `montarCanvas`.
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   // Sai da mesma lista que já está na tela: a conferência avisa que o biológico
   // da semana está atrasado em vez de esperar alguém lembrar.
@@ -728,8 +797,24 @@ function ModalEtiqueta({
   // direto para a impressão, que é o que se quer deles.
   const [impressorasAchadas, setImpressorasAchadas] = useState<ImpressoraEncontrada[] | null>(null)
   const [buscandoImpressora, setBuscandoImpressora] = useState(false)
-  const [passo, setPasso] = useState<'conferir' | 'imprimir'>(
-    ciclo && !ciclo.integrador_quimico ? 'conferir' : 'imprimir',
+
+  /**
+   * Impressora antes de tudo.
+   *
+   * A escolha da Niimbot estava DENTRO do botao imprimir: a tela abria na
+   * quantidade, a pessoa dizia 15, apertava, e so ali descobria que nao havia
+   * impressora escolhida. Ordem errada — sem impressora nao ha o que fazer nesta
+   * tela, entao a pergunta vem primeiro. Com impressora salva este passo nao
+   * existe e nada muda para quem ja usa.
+   */
+  const semImpressora =
+    modo === 'app' ? !impressoraLembrada()
+    : modo === 'navegador' ? !impressora?.conectado
+    : false
+
+  const proximoPasso = ciclo && !ciclo.integrador_quimico ? 'conferir' : 'imprimir'
+  const [passo, setPasso] = useState<'impressora' | 'conferir' | 'imprimir'>(
+    semImpressora ? 'impressora' : proximoPasso,
   )
 
   const [ajustes, setAjustes] = useState<Ajustes>(AJUSTES_PADRAO)
@@ -753,6 +838,18 @@ function ModalEtiqueta({
   // O aviso de erro fica na tela, não só no toast: quem está na bancada precisa
   // conseguir ler a mensagem inteira e repetir para quem vai consertar.
   const [ultimoErro, setUltimoErro] = useState<string | null>(null)
+
+  const buscarImpressoras = useCallback(async () => {
+    setBuscandoImpressora(true)
+    setUltimoErro(null)
+    try {
+      setImpressorasAchadas(await procurarImpressoras())
+    } catch (erro: unknown) {
+      setUltimoErro(erro instanceof Error ? erro.message : 'Não deu para procurar a impressora')
+    } finally {
+      setBuscandoImpressora(false)
+    }
+  }, [])
   const logo = useLogoDaClinica()
 
   // A validade acompanha a data do ciclo enquanto ninguém a escreveu à mão.
@@ -832,19 +929,11 @@ function ModalEtiqueta({
         onImpressora(conectada)
       }
 
-      // No app, primeira impressão do aparelho: em vez de exigir um "conectar"
-      // antes, a lista aparece agora — e antes de gravar o ciclo, para não
-      // deixar lote aberto por causa de uma escolha que ainda não foi feita.
+      // A escolha da impressora acontece no primeiro passo do modal; se ela
+      // sumiu no meio do caminho, volta para lá em vez de falhar aqui.
       if (modo === 'app' && !impressoraLembrada() && podeListarImpressoras()) {
         setProgresso(null)
-        setBuscandoImpressora(true)
-        try {
-          setImpressorasAchadas(await procurarImpressoras())
-        } catch (erro: unknown) {
-          setUltimoErro(erro instanceof Error ? erro.message : 'Não deu para procurar a impressora')
-        } finally {
-          setBuscandoImpressora(false)
-        }
+        setPasso('impressora')
         return
       }
 
@@ -1036,6 +1125,9 @@ function ModalEtiqueta({
             <h2 className="text-base font-semibold text-gray-800 truncate">
               {ciclo ? `Lote ${ciclo.lote}` : 'Novo ciclo'}
             </h2>
+            {passo === 'impressora' && (
+              <p className="text-xs text-gray-400">Primeiro: qual impressora?</p>
+            )}
             {passo === 'conferir' && (
               <p className="text-xs text-gray-400">Antes de imprimir: o ciclo deu certo?</p>
             )}
@@ -1044,6 +1136,32 @@ function ModalEtiqueta({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {passo === 'impressora' && (
+          <PassoImpressora
+            modo={modo}
+            achadas={impressorasAchadas}
+            buscando={buscandoImpressora}
+            erro={ultimoErro}
+            onBuscar={buscarImpressoras}
+            onEscolher={(escolhida) => {
+              escolherImpressora(escolhida)
+              setImpressorasAchadas(null)
+              setPasso(proximoPasso)
+              toast({ title: `${escolhida.nome} conectada`, description: 'Fica salva para as próximas.' })
+            }}
+            onConectarNavegador={async () => {
+              try {
+                onImpressora(await Niimbot.conectar(false))
+                setPasso(proximoPasso)
+              } catch (erro: unknown) {
+                const msg = erro instanceof Error ? erro.message : 'Falha ao conectar'
+                if (!/cancel|user/i.test(msg)) setUltimoErro(msg)
+              }
+            }}
+            onPular={() => setPasso(proximoPasso)}
+          />
+        )}
 
         {passo === 'conferir' && ciclo && (
           <div className="p-5 space-y-4 overflow-y-auto">
@@ -1259,17 +1377,6 @@ function ModalEtiqueta({
         </>
         )}
 
-        {impressorasAchadas && (
-          <ListaImpressoras
-            lista={impressorasAchadas}
-            onEscolher={(escolhida) => {
-              escolherImpressora(escolhida)
-              setImpressorasAchadas(null)
-              toast({ title: `${escolhida.nome} escolhida`, description: 'Toque em imprimir de novo.' })
-            }}
-            onFechar={() => setImpressorasAchadas(null)}
-          />
-        )}
       </div>
     </div>
   )

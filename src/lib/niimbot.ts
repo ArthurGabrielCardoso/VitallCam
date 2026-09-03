@@ -110,9 +110,6 @@ export class Niimbot {
   private buffer: number[] = []
   private ouvintes: ((resposta: Resposta) => void)[] = []
 
-  /** Já gastou o trabalho vazio nesta conexão — ver `prepararSessao`. */
-  private preparado = false
-
   get nome(): string {
     return this.dispositivo?.name || 'Niimbot'
   }
@@ -173,7 +170,6 @@ export class Niimbot {
   }
 
   desconectar() {
-    this.preparado = false
     try {
       this.dispositivo?.gatt?.disconnect()
     } catch {
@@ -286,27 +282,6 @@ export class Niimbot {
   }
 
   /**
-   * Gasta o primeiro trabalho da sessão sem gastar etiqueta.
-   *
-   * O primeiro trabalho depois de conectar saía em branco e com uma etiqueta a
-   * mais — pedia 1 e andavam 2, pedia 3 e andavam 4 —, e a segunda tentativa
-   * saía perfeita. Uma etiqueta a mais em branco é papel andando: a impressora
-   * se acerta no vão do rolo quando o primeiro trabalho de uma sessão chega, e o
-   * desenho da gente chegava no meio disso.
-   *
-   * Então abre e fecha um trabalho SEM página nenhuma. Sem página não há papel
-   * andando, e o trabalho de verdade deixa de ser o primeiro.
-   */
-  private async prepararSessao(): Promise<void> {
-    if (this.preparado) return
-    this.preparado = true
-    await this.enviar(COMANDO.TIPO_ETIQUETA, [1], COMANDO.TIPO_ETIQUETA + 1)
-    await this.enviar(COMANDO.INICIAR_IMPRESSAO, [0x01], COMANDO.INICIAR_IMPRESSAO + 1)
-    await this.enviar(COMANDO.FIM_IMPRESSAO, [0x01], COMANDO.FIM_IMPRESSAO + 1)
-    await espera(300)
-  }
-
-  /**
    * Imprime o lote inteiro em UM trabalho.
    *
    * Aceita um desenho só (repetido `copias` vezes) ou um por etiqueta, que é o
@@ -334,8 +309,6 @@ export class Niimbot {
     const msPorEtiqueta = Math.min(6000, Math.max(800, Math.round((desenhos[0].altura / 8) * 50)))
     const totalLinhas = desenhos.reduce((soma, d) => soma + d.linhas.length, 0)
     let enviadas = 0
-
-    await this.prepararSessao()
 
     await this.enviar(COMANDO.TIPO_ETIQUETA, [opcoes.tipoEtiqueta ?? 1], COMANDO.TIPO_ETIQUETA + 1)
     await this.enviar(COMANDO.DENSIDADE, [densidade], COMANDO.DENSIDADE + 1)

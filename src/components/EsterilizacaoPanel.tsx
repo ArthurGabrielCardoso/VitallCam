@@ -53,7 +53,6 @@ import { Niimbot, VarianteProtocolo } from '@/lib/niimbot'
  * de restaurar padrões, que é uma escolha de quem está lá, não minha.
  */
 const AJUSTES_CHAVE = 'vitallcam:etiqueta-esterilizacao:ajustes'
-const QUANTIDADES = [5, 10, 20, 30]
 
 interface Ajustes extends FormatoEtiqueta {
   /** Giro do bitmap na impressora — depende de como o rolo entra na Niimbot. */
@@ -171,24 +170,27 @@ export default function EsterilizacaoPanel() {
     <div className="space-y-6">
       {!migrationPendente && <Resumo resumo={resumo} estoque={estoque} />}
 
+      {/* No celular "Novo ciclo" é a ação da tela e ocupa a linha inteira; o
+          livro de registro é para a inspeção, que acontece de vez em quando, e
+          recua para um ícone. No notebook os dois cabem lado a lado. */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <EstadoImpressora modo={modo} impressora={impressora} onMudar={setImpressora} />
-        <div className="flex items-center gap-2">
-          <Link
-            href="/patients/esterilizacao/livro"
-            className="flex items-center gap-2 h-9 px-4 rounded border border-gray-200 bg-white text-sm text-gray-600 hover:text-teal-700 hover:border-teal-500 transition-colors"
-            title="Um ciclo por linha, para entregar na inspeção"
-          >
-            <BookText className="h-4 w-4" />
-            Livro de registro
-          </Link>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
             onClick={() => setAberto('novo')}
-            className="flex items-center gap-2 px-6 h-9 rounded text-sm font-semibold bg-teal-700 text-white hover:bg-teal-800 transition-colors shadow-sm"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 h-11 sm:h-9 rounded-lg text-sm font-semibold bg-teal-700 text-white hover:bg-teal-800 transition-colors shadow-sm"
           >
             <Plus className="h-4 w-4" />
             Novo ciclo
           </button>
+          <Link
+            href="/patients/esterilizacao/livro"
+            className="flex items-center justify-center gap-2 h-11 sm:h-9 w-11 sm:w-auto sm:px-4 rounded-lg border border-gray-200 bg-white text-sm text-gray-600 hover:text-teal-700 hover:border-teal-500 transition-colors shrink-0"
+            title="Um ciclo por linha, para entregar na inspeção"
+          >
+            <BookText className="h-4 w-4" />
+            <span className="hidden sm:inline">Livro de registro</span>
+          </Link>
         </div>
       </div>
 
@@ -231,8 +233,18 @@ export default function EsterilizacaoPanel() {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar pelo lote do pacote (ex.: 0831-02)"
-            className="w-full h-10 pl-9 pr-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none"
+            inputMode="numeric"
+            className="w-full h-12 sm:h-10 pl-9 pr-9 rounded-lg border border-gray-200 text-base sm:text-sm text-gray-700 focus:border-teal-500 focus:outline-none"
           />
+          {busca && (
+            <button
+              onClick={() => setBusca('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600"
+              aria-label="limpar busca"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
       )}
 
@@ -398,7 +410,7 @@ function Trilha({
             {ciclos.length}
           </span>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="hidden sm:flex items-center gap-1 shrink-0">
           <button
             onClick={() => rolar('left')}
             title="Anterior"
@@ -419,8 +431,10 @@ function Trilha({
         ref={ref}
         className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory scroll-smooth [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
       >
+        {/* Quase a largura da tela no celular: cartão de 288px fixos deixava um
+            toco do próximo aparecendo, e o polegar acertava o errado. */}
         {ciclos.map((ciclo) => (
-          <div key={ciclo.id} className="snap-start shrink-0 w-72">
+          <div key={ciclo.id} className="snap-start shrink-0 w-[85vw] max-w-xs sm:w-72">
             <Cartao ciclo={ciclo} onAbrir={onAbrir} />
           </div>
         ))}
@@ -1023,16 +1037,24 @@ function ModalEtiqueta({
   const campoClasse = 'w-full h-9 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-500'
   const bloqueado = !!ciclo || !editando
 
+  // No celular a caixa sobe do rodapé e ocupa a tela: é onde o polegar está, e
+  // é no celular que esta tela vai ser usada de verdade. No notebook, centrada.
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-sm animate-fade-in"
       onClick={() => !ocupado && onFechar()}
     >
       <div
-        className="clean-dialog w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white rounded-xl shadow-2xl"
+        className="clean-dialog w-full sm:max-w-lg h-[92dvh] sm:h-auto sm:max-h-[90vh] flex flex-col bg-white rounded-t-2xl sm:rounded-xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+        {/* Puxador: no celular a caixa parece arrastável, e sem ele fica com
+            cara de tela travada. */}
+        <div className="sm:hidden pt-2 pb-1 flex justify-center shrink-0">
+          <span className="h-1 w-10 rounded-full bg-gray-200" />
+        </div>
+
+        <div className="flex items-center justify-between gap-3 px-5 py-3 sm:py-4 border-b border-gray-100 shrink-0">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-gray-800 truncate">
               {ciclo ? `Lote ${ciclo.lote}` : 'Novo ciclo'}
@@ -1049,7 +1071,7 @@ function ModalEtiqueta({
         </div>
 
         {passo === 'conferir' && ciclo && (
-          <div className="p-5 space-y-4">
+          <div className="p-5 space-y-4 overflow-y-auto">
             <ResultadoDoCiclo
               ciclo={ciclo}
               responsavelPadrao={responsavel}
@@ -1067,7 +1089,7 @@ function ModalEtiqueta({
 
         {passo === 'imprimir' && (
         <>
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto flex-1">
           {/* A prévia é o próprio desenho que vai para a impressora, em 203 dpi:
               o que estiver ilegível aqui vai sair ilegível no adesivo. */}
           <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3 flex justify-center">
@@ -1078,26 +1100,18 @@ function ModalEtiqueta({
             />
           </div>
 
-          {/* Uma linha diz o ciclo inteiro. Os campos existem para o dia que foge
-              do padrão, e é só nesse dia que eles aparecem — o dia normal é
-              dizer quantas e apertar imprimir. */}
-          <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
-            <span className="font-semibold text-gray-700">{lote}</span>
-            <span className="text-gray-300">·</span>
-            <span>ciclo {String(numero).padStart(2, '0')}</span>
-            <span className="text-gray-300">·</span>
-            <span>val. {formatarData(validade)}</span>
-            <span className="text-gray-300">·</span>
-            <span className="truncate">{autoclave} · {responsavel}</span>
-            {!ciclo && (
-              <button
-                onClick={() => setEditando((v) => !v)}
-                className="ml-auto flex items-center gap-1 text-teal-700 hover:text-teal-800 font-medium shrink-0"
-              >
-                <Pencil className="w-3 h-3" /> {editando ? 'pronto' : 'editar'}
-              </button>
-            )}
-          </div>
+          {/* A prévia JÁ mostra lote, datas, autoclave e responsável — repetir
+              tudo embaixo em campos era dizer duas vezes a mesma coisa. Fica só
+              a porta para o dia que foge do padrão. */}
+          {!ciclo && (
+            <button
+              onClick={() => setEditando((v) => !v)}
+              className="flex items-center gap-1.5 text-sm text-teal-700 hover:text-teal-800 font-medium"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              {editando ? 'Pronto' : 'Editar os dados deste ciclo'}
+            </button>
+          )}
 
           {editando && !ciclo && (
           <div className="grid grid-cols-2 gap-3">
@@ -1155,46 +1169,51 @@ function ModalEtiqueta({
           </div>
           )}
 
-          {/* A pergunta da tela. Tudo o mais aqui é contexto; isto é o que a
-              pessoa veio responder, então é o que tem o maior alvo de toque. */}
+          {/* A pergunta da tela — e a única coisa que se responde aqui no dia
+              normal. Uma caixa só: os atalhos de 5/10/20/30 ocupavam uma fileira
+              inteira para adivinhar um número que a pessoa já sabe. Os botões de
+              menos e mais existem porque no celular acertar um dígito com o
+              polegar é pior do que tocar duas vezes. */}
           <div>
-            <p className="text-sm text-gray-700 mb-2">
+            <p className="text-sm text-gray-700 mb-2 text-center">
               Quantas etiquetas? <span className="text-gray-400">(uma por pacote)</span>
-              {avisouQuantidade && quantidadeInvalida && (
-                <span className="ml-2 text-red-600 font-medium">diga quantas antes de imprimir</span>
-              )}
             </p>
-            <div className="flex items-center gap-2 flex-wrap">
-              {QUANTIDADES.map((n) => (
-                <button
-                  key={n}
-                  onClick={() => { setQuantidadeTexto(String(n)); setAvisouQuantidade(false) }}
-                  className={`h-12 w-14 rounded-lg text-base font-semibold border transition-colors ${
-                    quantidade === n
-                      ? 'bg-teal-700 text-white border-teal-700'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-teal-500 hover:text-teal-700'
-                  }`}
-                >
-                  {n}
-                </button>
-              ))}
+            <div className="flex items-center justify-center gap-3">
+              <button
+                onClick={() => { setQuantidadeTexto(String(Math.max(1, quantidade - 1))); setAvisouQuantidade(false) }}
+                className="h-14 w-14 rounded-full border border-gray-200 text-2xl text-gray-500 hover:border-teal-500 hover:text-teal-700 transition-colors shrink-0"
+                aria-label="uma a menos"
+              >
+                −
+              </button>
               <input
                 type="text"
                 inputMode="numeric"
                 maxLength={3}
-                placeholder="outra"
-                value={QUANTIDADES.includes(quantidade) ? '' : quantidadeTexto}
+                value={quantidadeTexto}
                 onChange={(e) => {
                   setQuantidadeTexto(e.target.value.replace(/\D/g, ''))
                   setAvisouQuantidade(false)
                 }}
-                className={`h-12 w-20 px-3 rounded-lg border text-base text-center focus:outline-none ${
+                className={`h-16 w-28 rounded-xl border-2 text-3xl font-semibold text-center focus:outline-none ${
                   avisouQuantidade && quantidadeInvalida
-                    ? 'border-red-400 bg-red-50 text-red-700 focus:border-red-500'
-                    : 'border-gray-200 text-gray-700 focus:border-teal-500'
+                    ? 'border-red-400 bg-red-50 text-red-700'
+                    : 'border-gray-200 text-gray-800 focus:border-teal-500'
                 }`}
               />
+              <button
+                onClick={() => { setQuantidadeTexto(String(Math.min(999, quantidade + 1))); setAvisouQuantidade(false) }}
+                className="h-14 w-14 rounded-full border border-gray-200 text-2xl text-gray-500 hover:border-teal-500 hover:text-teal-700 transition-colors shrink-0"
+                aria-label="uma a mais"
+              >
+                +
+              </button>
             </div>
+            {avisouQuantidade && quantidadeInvalida && (
+              <p className="text-xs text-red-600 font-medium text-center mt-2">
+                Diga quantas antes de imprimir.
+              </p>
+            )}
           </div>
 
           {ultimoErro && (
@@ -1236,7 +1255,7 @@ function ModalEtiqueta({
           )}
         </div>
 
-        <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-100">
+        <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-100 shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {ocupado ? (
             <button
               onClick={pararImpressao}

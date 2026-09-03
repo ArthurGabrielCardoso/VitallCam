@@ -46,8 +46,8 @@ class MainActivity : AppCompatActivity() {
     private var pendingJsCallback: String? = null
     private var pendingFileChooser: ValueCallback<Array<Uri>>? = null
 
-    /** Impressora de etiqueta: uma so, viva enquanto o app estiver aberto. */
-    private val etiqueta by lazy { EtiquetaNiimbot(this) }
+    /** Impressora de etiqueta: uma só, e sobrevive a esta Activity — ver `ImpressoraServico`. */
+    private val etiqueta by lazy { EtiquetaNiimbot.obter(applicationContext) }
     private var impressaoPendente: (() -> Unit)? = null
     private var buscaPendente: (() -> Unit)? = null
     @Volatile private var imprimindo = false
@@ -73,6 +73,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.addJavascriptInterface(VitallCamBridge(), "VitallCam")
+
+        // Pede cedo, sem travar nada: sem esta permissao o aviso "impressora
+        // conectada" do servico em segundo plano so fica invisivel — a conexao
+        // continua de pe do mesmo jeito. Recusar aqui nao pode impedir imprimir.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICACAO_PERMISSION_CODE)
+        }
 
         // Um WebView nao baixa arquivo por conta propria: sem DownloadListener o
         // link do APK do RustDesk (Configuracoes > Downloads) simplesmente nao
@@ -860,6 +869,7 @@ class MainActivity : AppCompatActivity() {
         private const val FILE_CHOOSER_CODE = 1002
         private const val SCAN_PERMISSION_CODE = 1003
         private const val ETIQUETA_PERMISSION_CODE = 1004
+        private const val NOTIFICACAO_PERMISSION_CODE = 1005
 
         // Pacote do RustDesk (o cliente Flutter oficial). Tambem declarado em
         // <queries> no manifest, senao o Android 11+ esconde o app de nos.

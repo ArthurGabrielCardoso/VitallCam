@@ -1319,6 +1319,15 @@ function ResultadoDoCiclo({
   const [observacao, setObservacao] = useState(ciclo.observacao ?? '')
   const [detalhes, setDetalhes] = useState(false)
 
+  /**
+   * "Não fiz" precisa ser DITO, não presumido.
+   *
+   * `biologico` é null tanto para "ainda não respondi" quanto para "não fiz", e
+   * pintar o botão já na abertura fazia a tela dar por respondida uma pergunta
+   * que ninguém tocou. Este booleano separa as duas coisas.
+   */
+  const [biologicoDito, setBiologicoDito] = useState(!!ciclo.integrador_quimico)
+
   // Conferido é o que já tem integrador registrado — o biológico é semanal e a
   // temperatura é opcional, então nenhum dos dois serve de marca.
   const conferido = !!ciclo.integrador_quimico
@@ -1401,11 +1410,11 @@ function ResultadoDoCiclo({
     }`
 
   return (
-    <div className="rounded-lg border border-gray-200 p-4 space-y-4">
-      <h3 className="text-sm font-semibold text-gray-800">O ciclo deu certo?</h3>
-
+    // Sem moldura e sem título próprio: o cabeçalho do modal já pergunta "o
+    // ciclo deu certo?", e uma caixa dentro de outra caixa só engorda a tela.
+    <div className="space-y-5">
       <div>
-        <p className="text-sm text-gray-700 mb-2">A fita do pacote-teste virou?</p>
+        <p className="text-base text-gray-800 font-medium mb-3">A fita do pacote-teste virou?</p>
         <div className="flex gap-2">
           <button onClick={() => setIntegrador('conforme')} className={escolha(integrador === 'conforme', 'bom')}>
             Virou
@@ -1414,42 +1423,57 @@ function ResultadoDoCiclo({
             Não virou
           </button>
         </div>
-        <p className="text-[11px] text-gray-400 mt-1.5">
+        <p className="text-[11px] text-gray-400 mt-2">
           Integrador químico classe 5 ou 6, no pacote-teste, a cada ciclo.
         </p>
       </div>
 
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <p className="text-sm text-gray-700">Fez o teste biológico neste ciclo?</p>
-          {biologicoVencido && !ciclo.indicador_biologico && (
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
-              está na hora
-            </span>
-          )}
+      {/* A segunda pergunta só nasce depois da primeira.
+          As duas juntas na abertura eram um formulário; uma de cada vez é uma
+          conversa — e quem chega aqui acabou de olhar a fita, não as duas
+          coisas ao mesmo tempo. */}
+      {integrador && (
+        <div className="animate-fade-in border-t border-gray-100 pt-5">
+          <div className="flex items-center gap-2 mb-3">
+            <p className="text-base text-gray-800 font-medium">Fez o teste biológico neste ciclo?</p>
+            {biologicoVencido && !ciclo.indicador_biologico && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
+                está na hora
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            {/* Cinza, não verde: "não fiz" não é resultado bom, é ausência de
+                resultado — e só acende depois de alguém dizer isso. */}
+            <button
+              onClick={() => { setBiologico(null); setBiologicoDito(true) }}
+              className={escolha(biologicoDito && biologico === null, 'neutro')}
+            >
+              Não fiz
+            </button>
+            <button
+              onClick={() => { setBiologico('negativo'); setBiologicoDito(true) }}
+              className={escolha(biologico === 'negativo', 'bom')}
+            >
+              Negativo
+            </button>
+            <button
+              onClick={() => { setBiologico('positivo'); setBiologicoDito(true) }}
+              className={escolha(biologico === 'positivo', 'ruim')}
+            >
+              Positivo
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-400 mt-2">
+            Indicador biológico: uma vez por semana, no primeiro ciclo do dia.
+          </p>
         </div>
-        <div className="flex gap-2">
-          {/* Cinza, não verde: "não fiz" não é um resultado bom, é ausência de
-              resultado. Antes vinha marcado em verde já na abertura, o que dava
-              à tela o ar de pergunta respondida. */}
-          <button onClick={() => setBiologico(null)} className={escolha(biologico === null, 'neutro')}>
-            Não fiz
-          </button>
-          <button onClick={() => setBiologico('negativo')} className={escolha(biologico === 'negativo', 'bom')}>
-            Negativo
-          </button>
-          <button onClick={() => setBiologico('positivo')} className={escolha(biologico === 'positivo', 'ruim')}>
-            Positivo
-          </button>
-        </div>
-        <p className="text-[11px] text-gray-400 mt-1.5">
-          Indicador biológico: uma vez por semana, no primeiro ciclo do dia.
-        </p>
-      </div>
+      )}
 
       {/* Temperatura e observação não decidem nada — ficam fora do caminho de
-          quem só quer conferir e liberar. */}
-      {detalhes ? (
+          quem só quer conferir e liberar, e nem aparecem antes da primeira
+          resposta. */}
+      {integrador && (detalhes ? (
         <div className="grid grid-cols-2 gap-3">
           <Campo rotulo="Temperatura (°C)">
             <input
@@ -1476,7 +1500,7 @@ function ResultadoDoCiclo({
         >
           <Pencil className="w-3.5 h-3.5" /> Anotar temperatura ou observação
         </button>
-      )}
+      ))}
 
       {reprovado && (
         <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-3 flex items-start gap-2">
@@ -1486,19 +1510,20 @@ function ResultadoDoCiclo({
         </p>
       )}
 
-      <button
-        onClick={salvar}
-        disabled={!integrador || registrar.isPending}
-        className={`w-full h-11 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50 ${
-          reprovado ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-700 hover:bg-teal-800'
-        }`}
-      >
-        {registrar.isPending
-          ? 'Registrando…'
-          : !integrador ? 'Responda a fita do pacote-teste'
-          : reprovado ? 'Registrar reprovação'
-          : 'Liberar carga'}
-      </button>
+      {/* Nasce com a primeira resposta.
+          Antes ele ficava ali apagado dizendo "responda a fita do pacote-teste"
+          — com uma pergunta só na tela, isso era a tela explicando a si mesma. */}
+      {integrador && (
+        <button
+          onClick={salvar}
+          disabled={registrar.isPending}
+          className={`w-full h-12 rounded-lg text-base font-semibold text-white transition-colors disabled:opacity-50 animate-fade-in ${
+            reprovado ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-700 hover:bg-teal-800'
+          }`}
+        >
+          {registrar.isPending ? 'Registrando…' : reprovado ? 'Registrar reprovação' : 'Liberar carga'}
+        </button>
+      )}
     </div>
   )
 }

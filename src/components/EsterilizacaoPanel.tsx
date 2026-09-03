@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertTriangle, Biohazard, Bluetooth, BookText, Calendar, CheckCircle2, ChevronLeft, ChevronRight,
+  AlertTriangle, Biohazard, BookText, Calendar, CheckCircle2, ChevronLeft, ChevronRight,
   Clock, FileText, FlaskConical, Loader2, Package, PackageCheck, Pencil, Plus, Printer, Search,
   Square, X,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useToast } from '@/hooks/use-toast'
 import {
-  AUTOCLAVE_PADRAO, CicloEsterilizacao, DIAS_ENTRE_BIOLOGICOS, MigrationPendenteError,
+  AUTOCLAVE_PADRAO, CicloEsterilizacao, MigrationPendenteError,
   RESPONSAVEL_PADRAO, VALIDADE_MESES, formatarData, formatarHora, hojeLocal, montarLote,
   DIAS_AVISO_VENCIMENTO, garantirPacotes, proximoNumeroDoDia, resumoEsterilizacao,
   situacaoDoCiclo, somarDias, somarMeses, useAbrirCiclo, useCiclosEsterilizacao,
@@ -20,7 +20,7 @@ import {
   desenharEtiqueta, fontesProntas,
 } from '@/lib/etiqueta-esterilizacao'
 import {
-  ImpressoraEncontrada, ModoImpressao, aquecerImpressora, escolherImpressora, esquecerImpressora,
+  ImpressoraEncontrada, ModoImpressao, aquecerImpressora, escolherImpressora,
   impressaoInterrompida, imprimirEtiqueta as enviarEtiqueta, impressoraLembrada, modoImpressao,
   pararImpressao, podeListarImpressoras, procurarImpressoras,
 } from '@/lib/impressora-etiqueta'
@@ -173,8 +173,12 @@ export default function EsterilizacaoPanel() {
       {/* No celular "Novo ciclo" é a ação da tela e ocupa a linha inteira; o
           livro de registro é para a inspeção, que acontece de vez em quando, e
           recua para um ícone. No notebook os dois cabem lado a lado. */}
+      {/* A impressora não é assunto até a hora de imprimir.
+          Havia um "Conectar impressora" fixo no topo, mais o aviso de qual está
+          pronta — decisão de bastidor ocupando o lugar da lista. Agora quem
+          pergunta é o botão Imprimir: se já está conectada, imprime; se não
+          está, o seletor aparece ali, no momento em que ele faz sentido. */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <EstadoImpressora modo={modo} impressora={impressora} onMudar={setImpressora} />
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
             onClick={() => setAberto('novo')}
@@ -372,14 +376,19 @@ function Indicador({
 }) {
   return (
     <div
-      className={`snap-start shrink-0 w-32 sm:w-auto rounded border p-3 ${
+      className={`snap-start shrink-0 w-28 sm:w-auto rounded-xl border px-3 py-3 ${
         alerta ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200'
       }`}
     >
-      <div className={`flex items-center gap-1.5 text-[11px] uppercase tracking-wider ${alerta ? 'text-amber-700' : 'text-gray-400'}`}>
+      {/* O número primeiro e grande: é o que se lê de relance. O rótulo embaixo,
+          por extenso, sem caixa alta — "SEM CONFERÊNCIA" em 11px espremido era
+          mais difícil de ler do que "sem conferência". */}
+      <p className={`text-3xl font-bold leading-none tabular-nums ${alerta ? 'text-amber-800' : 'text-gray-800'}`}>
+        {valor}
+      </p>
+      <div className={`flex items-center gap-1.5 text-[11px] mt-2 ${alerta ? 'text-amber-700' : 'text-gray-400'}`}>
         {icone} <span className="truncate">{rotulo}</span>
       </div>
-      <p className={`text-2xl font-semibold mt-1 ${alerta ? 'text-amber-800' : 'text-gray-800'}`}>{valor}</p>
     </div>
   )
 }
@@ -458,191 +467,48 @@ function Cartao({ ciclo, onAbrir }: { ciclo: CicloEsterilizacao; onAbrir: (c: Ci
   return (
     <button
       onClick={() => onAbrir(ciclo)}
-      className="w-full h-full text-left bg-white border border-gray-200 rounded shadow-sm p-4 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
+      className="w-full h-full text-left bg-white border border-gray-200 rounded-xl shadow-sm p-4 hover:border-teal-500 hover:shadow-md active:scale-[0.99] transition-all group"
     >
-      <div className="flex items-start gap-3">
-        <div className="h-10 w-10 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
-          <Biohazard className="w-5 h-5 text-white" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-gray-800 group-hover:text-teal-700 transition-colors leading-snug truncate">
-            Lote {ciclo.lote}
+      {/* O lote é o que se procura, então é o que se lê primeiro e grande — é o
+          número impresso no pacote que está na mão de quem consulta. Antes ele
+          dividia a linha com um ícone e vinha no mesmo corpo do resto. */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="text-lg font-bold text-gray-800 group-hover:text-teal-700 transition-colors tabular-nums">
+            {ciclo.lote}
           </h3>
-          <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1">
-            <Calendar className="w-3 h-3" /> {formatarData(ciclo.data)}
-            <Clock className="w-3 h-3 ml-1" /> {formatarHora(ciclo.created_at)}
-            <span className="ml-1">· ciclo {String(ciclo.numero).padStart(2, '0')}</span>
-          </p>
-          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${selo.cls}`}>
-              {selo.texto}
-            </span>
-            <span
-              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
-                vencido
-                  ? 'bg-amber-50 text-amber-700 border-amber-200'
-                  : 'bg-teal-50 text-teal-700 border-teal-200'
-              }`}
-            >
-              {vencido ? 'Vencido' : 'Val'} {formatarData(ciclo.validade)}
-            </span>
-            <span className="text-[10px] text-gray-500">{ciclo.quantidade_etiquetas} etiq.</span>
-            {ciclo.autoclave && <span className="text-[10px] text-gray-500">{ciclo.autoclave}</span>}
-          </div>
-          <p className="text-[11px] text-gray-400 mt-1 truncate">
-            {ciclo.responsavel}
-            {ciclo.conteudo ? ` · ${ciclo.conteudo}` : ''}
+          <p className="text-[11px] text-gray-400 mt-0.5">
+            {formatarData(ciclo.data)} · {formatarHora(ciclo.created_at)}
           </p>
         </div>
+        <span className={`text-[10px] font-semibold px-2 py-1 rounded-md border shrink-0 ${selo.cls}`}>
+          {selo.texto}
+        </span>
+      </div>
+
+      {/* Duas linhas de rodapé com o que decide alguma coisa: quantos pacotes
+          aquele lote gerou e até quando eles valem. Autoclave, responsável e
+          conteúdo saíram — estão na etiqueta, no modal e no livro, e aqui só
+          faziam o cartão virar parágrafo. */}
+      <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-gray-100">
+        <span className="text-xs text-gray-500 flex items-center gap-1.5">
+          <Package className="w-3.5 h-3.5 text-gray-400" />
+          {ciclo.quantidade_etiquetas} pacote{ciclo.quantidade_etiquetas === 1 ? '' : 's'}
+        </span>
+        <span
+          className={`text-xs font-medium flex items-center gap-1.5 ${
+            vencido ? 'text-amber-700' : 'text-gray-500'
+          }`}
+        >
+          <Clock className="w-3.5 h-3.5" />
+          {vencido ? 'venceu' : 'vale até'} {formatarData(ciclo.validade)}
+        </span>
       </div>
     </button>
   )
 }
 
-/** Estado da impressora. No app é informação; no navegador é um botão. */
-function EstadoImpressora({
-  modo, impressora, onMudar,
-}: {
-  modo: ModoImpressao
-  impressora: Niimbot | null
-  onMudar: (i: Niimbot | null) => void
-}) {
-  const { toast } = useToast()
-  const [conectando, setConectando] = useState(false)
-  const [lembrada, setLembrada] = useState('')
-  const [buscando, setBuscando] = useState(false)
-  const [encontradas, setEncontradas] = useState<ImpressoraEncontrada[] | null>(null)
-
-  useEffect(() => {
-    if (modo === 'app') setLembrada(impressoraLembrada())
-  }, [modo])
-
-  const buscar = async () => {
-    setBuscando(true)
-    try {
-      setEncontradas(await procurarImpressoras())
-    } catch (erro: unknown) {
-      toast({
-        variant: 'destructive',
-        title: 'Não deu para procurar',
-        description: erro instanceof Error ? erro.message : 'Tente de novo',
-      })
-    } finally {
-      setBuscando(false)
-    }
-  }
-
-  const conectar = async (mostrarTodos: boolean) => {
-    setConectando(true)
-    try {
-      onMudar(await Niimbot.conectar(mostrarTodos))
-    } catch (erro: unknown) {
-      const msg = erro instanceof Error ? erro.message : 'Falha ao conectar'
-      // Cancelar o seletor do navegador não é erro que mereça alarde.
-      if (!/cancel|user/i.test(msg)) {
-        toast({ variant: 'destructive', title: 'Impressora não conectou', description: msg })
-      }
-    } finally {
-      setConectando(false)
-    }
-  }
-
-  if (modo === 'app') {
-    return (
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex items-center gap-2 text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded px-3 py-2">
-          <Printer className="w-3.5 h-3.5" />
-          {lembrada ? `${lembrada} — pronta` : 'Nenhuma impressora escolhida ainda'}
-        </div>
-        {podeListarImpressoras() && (
-          <button
-            onClick={buscar}
-            disabled={buscando}
-            className="flex items-center gap-2 h-9 px-4 rounded border border-gray-200 bg-white text-sm text-gray-600 hover:text-teal-700 hover:border-teal-500 transition-colors disabled:opacity-60"
-          >
-            {buscando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bluetooth className="w-4 h-4" />}
-            {buscando ? 'Procurando…' : 'Conectar impressora'}
-          </button>
-        )}
-
-        {encontradas && (
-          <ListaImpressoras
-            lista={encontradas}
-            onEscolher={(impressora) => {
-              escolherImpressora(impressora)
-              setLembrada(impressora.nome)
-              setEncontradas(null)
-              toast({ title: `${impressora.nome} escolhida`, description: 'As próximas etiquetas vão direto para ela.' })
-            }}
-            onFechar={() => setEncontradas(null)}
-          />
-        )}
-      </div>
-    )
-  }
-
-  if (modo === 'app-antigo') {
-    return (
-      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-        Este app é de uma versão anterior à impressão de etiquetas.{' '}
-        <a href="/vitallcam-android.apk" className="font-semibold underline underline-offset-2">
-          Baixe o app atualizado
-        </a>{' '}
-        e instale por cima — depois disso a impressora aparece aqui.
-      </p>
-    )
-  }
-
-  if (modo === 'indisponivel') {
-    return (
-      <p className="text-xs text-gray-500 bg-gray-100 border border-gray-200 rounded px-3 py-2">
-        Esta tela está aberta num navegador que não conversa com a Niimbot. Abra pelo{' '}
-        <a href="/vitallcam-android.apk" className="font-semibold underline underline-offset-2">
-          app da clínica
-        </a>{' '}
-        ou pelo Chrome — ou use "Imprimir na folha" e recorte.
-      </p>
-    )
-  }
-
-  if (impressora?.conectado) {
-    return (
-      <div className="flex items-center gap-2 text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded px-3 py-2">
-        <Bluetooth className="w-3.5 h-3.5" />
-        {impressora.nome} conectada
-        <button
-          onClick={() => { impressora.desconectar(); onMudar(null) }}
-          className="text-gray-400 hover:text-gray-600"
-          title="Desconectar"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={() => conectar(false)}
-        disabled={conectando}
-        className="flex items-center gap-2 h-9 px-4 rounded border border-gray-200 bg-white text-sm text-gray-600 hover:text-teal-700 hover:border-teal-500 transition-colors disabled:opacity-60"
-      >
-        {conectando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bluetooth className="w-4 h-4" />}
-        Conectar impressora
-      </button>
-      <button
-        onClick={() => conectar(true)}
-        className="text-xs text-gray-400 hover:text-teal-700 underline underline-offset-2"
-        title="Mostra todos os aparelhos Bluetooth, caso a impressora anuncie outro nome"
-      >
-        não aparece?
-      </button>
-    </div>
-  )
-}
-
-/** Lista do que apareceu no ar — a pessoa toca na impressora dela. */
+/** Escolha da Niimbot, aberta pelo botão Imprimir quando ainda não há uma. */
 function ListaImpressoras({
   lista, onEscolher, onFechar,
 }: {
@@ -720,6 +586,8 @@ function ModalEtiqueta({
   // Ciclo por conferir abre na conferência; ciclo já conferido e ciclo novo vão
   // direto para a impressão, que é o que se quer deles.
   const [avancado, setAvancado] = useState(false)
+  const [impressorasAchadas, setImpressorasAchadas] = useState<ImpressoraEncontrada[] | null>(null)
+  const [buscandoImpressora, setBuscandoImpressora] = useState(false)
   const [passo, setPasso] = useState<'conferir' | 'imprimir'>(
     ciclo && !ciclo.integrador_quimico ? 'conferir' : 'imprimir',
   )
@@ -829,6 +697,22 @@ function ModalEtiqueta({
       if (modo === 'navegador' && !conectada?.conectado) {
         conectada = await Niimbot.conectar(false)
         onImpressora(conectada)
+      }
+
+      // No app, primeira impressão do aparelho: em vez de exigir um "conectar"
+      // antes, a lista aparece agora — e antes de gravar o ciclo, para não
+      // deixar lote aberto por causa de uma escolha que ainda não foi feita.
+      if (modo === 'app' && !impressoraLembrada() && podeListarImpressoras()) {
+        setProgresso(null)
+        setBuscandoImpressora(true)
+        try {
+          setImpressorasAchadas(await procurarImpressoras())
+        } catch (erro: unknown) {
+          setUltimoErro(erro instanceof Error ? erro.message : 'Não deu para procurar a impressora')
+        } finally {
+          setBuscandoImpressora(false)
+        }
+        return
       }
 
       // Ciclo novo grava antes de imprimir: o número do lote é do banco, não do
@@ -942,6 +826,22 @@ function ModalEtiqueta({
         conectada = await Niimbot.conectar(false)
         onImpressora(conectada)
       }
+
+      // No app, primeira impressão do aparelho: em vez de exigir um "conectar"
+      // antes, a lista aparece agora — e antes de gravar o ciclo, para não
+      // deixar lote aberto por causa de uma escolha que ainda não foi feita.
+      if (modo === 'app' && !impressoraLembrada() && podeListarImpressoras()) {
+        setProgresso(null)
+        setBuscandoImpressora(true)
+        try {
+          setImpressorasAchadas(await procurarImpressoras())
+        } catch (erro: unknown) {
+          setUltimoErro(erro instanceof Error ? erro.message : 'Não deu para procurar a impressora')
+        } finally {
+          setBuscandoImpressora(false)
+        }
+        return
+      }
       setUltimoErro(null)
       await fontesProntas()
       await enviarEtiqueta(
@@ -1033,7 +933,7 @@ function ModalEtiqueta({
     else setTimeout(mandar, 300)
   }
 
-  const ocupado = progresso !== null || abrirCiclo.isPending
+  const ocupado = progresso !== null || abrirCiclo.isPending || buscandoImpressora
   const campoClasse = 'w-full h-9 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-500'
   const bloqueado = !!ciclo || !editando
 
@@ -1041,11 +941,11 @@ function ModalEtiqueta({
   // é no celular que esta tela vai ser usada de verdade. No notebook, centrada.
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 animate-fade-in"
       onClick={() => !ocupado && onFechar()}
     >
       <div
-        className="clean-dialog w-full sm:max-w-lg h-[92dvh] sm:h-auto sm:max-h-[90vh] flex flex-col bg-white rounded-t-2xl sm:rounded-xl shadow-2xl"
+        className="w-full sm:max-w-lg h-[88dvh] sm:h-auto sm:max-h-[90vh] flex flex-col bg-white rounded-t-2xl sm:rounded-xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Puxador: no celular a caixa parece arrastável, e sem ele fica com
@@ -1216,8 +1116,26 @@ function ModalEtiqueta({
             )}
           </div>
 
+          {/* Só aparece quando há um beco sem saída: APK velho ou navegador que
+              não fala Bluetooth. Impressora funcionando não vira aviso. */}
+          {modo === 'app-antigo' && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+              Este app é anterior à impressão de etiquetas.{' '}
+              <a href="/vitallcam-android.apk" className="font-semibold underline underline-offset-2">
+                Baixe o app atualizado
+              </a>{' '}
+              e instale por cima.
+            </p>
+          )}
+          {modo === 'indisponivel' && (
+            <p className="text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded-lg p-3">
+              Este navegador não conversa com a Niimbot. Abra pelo app da clínica ou pelo Chrome —
+              ou use o botão de folha aqui do lado e recorte.
+            </p>
+          )}
+
           {ultimoErro && (
-            <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-3">
+            <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
               {ultimoErro}
             </p>
           )}
@@ -1268,8 +1186,10 @@ function ModalEtiqueta({
               onClick={imprimir}
               className="flex-1 flex items-center justify-center gap-2 h-12 rounded-lg text-base font-semibold bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white transition-all"
             >
-              <Printer className="w-4 h-4" />
-              {quantidadeInvalida ? 'Imprimir' : `Imprimir ${quantidade}`}
+              {buscandoImpressora ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+              {buscandoImpressora
+                ? 'Procurando a impressora…'
+                : quantidadeInvalida ? 'Imprimir' : `Imprimir ${quantidade}`}
             </button>
           )}
           {!ocupado && (
@@ -1283,6 +1203,18 @@ function ModalEtiqueta({
           )}
         </div>
         </>
+        )}
+
+        {impressorasAchadas && (
+          <ListaImpressoras
+            lista={impressorasAchadas}
+            onEscolher={(escolhida) => {
+              escolherImpressora(escolhida)
+              setImpressorasAchadas(null)
+              toast({ title: `${escolhida.nome} escolhida`, description: 'Toque em imprimir de novo.' })
+            }}
+            onFechar={() => setImpressorasAchadas(null)}
+          />
         )}
       </div>
     </div>

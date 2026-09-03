@@ -596,16 +596,20 @@ function Cartao({ ciclo, onAbrir }: { ciclo: CicloEsterilizacao; onAbrir: (c: Ci
   return (
     <button
       onClick={() => onAbrir(ciclo)}
-      // A tarja da esquerda é reta e o resto do cartão é arredondado: a borda
-      // acompanhando o canto virava contorno, e contorno se lê como moldura. Reta
-      // ela vira marcador — dá para varrer a fileira e ver onde tem pendência sem
-      // ler nada. Verde conferido, amarelo a conferir, vermelho reprovado.
-      className={`w-full h-full text-left bg-white border border-gray-200 border-l-[5px] rounded-l-none rounded-r-xl shadow-sm p-4 hover:shadow-md active:scale-[0.99] transition-all group ${
-        situacao === 'reprovado' ? 'border-l-red-500'
-        : situacao === 'pendente' ? 'border-l-amber-400'
-        : 'border-l-teal-600'
-      }`}
+      className="relative w-full h-full text-left bg-white border border-gray-200 rounded-xl shadow-sm p-4 pl-5 hover:shadow-md active:scale-[0.99] transition-all group overflow-hidden"
     >
+      {/* Marcador de situação: reto, colado à esquerda, mas SEM ir de ponta a
+          ponta. Ocupando a altura inteira ele virava a lateral do cartão e se
+          lia como moldura; recuado em cima e embaixo, volta a ser um sinal.
+          Verde conferido, amarelo a conferir, vermelho reprovado. */}
+      <span
+        className={`absolute left-0 top-4 bottom-4 w-[5px] ${
+          situacao === 'reprovado' ? 'bg-red-500'
+          : situacao === 'pendente' ? 'bg-amber-400'
+          : 'bg-teal-600'
+        }`}
+      />
+
       {/* O lote é o que se procura, então é o que se lê primeiro e grande — é o
           número impresso no pacote que está na mão de quem consulta. Antes ele
           dividia a linha com um ícone e vinha no mesmo corpo do resto. */}
@@ -798,6 +802,20 @@ function ModalEtiqueta({
     if (canvasRef.current) desenhar(canvasRef.current)
   }, [desenhar, comFontes])
 
+  /**
+   * Desenha no momento em que o canvas entra na tela.
+   *
+   * O efeito acima só roda quando os dados mudam, e para um ciclo já existente o
+   * modal abre no passo da conferência — o canvas ainda não existe, o efeito
+   * desenha em `null` e, quando o passo vira "imprimir" e o canvas aparece,
+   * nada mais o redesenha: prévia em branco. Um ref de função resolve na raiz,
+   * porque ele é chamado exatamente quando o elemento monta.
+   */
+  const montarCanvas = useCallback((el: HTMLCanvasElement | null) => {
+    canvasRef.current = el
+    if (el) desenhar(el)
+  }, [desenhar])
+
   const imprimir = async () => {
     if (quantidadeInvalida) {
       setAvisouQuantidade(true)
@@ -982,7 +1000,10 @@ function ModalEtiqueta({
   }
 
   const ocupado = progresso !== null || abrirCiclo.isPending || buscandoImpressora
-  const campoClasse = 'w-full h-9 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-500'
+  // Mesmo raio, mesma altura de toque e mesmo foco dourado do resto da tela.
+  // Estes campos tinham ficado no desenho antigo — 36px, canto pequeno, foco
+  // teal — e destoavam de tudo o que passou a ser 48px e arredondado.
+  const campoClasse = 'w-full h-12 px-3 rounded-lg border border-gray-200 text-base sm:text-sm text-gray-700 focus:border-dourado-400 focus:ring-2 focus:ring-dourado-100 focus:outline-none transition-all disabled:bg-gray-50 disabled:text-gray-500'
   const bloqueado = !!ciclo || !editando
 
   // No celular a caixa sobe do rodapé: é onde o polegar está, e é no celular
@@ -1054,7 +1075,7 @@ function ModalEtiqueta({
                 dentro da própria moldura — o branco dela é o que precisa saltar,
                 porque é o adesivo de verdade. */}
             <canvas
-              ref={canvasRef}
+              ref={montarCanvas}
               className="max-w-full h-auto bg-white rounded shadow-md"
               style={{ imageRendering: 'pixelated' }}
             />
@@ -1075,13 +1096,10 @@ function ModalEtiqueta({
 
 
           {editando && !ciclo && (
-          <div className="grid grid-cols-2 gap-3">
-            <Campo rotulo="Lote">
-              <input value={lote} readOnly className={`${campoClasse} font-semibold bg-gray-50`} />
-            </Campo>
-            <Campo rotulo="Ciclo do dia">
-              <input value={String(numero).padStart(2, '0')} readOnly className={`${campoClasse} bg-gray-50`} />
-            </Campo>
+          <div className="rounded-xl border border-dourado-200 bg-dourado-50/40 p-4 grid grid-cols-2 gap-3">
+            {/* Lote e ciclo não entram aqui: quem numera é o banco, na hora de
+                gravar, e mostrar os dois em campo cinza só ensinava que dava
+                para mexer. Eles já aparecem na prévia, que é o que vai sair. */}
             <Campo rotulo="Esterilizado em">
               <input
                 type="date"

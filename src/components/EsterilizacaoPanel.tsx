@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Biohazard, Bluetooth, BookText, Calendar, CheckCircle2, ChevronLeft, ChevronRight,
-  Clock, FlaskConical, Loader2, Package, PackageCheck, Pencil, Plus, Printer, Search, Square, X,
+  Clock, FileText, FlaskConical, Loader2, Package, PackageCheck, Pencil, Plus, Printer, Search,
+  Square, X,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useToast } from '@/hooks/use-toast'
@@ -698,6 +699,17 @@ function ModalEtiqueta({
   // da semana está atrasado em vez de esperar alguém lembrar.
   const biologicoVencido = useMemo(() => resumoEsterilizacao(ciclos).biologicoVencido, [ciclos])
 
+  // Um assunto por vez. Antes o modal abria com dados do ciclo, conferência e
+  // impressão empilhados: três perguntas diferentes na mesma tela, e a mais
+  // importante — "deu certo?" — no meio, onde ninguém para para responder.
+  //
+  // Ciclo por conferir abre na conferência; ciclo já conferido e ciclo novo vão
+  // direto para a impressão, que é o que se quer deles.
+  const [avancado, setAvancado] = useState(false)
+  const [passo, setPasso] = useState<'conferir' | 'imprimir'>(
+    ciclo && !ciclo.integrador_quimico ? 'conferir' : 'imprimir',
+  )
+
   const [ajustes, setAjustes] = useState<Ajustes>(AJUSTES_PADRAO)
   useEffect(() => setAjustes(lerAjustes()), [])
   const restaurarAjustes = () => {
@@ -1021,12 +1033,14 @@ function ModalEtiqueta({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
-          <div>
-            <h2 className="text-base font-semibold text-gray-800">
-              {ciclo ? `Ciclo ${ciclo.lote}` : 'Novo ciclo'}
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-gray-800 truncate">
+              {ciclo ? `Lote ${ciclo.lote}` : 'Novo ciclo'}
             </h2>
             <p className="text-xs text-gray-400">
-              {ciclo ? 'Reimprimir etiquetas deste lote' : 'Tudo preenchido — confira e imprima'}
+              {passo === 'conferir'
+                ? 'Antes de imprimir: o ciclo deu certo?'
+                : ciclo ? 'Imprimir etiquetas deste lote' : 'Já vem preenchido — só dizer quantas'}
             </p>
           </div>
           <button onClick={onFechar} disabled={ocupado} className="text-gray-400 hover:text-gray-600 disabled:opacity-40">
@@ -1034,6 +1048,25 @@ function ModalEtiqueta({
           </button>
         </div>
 
+        {passo === 'conferir' && ciclo && (
+          <div className="p-5 space-y-4">
+            <ResultadoDoCiclo
+              ciclo={ciclo}
+              responsavelPadrao={responsavel}
+              biologicoVencido={biologicoVencido}
+              onPronto={() => setPasso('imprimir')}
+            />
+            <button
+              onClick={() => setPasso('imprimir')}
+              className="w-full h-10 rounded-lg text-sm font-medium text-gray-500 hover:text-teal-700 hover:bg-gray-50 transition-colors"
+            >
+              Agora não — só quero imprimir
+            </button>
+          </div>
+        )}
+
+        {passo === 'imprimir' && (
+        <>
         <div className="p-5 space-y-4">
           {/* A prévia é o próprio desenho que vai para a impressora, em 203 dpi:
               o que estiver ilegível aqui vai sair ilegível no adesivo. */}
@@ -1045,6 +1078,28 @@ function ModalEtiqueta({
             />
           </div>
 
+          {/* Uma linha diz o ciclo inteiro. Os campos existem para o dia que foge
+              do padrão, e é só nesse dia que eles aparecem — o dia normal é
+              dizer quantas e apertar imprimir. */}
+          <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
+            <span className="font-semibold text-gray-700">{lote}</span>
+            <span className="text-gray-300">·</span>
+            <span>ciclo {String(numero).padStart(2, '0')}</span>
+            <span className="text-gray-300">·</span>
+            <span>val. {formatarData(validade)}</span>
+            <span className="text-gray-300">·</span>
+            <span className="truncate">{autoclave} · {responsavel}</span>
+            {!ciclo && (
+              <button
+                onClick={() => setEditando((v) => !v)}
+                className="ml-auto flex items-center gap-1 text-teal-700 hover:text-teal-800 font-medium shrink-0"
+              >
+                <Pencil className="w-3 h-3" /> {editando ? 'pronto' : 'editar'}
+              </button>
+            )}
+          </div>
+
+          {editando && !ciclo && (
           <div className="grid grid-cols-2 gap-3">
             <Campo rotulo="Lote">
               <input value={lote} readOnly className={`${campoClasse} font-semibold bg-gray-50`} />
@@ -1098,30 +1153,15 @@ function ModalEtiqueta({
               </Campo>
             </div>
           </div>
-
-          {ciclo && (
-            <ResultadoDoCiclo
-              ciclo={ciclo}
-              responsavelPadrao={responsavel}
-              biologicoVencido={biologicoVencido}
-            />
           )}
 
-          {!ciclo && (
-            <button
-              onClick={() => setEditando((v) => !v)}
-              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-teal-700"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              {editando ? 'Voltar ao padrão preenchido' : 'Editar os dados deste ciclo'}
-            </button>
-          )}
-
+          {/* A pergunta da tela. Tudo o mais aqui é contexto; isto é o que a
+              pessoa veio responder, então é o que tem o maior alvo de toque. */}
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-2">
-              Quantas etiquetas (uma por pacote)
+            <p className="text-sm text-gray-700 mb-2">
+              Quantas etiquetas? <span className="text-gray-400">(uma por pacote)</span>
               {avisouQuantidade && quantidadeInvalida && (
-                <span className="ml-2 text-red-600">diga quantas antes de imprimir</span>
+                <span className="ml-2 text-red-600 font-medium">diga quantas antes de imprimir</span>
               )}
             </p>
             <div className="flex items-center gap-2 flex-wrap">
@@ -1129,7 +1169,7 @@ function ModalEtiqueta({
                 <button
                   key={n}
                   onClick={() => { setQuantidadeTexto(String(n)); setAvisouQuantidade(false) }}
-                  className={`h-9 w-12 rounded text-sm font-semibold border transition-colors ${
+                  className={`h-12 w-14 rounded-lg text-base font-semibold border transition-colors ${
                     quantidade === n
                       ? 'bg-teal-700 text-white border-teal-700'
                       : 'bg-white text-gray-600 border-gray-200 hover:border-teal-500 hover:text-teal-700'
@@ -1142,12 +1182,13 @@ function ModalEtiqueta({
                 type="text"
                 inputMode="numeric"
                 maxLength={3}
-                value={quantidadeTexto}
+                placeholder="outra"
+                value={QUANTIDADES.includes(quantidade) ? '' : quantidadeTexto}
                 onChange={(e) => {
                   setQuantidadeTexto(e.target.value.replace(/\D/g, ''))
                   setAvisouQuantidade(false)
                 }}
-                className={`h-9 w-20 px-3 rounded border text-sm focus:outline-none ${
+                className={`h-12 w-20 px-3 rounded-lg border text-base text-center focus:outline-none ${
                   avisouQuantidade && quantidadeInvalida
                     ? 'border-red-400 bg-red-50 text-red-700 focus:border-red-500'
                     : 'border-gray-200 text-gray-700 focus:border-teal-500'
@@ -1156,14 +1197,6 @@ function ModalEtiqueta({
             </div>
           </div>
 
-          <AjustesImpressora
-            ajustes={ajustes}
-            onMudar={salvarAjustes}
-            onRestaurar={restaurarAjustes}
-            onTestar={imprimirTeste}
-            ocupado={ocupado}
-          />
-
           {ultimoErro && (
             <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-3">
               {ultimoErro}
@@ -1171,38 +1204,67 @@ function ModalEtiqueta({
           )}
 
           {progresso !== null && (
-            <div className="h-1.5 rounded bg-gray-100 overflow-hidden">
+            <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
               <div className="h-full bg-teal-600 transition-all" style={{ width: `${progresso}%` }} />
+            </div>
+          )}
+
+          {/* Os ajustes do rolo ficam guardados, não removidos.
+              Depois de calibrados ninguém mexe neles de novo, e eles enchiam a
+              tela de decisões que não são do dia a dia. Mas apagar seria trocar
+              "tela cheia" por "sem saída" no dia que o rolo mudar de
+              fornecedor — aí só um deploy resolveria. */}
+          {!ocupado && (
+            <div className="pt-1">
+              {avancado ? (
+                <AjustesImpressora
+                  ajustes={ajustes}
+                  onMudar={salvarAjustes}
+                  onRestaurar={restaurarAjustes}
+                  onTestar={imprimirTeste}
+                  ocupado={ocupado}
+                />
+              ) : (
+                <button
+                  onClick={() => setAvancado(true)}
+                  className="text-[11px] text-gray-300 hover:text-gray-500 transition-colors"
+                >
+                  ajustes do rolo e da impressora
+                </button>
+              )}
             </div>
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-2 px-5 py-4 border-t border-gray-100 flex-wrap">
-          <button
-            onClick={imprimirNaFolha}
-            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-teal-700"
-            title="Manda para a impressora comum, no tamanho real, com contorno para cortar"
-          >
-            <Printer className="w-3.5 h-3.5" /> Imprimir na folha
-          </button>
-          {ocupado && (
+        <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-100">
+          {ocupado ? (
             <button
               onClick={pararImpressao}
-              className="flex items-center gap-2 px-5 h-10 rounded text-sm font-semibold border border-red-300 text-red-700 bg-white hover:bg-red-50 transition-colors"
-              title="Para o lote: o que já saiu continua valendo"
+              className="flex-1 flex items-center justify-center gap-2 h-12 rounded-lg text-base font-semibold border-2 border-red-300 text-red-700 bg-white hover:bg-red-50 transition-colors"
             >
-              <Square className="w-3.5 h-3.5 fill-current" /> Parar
+              <Square className="w-4 h-4 fill-current" /> Parar impressão
+            </button>
+          ) : (
+            <button
+              onClick={imprimir}
+              className="flex-1 flex items-center justify-center gap-2 h-12 rounded-lg text-base font-semibold bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white transition-all"
+            >
+              <Printer className="w-4 h-4" />
+              {quantidadeInvalida ? 'Imprimir' : `Imprimir ${quantidade}`}
             </button>
           )}
-          <button
-            onClick={imprimir}
-            disabled={ocupado}
-            className="flex items-center gap-2 px-6 h-10 rounded text-sm font-semibold bg-teal-700 text-white hover:bg-teal-800 transition-colors disabled:opacity-60"
-          >
-            {ocupado ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-            {ocupado ? 'Imprimindo…' : quantidadeInvalida ? 'Imprimir' : `Imprimir ${quantidade}`}
-          </button>
+          {!ocupado && (
+            <button
+              onClick={imprimirNaFolha}
+              title="Sai na impressora comum, no tamanho real, com contorno para cortar"
+              className="h-12 w-12 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:text-teal-700 hover:border-teal-500 transition-colors shrink-0"
+            >
+              <FileText className="w-4 h-4" />
+            </button>
+          )}
         </div>
+        </>
+        )}
       </div>
     </div>
   )
@@ -1227,12 +1289,14 @@ function ModalEtiqueta({
  * tela pede a mesma coisa todo dia.
  */
 function ResultadoDoCiclo({
-  ciclo, responsavelPadrao, biologicoVencido,
+  ciclo, responsavelPadrao, biologicoVencido, onPronto,
 }: {
   ciclo: CicloEsterilizacao
   responsavelPadrao: string
   /** O biológico da semana está em atraso — a tela avisa em vez de cobrar memória. */
   biologicoVencido: boolean
+  /** Respondida a conferência, o modal segue para a impressão. */
+  onPronto?: () => void
 }) {
   const { toast } = useToast()
   const registrar = useRegistrarMonitoramento()
@@ -1266,6 +1330,7 @@ function ResultadoDoCiclo({
         por: responsavelPadrao,
       })
       setCorrigindo(false)
+      onPronto?.()
       toast({
         title: reprovado ? 'Ciclo reprovado' : 'Carga liberada',
         description: reprovado

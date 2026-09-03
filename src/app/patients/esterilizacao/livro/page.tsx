@@ -35,6 +35,13 @@ export default function LivroEsterilizacaoPage() {
 
   return (
     <div className="min-h-full bg-gray-50 p-4 sm:p-6 print:bg-white print:p-0">
+      {/* Sem isto o navegador descarta os fundos na impressão e a zebra some
+          justamente onde ela mais serve, que é no papel. */}
+      <style jsx global>{`
+        @media print {
+          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+      `}</style>
       <div className="max-w-5xl mx-auto">
         <div className="flex items-center gap-3 mb-6 print:hidden">
           <button
@@ -63,14 +70,24 @@ export default function LivroEsterilizacaoPage() {
         </div>
 
         <div className="bg-white border border-gray-200 rounded p-6 print:border-0 print:p-0">
-          <header className="mb-4">
-            <h2 className="text-lg font-semibold text-gray-800">
-              Registro de esterilização — Clínica Vitall
-            </h2>
-            <p className="text-xs text-gray-500">
-              RDC Anvisa 1.002/2025 · {mesPorExtenso(mes)} · {doMes.length} ciclos ·{' '}
-              {pacotes} pacotes · {biologicos} teste(s) biológico(s)
-            </p>
+          {/* Papel timbrado: quem recebe o livro na inspeção precisa saber de
+              qual clínica ele é sem depender do que foi dito na entrega. */}
+          <header className="mb-5 pb-4 border-b-2 border-dourado-400 flex items-center gap-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/assets/images/logo-doc.png"
+              alt="Clínica Vitall"
+              className="h-12 w-auto shrink-0"
+            />
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold text-gray-800">
+                Registro de esterilização
+              </h2>
+              <p className="text-xs text-gray-500">
+                RDC Anvisa 1.002/2025 · {mesPorExtenso(mes)} · {doMes.length} ciclos ·{' '}
+                {pacotes} pacotes · {biologicos} teste(s) biológico(s)
+              </p>
+            </div>
           </header>
 
           {doMes.length === 0 ? (
@@ -79,7 +96,7 @@ export default function LivroEsterilizacaoPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-[11px] border-collapse">
                 <thead>
-                  <tr className="text-left text-gray-500 border-b border-gray-300">
+                  <tr className="text-left text-dourado-800 bg-dourado-50 border-b-2 border-dourado-300">
                     <th className="py-1.5 pr-2">Data</th>
                     <th className="py-1.5 pr-2">Hora</th>
                     <th className="py-1.5 pr-2">Lote</th>
@@ -94,7 +111,10 @@ export default function LivroEsterilizacaoPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {doMes.map((ciclo) => <Linha key={ciclo.id} ciclo={ciclo} />)}
+                  {/* Zebra em dourado claro: numa tabela de onze colunas o olho
+                      perde a linha no meio do caminho, e quem confere lê
+                      atravessado — data numa linha, biológico na de baixo. */}
+                  {doMes.map((ciclo, i) => <Linha key={ciclo.id} ciclo={ciclo} par={i % 2 === 1} />)}
                 </tbody>
               </table>
             </div>
@@ -116,7 +136,7 @@ export default function LivroEsterilizacaoPage() {
   )
 }
 
-function Linha({ ciclo }: { ciclo: CicloEsterilizacao }) {
+function Linha({ ciclo, par }: { ciclo: CicloEsterilizacao; par: boolean }) {
   const situacao = situacaoDoCiclo(ciclo)
   const texto: Record<string, string> = {
     pendente: 'não conferido',
@@ -125,7 +145,11 @@ function Linha({ ciclo }: { ciclo: CicloEsterilizacao }) {
   }
 
   return (
-    <tr className={`border-b border-gray-100 ${situacao === 'reprovado' ? 'text-red-700 font-medium' : 'text-gray-700'}`}>
+    <tr
+      className={`border-b border-gray-100 ${
+        situacao === 'reprovado' ? 'text-red-700 font-medium bg-red-50' : 'text-gray-700'
+      } ${par && situacao !== 'reprovado' ? 'bg-dourado-50/60' : ''}`}
+    >
       <td className="py-1.5 pr-2 whitespace-nowrap">{formatarData(ciclo.data)}</td>
       <td className="py-1.5 pr-2">{formatarHora(ciclo.created_at)}</td>
       <td className="py-1.5 pr-2 font-semibold">{ciclo.lote}</td>

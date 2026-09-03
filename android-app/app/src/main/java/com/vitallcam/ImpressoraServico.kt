@@ -71,7 +71,11 @@ class ImpressoraServico : Service() {
         return android.app.Notification.Builder(this, CANAL)
             .setContentTitle("Impressora de etiquetas conectada")
             .setContentText("A Niimbot fica pronta para a próxima etiqueta, mesmo com o app fechado.")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            // O ícone da notificação precisa ser um silhueta branca em fundo
+            // transparente — a barra de status recolore sozinha. O ícone do app
+            // (colorido) aqui virava uma bolinha cinza genérica, porque o Android
+            // ignora a cor de um ícone que não segue essa regra.
+            .setSmallIcon(R.drawable.ic_notificacao)
             .setOngoing(true)
             .setContentIntent(toque)
             .build()

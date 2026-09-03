@@ -154,17 +154,52 @@ export default function EsterilizacaoPanel() {
   const resumo = useMemo(() => resumoEsterilizacao(ciclos || []), [ciclos])
   const { data: estoque } = useEstoquePacotes()
 
-  // A busca é pelo lote impresso no pacote: é assim que a fiscalização chega ao
-  // registro — pega um pacote do estoque, lê a etiqueta e pede o ciclo dela.
+  /**
+   * Busca por qualquer coisa que esteja no ciclo.
+   *
+   * Era só o lote, porque é assim que a fiscalização chega ao registro: pega um
+   * pacote, lê a etiqueta, pede o ciclo. Mas de dentro da clínica a pergunta
+   * quase nunca é essa — é "o que a Jéssica esterilizou na terça?", "quais
+   * ciclos ainda não foram conferidos", "cadê o kit exame". Cada uma dessas
+   * pedia rolar a lista com o olho.
+   *
+   * Data entra em qualquer formato que se digita de verdade: 02/09, 2/9,
+   * 02/09/2026 ou 2026-09-02 — quem procura pela terça não escreve ISO.
+   */
   const [busca, setBusca] = useState('')
   const achados = useMemo(() => {
-    const alvo = busca.replace(/\s/g, '').toLowerCase()
-    if (alvo.length < 2) return null
-    // Aceita tanto o lote (0901-02) quanto o código do pacote (0901-02-03): é o
-    // pacote que está impresso, e ninguém vai apagar mentalmente o final dele.
-    return (ciclos || []).filter(
-      (c) => c.lote.toLowerCase().includes(alvo) || alvo.startsWith(c.lote.toLowerCase()),
-    )
+    const cru = busca.trim().toLowerCase()
+    if (cru.length < 2) return null
+    const semEspaco = cru.replace(/\s/g, '')
+
+    // dd/mm[/aaaa] vira o aaaa-mm-dd do banco; ano faltando é o ano corrente.
+    const comoData = (() => {
+      const m = semEspaco.match(/^(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?$/)
+      if (!m) return null
+      const [, d, mes, ano] = m
+      const cheio = !ano ? hojeLocal().slice(0, 4)
+        : ano.length === 2 ? `20${ano}`
+        : ano
+      return `${cheio}-${mes.padStart(2, '0')}-${d.padStart(2, '0')}`
+    })()
+
+    const situacaoBuscada =
+      /reprov/.test(cru) ? 'reprovado'
+      : /liber/.test(cru) ? 'liberado'
+      : /pendent|conferir|sem confer/.test(cru) ? 'pendente'
+      : null
+
+    return (ciclos || []).filter((c) => {
+      const lote = c.lote.toLowerCase()
+      // O código do pacote (0901-02-03) contém o lote: quem digita o código
+      // inteiro tem que achar o ciclo dele, sem apagar o final mentalmente.
+      if (lote.includes(semEspaco) || semEspaco.startsWith(lote)) return true
+      if (comoData && c.data === comoData) return true
+      if (c.data.includes(semEspaco)) return true
+      if (situacaoBuscada && situacaoDoCiclo(c) === situacaoBuscada) return true
+      return [c.responsavel, c.autoclave, c.conteudo]
+        .some((campo) => (campo || '').toLowerCase().includes(cru))
+    })
   }, [busca, ciclos])
 
   return (
@@ -206,13 +241,12 @@ export default function EsterilizacaoPanel() {
 
       {!migrationPendente && (grupos.length > 0 || busca) && (
         <div className="relative">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-dourado-500 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar pelo lote do pacote (ex.: 0831-02)"
-            inputMode="numeric"
-            className="w-full h-12 sm:h-10 pl-9 pr-9 rounded-lg border border-gray-200 text-base sm:text-sm text-gray-700 focus:border-teal-500 focus:outline-none"
+            placeholder="Lote, data, responsável, autoclave, conteúdo…"
+            className="w-full h-12 sm:h-10 pl-9 pr-9 rounded-lg border border-gray-200 text-base sm:text-sm text-gray-700 focus:border-dourado-400 focus:ring-2 focus:ring-dourado-100 focus:outline-none transition-all"
           />
           {busca && (
             <button
@@ -288,6 +322,52 @@ export default function EsterilizacaoPanel() {
  * lote de um pacote qualquer do estoque. Descobrir o atraso no dia da visita é
  * tarde demais — então o número de dias fica na cara, sempre.
  */
+/**
+ * Os cinco números da faixa, com o que cada um quer dizer.
+ *
+ * A explicação mora aqui e não no cartão porque no celular o rótulo já vive
+ * truncado: cabe o número, não a frase. Quem quiser a frase toca no cartão.
+ */
+const NUMEROS: {
+  rotulo: string
+  explicacao: string
+  icone: React.ReactNode
+  valor: (r: ReturnType<typeof resumoEsterilizacao>, e?: { total: number }) => number
+  alerta?: (valor: number) => boolean
+}[] = [
+  {
+    rotulo: 'ciclos hoje',
+    explicacao: 'Quantas cargas foram para a autoclave hoje. Cada uma vira um lote, numerado na ordem do dia.',
+    icone: <Biohazard className="w-4 h-4" />,
+    valor: (r) => r.ciclosHoje,
+  },
+  {
+    rotulo: 'pacotes hoje',
+    explicacao: 'Somando todos os ciclos de hoje, quantos pacotes de grau cirúrgico foram etiquetados.',
+    icone: <Package className="w-4 h-4" />,
+    valor: (r) => r.pacotesHoje,
+  },
+  {
+    rotulo: 'ciclos no mês',
+    explicacao: 'Total do mês corrente. É o número que aparece no cabeçalho do livro de registro entregue na inspeção.',
+    icone: <Calendar className="w-4 h-4" />,
+    valor: (r) => r.ciclosMes,
+  },
+  {
+    rotulo: 'sem conferência',
+    explicacao: 'Ciclos que ainda não tiveram o integrador químico registrado. Sem essa resposta a carga não está formalmente liberada — e é o primeiro lugar onde a fiscalização olha.',
+    icone: <Clock className="w-4 h-4" />,
+    valor: (r) => r.pendentes,
+    alerta: (v) => v > 0,
+  },
+  {
+    rotulo: 'pacotes no estoque',
+    explicacao: 'Pacotes esterilizados que ainda não foram usados em ninguém. Cai sozinho quando um pacote é vinculado a um paciente.',
+    icone: <PackageCheck className="w-4 h-4" />,
+    valor: (_r, e) => e?.total ?? 0,
+  },
+]
+
 function Resumo({
   resumo, estoque,
 }: {
@@ -299,6 +379,9 @@ function Resumo({
   // "Teste biológico há 2 dias — em dia" era uma faixa colorida permanente
   // dizendo que estava tudo certo, e faixa que aparece sempre para de ser lida.
   // O que precisa de espaço na tela é o problema, não a ausência dele.
+  const [detalhe, setDetalhe] = useState<string | null>(null)
+  const aberto = NUMEROS.find((n) => n.rotulo === detalhe) ?? null
+
   const biologicoAtrasado = resumo.diasSemBiologico === null || resumo.biologicoVencido
   const textoBiologico = resumo.diasSemBiologico === null
     ? 'Teste biológico nunca registrado'
@@ -312,21 +395,30 @@ function Resumo({
           a lista, não o resumo. No desktop sobra largura, então ficam os cinco
           lado a lado. */}
       <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory scroll-smooth [&::-webkit-scrollbar]:hidden [scrollbar-width:none] sm:grid sm:grid-cols-5 sm:overflow-visible sm:mx-0 sm:px-0 sm:pb-0">
-        <Indicador icone={<Biohazard className="w-4 h-4" />} valor={resumo.ciclosHoje} rotulo="ciclos hoje" />
-        <Indicador icone={<Package className="w-4 h-4" />} valor={resumo.pacotesHoje} rotulo="pacotes hoje" />
-        <Indicador icone={<Calendar className="w-4 h-4" />} valor={resumo.ciclosMes} rotulo="ciclos no mês" />
-        <Indicador
-          icone={<Clock className="w-4 h-4" />}
-          valor={resumo.pendentes}
-          rotulo="sem conferência"
-          alerta={resumo.pendentes > 0}
-        />
-        <Indicador
-          icone={<PackageCheck className="w-4 h-4" />}
-          valor={estoque?.total ?? 0}
-          rotulo="pacotes no estoque"
-        />
+        {NUMEROS.map((n) => {
+          const valor = n.valor(resumo, estoque)
+          return (
+            <Indicador
+              key={n.rotulo}
+              icone={n.icone}
+              valor={valor}
+              rotulo={n.rotulo}
+              alerta={n.alerta?.(valor)}
+              onAbrir={() => setDetalhe(n.rotulo)}
+            />
+          )
+        })}
       </div>
+
+      {aberto && (
+        <DetalheIndicador
+          valor={aberto.valor(resumo, estoque)}
+          rotulo={aberto.rotulo}
+          explicacao={aberto.explicacao}
+          alerta={aberto.alerta?.(aberto.valor(resumo, estoque))}
+          onFechar={() => setDetalhe(null)}
+        />
+      )}
 
       {estoque && estoque.vencidos.length > 0 && (
         <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 flex items-center gap-2">
@@ -356,17 +448,21 @@ function Resumo({
 }
 
 function Indicador({
-  icone, valor, rotulo, alerta,
+  icone, valor, rotulo, alerta, onAbrir,
 }: {
   icone: React.ReactNode
   valor: number
   rotulo: string
   alerta?: boolean
+  onAbrir?: () => void
 }) {
   return (
-    <div
-      className={`snap-start shrink-0 w-28 sm:w-auto rounded-xl border px-3 py-3 ${
-        alerta ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200'
+    <button
+      onClick={onAbrir}
+      className={`snap-start shrink-0 w-28 sm:w-auto text-left rounded-xl border px-3 py-3 transition-all hover:shadow-md hover:-translate-y-0.5 ${
+        alerta
+          ? 'bg-amber-50 border-amber-200 hover:border-amber-400'
+          : 'bg-white border-gray-200 hover:border-dourado-400'
       }`}
     >
       {/* O número primeiro e grande: é o que se lê de relance. O rótulo embaixo,
@@ -376,13 +472,54 @@ function Indicador({
         {valor}
       </p>
       <div className={`flex items-center gap-1.5 text-[11px] mt-2 ${alerta ? 'text-amber-700' : 'text-gray-400'}`}>
-        {icone} <span className="truncate">{rotulo}</span>
+        <span className={alerta ? '' : 'text-dourado-500'}>{icone}</span>
+        <span className="truncate">{rotulo}</span>
       </div>
-    </div>
+    </button>
   )
 }
 
-/** Faixa horizontal por data, no mesmo formato das radiografias. */
+/**
+ * O número por extenso, quando o cartão não cabe a explicação.
+ *
+ * No celular o rótulo vive truncado — "pacotes no est…" — e o número sozinho não
+ * diz de onde saiu nem o que fazer com ele. Tocar abre isto: o mesmo número,
+ * grande, com a frase inteira e o porquê de ele estar na tela.
+ */
+function DetalheIndicador({
+  valor, rotulo, explicacao, alerta, onFechar,
+}: {
+  valor: number
+  rotulo: string
+  explicacao: string
+  alerta?: boolean
+  onFechar: () => void
+}) {
+  const caixa = (
+    <div
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 animate-fade-in"
+      onClick={onFechar}
+    >
+      <div
+        className="w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-xl shadow-2xl p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <p className={`text-6xl font-bold leading-none tabular-nums ${alerta ? 'text-amber-700' : 'text-teal-700'}`}>
+            {valor}
+          </p>
+          <button onClick={onFechar} className="text-gray-400 hover:text-gray-600 -mt-1">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <p className="text-lg font-semibold text-gray-800 mt-3">{rotulo}</p>
+        <p className="text-sm text-gray-500 mt-1.5 leading-relaxed">{explicacao}</p>
+      </div>
+    </div>
+  )
+  return typeof document === 'undefined' ? caixa : createPortal(caixa, document.body)
+}
+
 function Trilha({
   titulo, ciclos, onAbrir,
 }: {
@@ -403,8 +540,11 @@ function Trilha({
     <section>
       <div className="flex items-center justify-between gap-2 mb-3">
         <div className="flex items-center gap-2 min-w-0">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider truncate">{titulo}</h3>
-          <span className="text-[11px] px-2 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200 shrink-0">
+          {/* Um risco dourado antes da data: separa os dias sem precisar de
+              linha divisória atravessando a tela. */}
+          <span className="h-4 w-1 rounded-full bg-gradient-to-b from-dourado-400 to-dourado-600 shrink-0" />
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider truncate">{titulo}</h3>
+          <span className="text-[11px] px-2 py-0.5 rounded-md bg-dourado-50 text-dourado-700 border border-dourado-200 shrink-0">
             {ciclos.length}
           </span>
         </div>
@@ -456,7 +596,11 @@ function Cartao({ ciclo, onAbrir }: { ciclo: CicloEsterilizacao; onAbrir: (c: Ci
   return (
     <button
       onClick={() => onAbrir(ciclo)}
-      className="w-full h-full text-left bg-white border border-gray-200 rounded-xl shadow-sm p-4 hover:border-teal-500 hover:shadow-md active:scale-[0.99] transition-all group"
+      className={`w-full h-full text-left bg-white border border-gray-200 border-l-4 rounded-xl shadow-sm p-4 hover:shadow-md active:scale-[0.99] transition-all group ${
+        situacao === 'reprovado' ? 'border-l-red-500'
+        : situacao === 'pendente' ? 'border-l-amber-400'
+        : 'border-l-dourado-400'
+      }`}
     >
       {/* O lote é o que se procura, então é o que se lê primeiro e grande — é o
           número impresso no pacote que está na mão de quem consulta. Antes ele
@@ -853,7 +997,7 @@ function ModalEtiqueta({
       onClick={() => !ocupado && onFechar()}
     >
       <div
-        className="w-full sm:max-w-lg max-h-[92dvh] sm:max-h-[90vh] flex flex-col bg-white rounded-t-2xl sm:rounded-xl shadow-2xl"
+        className="w-full sm:max-w-lg min-h-[60dvh] max-h-[92dvh] sm:min-h-0 sm:max-h-[90vh] flex flex-col bg-white rounded-t-2xl sm:rounded-xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Puxador: no celular a caixa parece arrastável, e sem ele fica com
@@ -895,7 +1039,7 @@ function ModalEtiqueta({
 
         {passo === 'imprimir' && (
         <>
-        <div className="p-5 space-y-4 overflow-y-auto flex-1">
+        <div className="p-5 space-y-5 overflow-y-auto flex-1">
           {/* A prévia é o próprio desenho que vai para a impressora, em 203 dpi:
               o que estiver ilegível aqui vai sair ilegível no adesivo. */}
           {/* O lápis mora no canto da prévia: é aquilo ali que ele muda, e uma
@@ -987,14 +1131,14 @@ function ModalEtiqueta({
               inteira para adivinhar um número que a pessoa já sabe. Os botões de
               menos e mais existem porque no celular acertar um dígito com o
               polegar é pior do que tocar duas vezes. */}
-          <div className="py-2">
-            <p className="text-sm text-gray-700 mb-3 text-center">
+          <div className="py-4 sm:py-3">
+            <p className="text-sm text-gray-700 mb-4 text-center">
               Quantas etiquetas? <span className="text-gray-400">(uma por pacote)</span>
             </p>
             <div className="flex items-center justify-center gap-3">
               <button
                 onClick={() => { setQuantidadeTexto(String(Math.max(1, quantidade - 1))); setAvisouQuantidade(false) }}
-                className="h-14 w-14 rounded-full border-2 border-teal-600 text-3xl leading-none text-teal-700 hover:bg-teal-50 active:scale-95 transition-all shrink-0"
+                className="h-14 w-14 rounded-xl border-2 border-teal-600 text-3xl leading-none text-teal-700 hover:bg-teal-50 active:scale-95 transition-all shrink-0"
                 aria-label="uma a menos"
               >
                 −
@@ -1016,7 +1160,7 @@ function ModalEtiqueta({
               />
               <button
                 onClick={() => { setQuantidadeTexto(String(Math.min(999, quantidade + 1))); setAvisouQuantidade(false) }}
-                className="h-14 w-14 rounded-full border-2 border-teal-600 text-3xl leading-none text-teal-700 hover:bg-teal-50 active:scale-95 transition-all shrink-0"
+                className="h-14 w-14 rounded-xl border-2 border-teal-600 text-3xl leading-none text-teal-700 hover:bg-teal-50 active:scale-95 transition-all shrink-0"
                 aria-label="uma a mais"
               >
                 +

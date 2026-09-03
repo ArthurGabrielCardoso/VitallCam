@@ -596,10 +596,14 @@ function Cartao({ ciclo, onAbrir }: { ciclo: CicloEsterilizacao; onAbrir: (c: Ci
   return (
     <button
       onClick={() => onAbrir(ciclo)}
-      className={`w-full h-full text-left bg-white border border-gray-200 border-l-4 rounded-xl shadow-sm p-4 hover:shadow-md active:scale-[0.99] transition-all group ${
+      // A tarja da esquerda é reta e o resto do cartão é arredondado: a borda
+      // acompanhando o canto virava contorno, e contorno se lê como moldura. Reta
+      // ela vira marcador — dá para varrer a fileira e ver onde tem pendência sem
+      // ler nada. Verde conferido, amarelo a conferir, vermelho reprovado.
+      className={`w-full h-full text-left bg-white border border-gray-200 border-l-[5px] rounded-l-none rounded-r-xl shadow-sm p-4 hover:shadow-md active:scale-[0.99] transition-all group ${
         situacao === 'reprovado' ? 'border-l-red-500'
         : situacao === 'pendente' ? 'border-l-amber-400'
-        : 'border-l-dourado-400'
+        : 'border-l-teal-600'
       }`}
     >
       {/* O lote é o que se procura, então é o que se lê primeiro e grande — é o

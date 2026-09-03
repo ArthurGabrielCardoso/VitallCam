@@ -21,7 +21,7 @@ import {
   desenharEtiqueta, fontesProntas,
 } from '@/lib/etiqueta-esterilizacao'
 import {
-  ImpressoraEncontrada, ModoImpressao, aquecerImpressora, escolherImpressora,
+  ImpressoraEncontrada, ModoImpressao, aquecerImpressora, escolherImpressora, esquecerImpressora,
   impressaoInterrompida, imprimirEtiqueta as enviarEtiqueta, impressoraLembrada, modoImpressao,
   pararImpressao, podeListarImpressoras, procurarImpressoras,
 } from '@/lib/impressora-etiqueta'
@@ -1197,7 +1197,7 @@ function ModalEtiqueta({
               className="max-w-full h-auto bg-white rounded shadow-md"
               style={{ imageRendering: 'pixelated' }}
             />
-            {!ciclo && (
+            {(!ciclo || modo === 'app') && (
               <button
                 onClick={() => setEditando((v) => !v)}
                 title={editando ? 'Pronto' : 'Editar os dados desta etiqueta'}
@@ -1213,56 +1213,76 @@ function ModalEtiqueta({
           </div>
 
 
-          {editando && !ciclo && (
-          <div className="rounded-xl border border-dourado-200 bg-dourado-50/40 p-4 grid grid-cols-2 gap-3">
-            {/* Lote e ciclo não entram aqui: quem numera é o banco, na hora de
-                gravar, e mostrar os dois em campo cinza só ensinava que dava
-                para mexer. Eles já aparecem na prévia, que é o que vai sair. */}
-            <Campo rotulo="Esterilizado em">
-              <input
-                type="date"
-                value={data}
-                disabled={bloqueado}
-                onChange={(e) => setData(e.target.value)}
-                className={campoClasse}
-              />
-            </Campo>
-            <Campo rotulo={`Validade (${VALIDADE_MESES} meses)`}>
-              <input
-                type="date"
-                value={validade}
-                disabled={bloqueado}
-                onChange={(e) => { setValidadeManual(true); setValidade(e.target.value) }}
-                className={campoClasse}
-              />
-            </Campo>
-            <Campo rotulo="Autoclave">
-              <input
-                value={autoclave}
-                disabled={bloqueado}
-                onChange={(e) => setAutoclave(e.target.value)}
-                className={campoClasse}
-              />
-            </Campo>
-            <Campo rotulo="Responsável técnico">
-              <input
-                value={responsavel}
-                disabled={bloqueado}
-                onChange={(e) => setResponsavel(e.target.value)}
-                className={campoClasse}
-              />
-            </Campo>
-            <div className="col-span-2">
-              <Campo rotulo="Conteúdo (opcional)">
+          {editando && (
+          <div className="rounded-xl border border-dourado-200 bg-dourado-50/40 p-4 space-y-3">
+            {!ciclo && (
+            <div className="grid grid-cols-2 gap-3">
+              {/* Lote e ciclo não entram aqui: quem numera é o banco, na hora de
+                  gravar, e mostrar os dois em campo cinza só ensinava que dava
+                  para mexer. Eles já aparecem na prévia, que é o que vai sair. */}
+              <Campo rotulo="Esterilizado em">
                 <input
-                  value={conteudo}
+                  type="date"
+                  value={data}
                   disabled={bloqueado}
-                  placeholder="kit exame, fórceps…"
-                  onChange={(e) => setConteudo(e.target.value)}
+                  onChange={(e) => setData(e.target.value)}
                   className={campoClasse}
                 />
               </Campo>
+              <Campo rotulo={`Validade (${VALIDADE_MESES} meses)`}>
+                <input
+                  type="date"
+                  value={validade}
+                  disabled={bloqueado}
+                  onChange={(e) => { setValidadeManual(true); setValidade(e.target.value) }}
+                  className={campoClasse}
+                />
+              </Campo>
+              <Campo rotulo="Autoclave">
+                <input
+                  value={autoclave}
+                  disabled={bloqueado}
+                  onChange={(e) => setAutoclave(e.target.value)}
+                  className={campoClasse}
+                />
+              </Campo>
+              <Campo rotulo="Responsável técnico">
+                <input
+                  value={responsavel}
+                  disabled={bloqueado}
+                  onChange={(e) => setResponsavel(e.target.value)}
+                  className={campoClasse}
+                />
+              </Campo>
+              <div className="col-span-2">
+                <Campo rotulo="Conteúdo (opcional)">
+                  <input
+                    value={conteudo}
+                    disabled={bloqueado}
+                    placeholder="kit exame, fórceps…"
+                    onChange={(e) => setConteudo(e.target.value)}
+                    className={campoClasse}
+                  />
+                </Campo>
+              </div>
             </div>
+            )}
+
+            {modo === 'app' && (
+              <button
+                onClick={() => {
+                  esquecerImpressora()
+                  setImpressorasAchadas(null)
+                  setUltimoErro(null)
+                  setEditando(false)
+                  setPasso('impressora')
+                  toast({ title: 'Impressora desconectada', description: 'Escolha outra na próxima tela.' })
+                }}
+                className="w-full h-10 rounded-lg text-sm font-medium border border-red-200 text-red-700 hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+              >
+                <Printer className="w-4 h-4" /> Desconectar impressora
+              </button>
+            )}
           </div>
           )}
 

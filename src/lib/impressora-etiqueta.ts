@@ -47,7 +47,7 @@ export function impressaoInterrompida(): boolean {
 
 /** Mensagens que o bridge devolve em vez de texto pronto para a tela. */
 /** Números que a ponte nativa entende, na ordem das famílias conhecidas. */
-const VARIANTE_NATIVA: Record<VarianteProtocolo, number> = { d11: 1, b21: 2, b1: 3 }
+const VARIANTE_NATIVA: Record<VarianteProtocolo, number> = { d11: 1, b21: 2, b1: 3, d110m_v4: 4 }
 
 const RECADOS: Record<string, string> = {
   'interrompido': 'Impressão interrompida. As etiquetas que já saíram continuam válidas.',

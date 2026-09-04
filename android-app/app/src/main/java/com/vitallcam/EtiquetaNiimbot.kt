@@ -682,16 +682,38 @@ class EtiquetaNiimbot(private val context: Context) {
             return "A conexao caiu antes de comecar. Tente de novo."
         }
         comando(DENSIDADE, byteArrayOf(densidade.coerceIn(1, 5).toByte()), DENSIDADE + 1)
-        comando(INICIAR_IMPRESSAO, byteArrayOf(1), INICIAR_IMPRESSAO + 1)
-        // A Niimbot descarta o primeiro pacote depois do INICIAR_IMPRESSAO —
-        // documentado pela comunidade que fez engenharia reversa do protocolo
-        // (wiki niim.blue). Sem isto quem se perde e o INICIAR_PAGINA da
-        // primeira etiqueta, e ela sai em branco. Um status descartavel, sem
-        // esperar resposta, absorve a perda antes do que importa chegar.
-        comando(STATUS, byteArrayOf(1), null)
+
+        if (variante == VARIANTE_D110M_V4) {
+            // A D110_M com firmware V4 espera o INICIAR_IMPRESSAO com 9 bytes —
+            // total de paginas, cor e velocidade — nao so o "1" das familias
+            // mais antigas. Mandar o formato errado e aceito sem erro, mas
+            // deixa a impressora com o estado interno torto: e a partir dai
+            // que sobra etiqueta em branco antes da de verdade.
+            comando(
+                INICIAR_IMPRESSAO,
+                byteArrayOf(
+                    (paginas shr 8).toByte(), paginas.toByte(),
+                    0, 0, 0, 0, // reservado
+                    0, // cor da pagina (padrao)
+                    0, // velocidade (0 = qualidade)
+                    0, // flag, proposito desconhecido
+                ),
+                INICIAR_IMPRESSAO + 1,
+            )
+        } else {
+            comando(INICIAR_IMPRESSAO, byteArrayOf(1), INICIAR_IMPRESSAO + 1)
+            // A Niimbot descarta o primeiro pacote depois do INICIAR_IMPRESSAO —
+            // documentado pela comunidade que fez engenharia reversa do
+            // protocolo (wiki niim.blue). Nesta familia o descartavel vem
+            // aqui; na D110M_V4 ele vem depois do DIMENSAO (ver abaixo).
+            comando(STATUS, byteArrayOf(1), null)
+        }
 
         for (pagina in 0 until paginas) {
-            comando(INICIAR_PAGINA, byteArrayOf(1), INICIAR_PAGINA + 1)
+            // A D110M_V4 nao usa INICIAR_PAGINA — documentado como omitido
+            // nesta familia. Mandar mesmo assim nao quebra, mas nao e o que
+            // o app oficial faz.
+            if (variante != VARIANTE_D110M_V4) comando(INICIAR_PAGINA, byteArrayOf(1), INICIAR_PAGINA + 1)
             // O tamanho da pagina e o comando que decide se a etiqueta sai
             // escrita ou em branco: a familia D11/D110 le so as linhas, as
             // outras esperam mais campos e descartam o desenho se receberem
@@ -706,12 +728,29 @@ class EtiquetaNiimbot(private val context: Context) {
                     (largura shr 8).toByte(), largura.toByte(),
                     0, 1,
                 )
+                VARIANTE_D110M_V4 -> byteArrayOf(
+                    (altura shr 8).toByte(), altura.toByte(),
+                    (largura shr 8).toByte(), largura.toByte(),
+                    0, 1, // copias
+                    0, 0, // altura de corte — 0 deixa a impressora decidir
+                    0, // tipo de corte
+                    0, // reservado
+                    0, // mandar tudo de uma vez
+                    0, 0, // altura da parte
+                )
                 else -> byteArrayOf((altura shr 8).toByte(), altura.toByte())
             }
             comando(DIMENSAO, tamanhoPagina, DIMENSAO + 1)
-            // Uma copia por pagina: quem conta as etiquetas e o laco, nao a
-            // impressora.
-            if (variante != VARIANTE_B1) comando(QUANTIDADE, byteArrayOf(0, 1), QUANTIDADE + 1)
+            if (variante == VARIANTE_D110M_V4) {
+                // Aqui, nao depois do INICIAR_IMPRESSAO, e onde a D110M_V4
+                // espera o descartavel — ver comentario acima.
+                comando(STATUS, byteArrayOf(1), null)
+            } else if (variante != VARIANTE_B1) {
+                // Uma copia por pagina: quem conta as etiquetas e o laco, nao
+                // a impressora. Nao existe na D110M_V4 — a copia ja vai no
+                // DIMENSAO.
+                comando(QUANTIDADE, byteArrayOf(0, 1), QUANTIDADE + 1)
+            }
 
             // As linhas vao em lote: o canal e um fluxo de bytes, entao varios
             // pacotes numa escrita so chegam iguais e custam uma ida e volta em
@@ -832,7 +871,7 @@ class EtiquetaNiimbot(private val context: Context) {
         private const val BATIDA = 0xDC
 
         /** Marca da build, para saber no log qual versao gerou a trilha. */
-        private const val VERSAO = 15
+        private const val VERSAO = 16
 
         /** Familia D11/D110/D101: tamanho da pagina em 2 bytes (so as linhas). */
         const val VARIANTE_D11 = 1
@@ -840,5 +879,12 @@ class EtiquetaNiimbot(private val context: Context) {
         const val VARIANTE_B21 = 2
         /** Familia B1: 6 bytes (linhas, largura e copias). */
         const val VARIANTE_B1 = 3
+        /**
+         * D110_M com firmware V4 (a que sai de fabrica depois da atualizacao
+         * pelo app oficial). INICIAR_IMPRESSAO de 9 bytes, DIMENSAO de 13,
+         * sem INICIAR_PAGINA — protocolo bem diferente das familias antigas,
+         * documentado em printers.niim.blue/interfacing/print-tasks/.
+         */
+        const val VARIANTE_D110M_V4 = 4
     }
 }

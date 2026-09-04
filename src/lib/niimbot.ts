@@ -54,7 +54,7 @@ const COMANDO = {
  * Formato do comando de tamanho da página, por família de impressora.
  * `d11` (2 bytes, só as linhas) é o da D110; as outras esperam mais campos.
  */
-export type VarianteProtocolo = 'd11' | 'b21' | 'b1'
+export type VarianteProtocolo = 'd11' | 'b21' | 'b1' | 'd110m_v4'
 
 export interface OpcoesImpressao {
   /** Quantas etiquetas iguais — uma por pacote de grau cirúrgico. */
@@ -312,32 +312,55 @@ export class Niimbot {
     const totalLinhas = desenhos.reduce((soma, d) => soma + d.linhas.length, 0)
     let enviadas = 0
 
+    const variante = opcoes.variante ?? 'd11'
+
     await this.enviar(COMANDO.TIPO_ETIQUETA, [opcoes.tipoEtiqueta ?? 1], COMANDO.TIPO_ETIQUETA + 1)
     await this.enviar(COMANDO.DENSIDADE, [densidade], COMANDO.DENSIDADE + 1)
-    await this.enviar(COMANDO.INICIAR_IMPRESSAO, [0x01], COMANDO.INICIAR_IMPRESSAO + 1)
-    // A Niimbot descarta o primeiro pacote depois do INICIAR_IMPRESSAO —
-    // documentado pela comunidade que fez engenharia reversa do protocolo
-    // (wiki niim.blue). Sem isto quem se perde é o INICIAR_PAGINA da primeira
-    // etiqueta, e ela sai em branco. Um status descartável, sem esperar
-    // resposta, absorve a perda antes do que importa chegar.
-    await this.enviar(COMANDO.STATUS, [0x01])
+
+    if (variante === 'd110m_v4') {
+      // A D110_M com firmware V4 espera o INICIAR_IMPRESSAO com 9 bytes —
+      // total de páginas, cor e velocidade — não só o "1" das famílias mais
+      // antigas. Mandar o formato errado é aceito sem erro, mas deixa a
+      // impressora com o estado interno torto: é a partir daí que sobra
+      // etiqueta em branco antes da de verdade.
+      await this.enviar(
+        COMANDO.INICIAR_IMPRESSAO,
+        [(paginas >> 8) & 0xff, paginas & 0xff, 0, 0, 0, 0, 0, 0, 0],
+        COMANDO.INICIAR_IMPRESSAO + 1,
+      )
+    } else {
+      await this.enviar(COMANDO.INICIAR_IMPRESSAO, [0x01], COMANDO.INICIAR_IMPRESSAO + 1)
+      // A Niimbot descarta o primeiro pacote depois do INICIAR_IMPRESSAO —
+      // documentado pela comunidade que fez engenharia reversa do protocolo
+      // (wiki niim.blue). Nesta família o descartável vem aqui; na D110M_V4
+      // ele vem depois do DIMENSAO (ver abaixo).
+      await this.enviar(COMANDO.STATUS, [0x01])
+    }
 
     for (let pagina = 0; pagina < paginas; pagina++) {
       const bitmap = desenhos[pagina]
-      await this.enviar(COMANDO.INICIAR_PAGINA, [0x01], COMANDO.INICIAR_PAGINA + 1)
+      // A D110M_V4 não usa INICIAR_PAGINA — documentado como omitido nesta família.
+      if (variante !== 'd110m_v4') await this.enviar(COMANDO.INICIAR_PAGINA, [0x01], COMANDO.INICIAR_PAGINA + 1)
 
       const linhas = [(bitmap.altura >> 8) & 0xff, bitmap.altura & 0xff]
       const colunas = [(bitmap.largura >> 8) & 0xff, bitmap.largura & 0xff]
       const umaCopia = [0, 1]
-      const variante = opcoes.variante ?? 'd11'
       const tamanhoPagina =
         variante === 'b21' ? [...linhas, ...colunas]
         : variante === 'b1' ? [...linhas, ...colunas, ...umaCopia]
+        : variante === 'd110m_v4' ? [...linhas, ...colunas, ...umaCopia, 0, 0, 0, 0, 0, 0, 0]
         : linhas
       await this.enviar(COMANDO.DIMENSAO, tamanhoPagina, COMANDO.DIMENSAO + 1)
 
-      // Uma cópia por página: quem conta as etiquetas é o laço, não a impressora.
-      if (variante !== 'b1') await this.enviar(COMANDO.QUANTIDADE, [0, 1], COMANDO.QUANTIDADE + 1)
+      if (variante === 'd110m_v4') {
+        // Aqui, não depois do INICIAR_IMPRESSAO, é onde a D110M_V4 espera o
+        // descartável — ver comentário acima.
+        await this.enviar(COMANDO.STATUS, [0x01])
+      } else if (variante !== 'b1') {
+        // Uma cópia por página: quem conta as etiquetas é o laço, não a
+        // impressora. Não existe na D110M_V4 — a cópia já vai no DIMENSAO.
+        await this.enviar(COMANDO.QUANTIDADE, [0, 1], COMANDO.QUANTIDADE + 1)
+      }
 
       // As linhas vão em lote: o canal é um fluxo de bytes, então juntar
       // pacotes antes de escrever poupa chamadas — as fatias de 20 bytes saem

@@ -71,18 +71,22 @@ const AJUSTES_PADRAO: Ajustes = {
   ...FORMATO_PADRAO,
   rotacao: 90,
   densidade: 3,
-  // A D110_M da clínica precisa do comando de 4 bytes, com a largura junto.
-  // Com o de 2 bytes ela imprime só os primeiros 48 pontos de cada linha — a
-  // régua saiu com 6 degraus dos 12 e metade da etiqueta em branco. O nome
-  // "D110" estava do lado errado da lista, e ninguém tinha como adivinhar isso.
-  variante: 'b21',
+  // A D110_M da clínica roda firmware V4 (atualizada pelo app oficial) e
+  // espera esse protocolo — INICIAR_IMPRESSAO e DIMENSAO em formatos
+  // próprios, documentados em printers.niim.blue/interfacing/print-tasks/.
+  // Não tem tela para trocar isso: não tem por quê, é sempre a mesma
+  // impressora.
+  variante: 'd110m_v4',
 }
 
 function lerAjustes(): Ajustes {
   if (typeof window === 'undefined') return AJUSTES_PADRAO
   try {
     const salvo = window.localStorage.getItem(AJUSTES_CHAVE)
-    return salvo ? { ...AJUSTES_PADRAO, ...JSON.parse(salvo) } : AJUSTES_PADRAO
+    // `variante` sempre do padrão atual, nunca do que ficou salvo — não tem
+    // tela para escolher, e um valor antigo (de antes da D110M_V4) parado no
+    // localStorage não pode vencer o protocolo certo.
+    return salvo ? { ...AJUSTES_PADRAO, ...JSON.parse(salvo), variante: AJUSTES_PADRAO.variante } : AJUSTES_PADRAO
   } catch {
     return AJUSTES_PADRAO
   }

@@ -150,8 +150,6 @@ class EtiquetaNiimbot(private val context: Context) {
     fun esquecer() {
         desconectar()
         prefs().edit().remove(CHAVE_MAC).remove(CHAVE_NOME).apply()
-        // Escolha de proposito de nao ficar mais conectado — nada a segurar de pe.
-        ImpressoraServico.encerrar(context)
     }
 
     private fun adaptador() =
@@ -333,10 +331,7 @@ class EtiquetaNiimbot(private val context: Context) {
     }
 
     private fun conectar(): String {
-        if (canal != null && gatt != null) {
-            ImpressoraServico.iniciar(context)
-            return ""
-        }
+        if (canal != null && gatt != null) return ""
 
         val impedimento = impedimento()
         if (impedimento.isNotEmpty()) {
@@ -428,11 +423,6 @@ class EtiquetaNiimbot(private val context: Context) {
         }
         respostas.clear()
         anotar(if (respondeu) "impressora respondeu a batida" else "batida sem resposta — seguindo assim mesmo")
-
-        // Conexao de pe: sobe o servico que segura o processo de pe mesmo com o
-        // app em segundo plano, para a proxima conexao nao ser sempre a primeira
-        // da sessao — que e a que a impressora gasta se recalibrando no rolo.
-        ImpressoraServico.iniciar(context)
 
         return ""
     }
@@ -796,9 +786,8 @@ class EtiquetaNiimbot(private val context: Context) {
 
         comando(FIM_IMPRESSAO, byteArrayOf(1), FIM_IMPRESSAO + 1)
         // Mesmo descarte do primeiro pacote, agora depois do FIM_IMPRESSAO: sem
-        // isto o proximo trabalho desta mesma conexao (a de sempre, com o
-        // servico em primeiro plano) e quem perde o primeiro comando — e vira a
-        // etiqueta em branco do "primeiro trabalho do dia" outra vez.
+        // isto o proximo trabalho desta mesma conexao e quem perde o primeiro
+        // comando — e vira a etiqueta em branco de novo.
         comando(BATIDA, byteArrayOf(1), null)
         return ""
     }
@@ -807,11 +796,9 @@ class EtiquetaNiimbot(private val context: Context) {
         @Volatile private var instancia: EtiquetaNiimbot? = null
 
         /**
-         * A mesma instância em qualquer lugar que perguntar — Activity ou Service.
+         * A mesma instância em qualquer lugar que perguntar.
          *
-         * A conexão BLE (gatt/canal) vive dentro do objeto; se cada lugar criasse
-         * a sua, a Activity conectaria numa e o serviço em segundo plano ficaria
-         * de olho noutra, sem nenhuma. Uma instância só, presa ao
+         * A conexão BLE (gatt/canal) vive dentro do objeto; presa ao
          * applicationContext, sobrevive a Activity ser destruída e recriada.
          */
         fun obter(context: Context): EtiquetaNiimbot =
@@ -845,7 +832,7 @@ class EtiquetaNiimbot(private val context: Context) {
         private const val BATIDA = 0xDC
 
         /** Marca da build, para saber no log qual versao gerou a trilha. */
-        private const val VERSAO = 14
+        private const val VERSAO = 15
 
         /** Familia D11/D110/D101: tamanho da pagina em 2 bytes (so as linhas). */
         const val VARIANTE_D11 = 1

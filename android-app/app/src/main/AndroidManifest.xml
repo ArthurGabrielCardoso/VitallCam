@@ -19,16 +19,6 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
-    <!--
-      Servico em primeiro plano que segura a impressora conectada com o app em
-      segundo plano — sem isto o Android mata o processo pra economizar
-      memoria, a conexao cai junto, e toda reabertura vira a "primeira
-      impressao da sessao" que a Niimbot gasta se recalibrando no rolo.
-    -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -98,11 +88,6 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.AppCompat.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
-
-        <service
-            android:name=".ImpressoraServico"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
     </application>
 
 </manifest>

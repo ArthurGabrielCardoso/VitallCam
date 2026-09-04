@@ -780,14 +780,12 @@ function ModalEtiqueta({
    * impressora escolhida. Ordem errada — sem impressora nao ha o que fazer nesta
    * tela, entao a pergunta vem primeiro.
    *
-   * "Lembrada" nao e "conectada": e so o nome salvo de uma vez que funcionou,
-   * e a conexao BLE cai sozinha entre uma tela e outra. Ciclo novo confirma
-   * sempre — e o momento em que abrir sem imprimir nada dói mais. Reimpressao
-   * de um ciclo que ja existe continua confiando no nome salvo, porque essa
-   * tela se abre e fecha o dia inteiro e confirmar toda hora vira atrito.
+   * Confia no nome salvo: reconectar sozinho ficou confiavel depois do fix do
+   * endereco duplicado, entao pedir confirmacao em todo ciclo novo so virou
+   * atrito. Volta a abrir direto na impressao quando ja tem impressora salva.
    */
   const semImpressora =
-    modo === 'app' ? (!ciclo || !impressoraLembrada())
+    modo === 'app' ? !impressoraLembrada()
     : modo === 'navegador' ? !impressora?.conectado
     : false
 

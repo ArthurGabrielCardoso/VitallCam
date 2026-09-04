@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  AlertTriangle, Biohazard, BookText, Calendar, CheckCircle2, ChevronLeft, ChevronRight,
+  AlertTriangle, Biohazard, BookText, Calendar, ChevronLeft, ChevronRight,
   Clock, FileText, Loader2, Package, PackageCheck, Pencil, Plus, Printer, Search,
   Square, X,
 } from 'lucide-react'
@@ -14,7 +14,7 @@ import {
   RESPONSAVEL_PADRAO, VALIDADE_MESES, formatarData, formatarHora, hojeLocal, montarLote,
   DIAS_AVISO_VENCIMENTO, garantirPacotes, proximoNumeroDoDia, resumoEsterilizacao,
   situacaoDoCiclo, somarDias, somarMeses, useAbrirCiclo, useCiclosEsterilizacao,
-  useEstoquePacotes, useRegistrarMonitoramento,
+  useEstoquePacotes,
 } from '@/hooks/useEsterilizacao'
 import {
   DadosEtiqueta, FORMATO_PADRAO, FormatoEtiqueta, canvasParaBitmap, carregarLogo,
@@ -768,16 +768,6 @@ function ModalEtiqueta({
   // Mutável de propósito: quem preenche é o ref de função `montarCanvas`.
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
-  // Sai da mesma lista que já está na tela: a conferência avisa que o biológico
-  // da semana está atrasado em vez de esperar alguém lembrar.
-  const biologicoVencido = useMemo(() => resumoEsterilizacao(ciclos).biologicoVencido, [ciclos])
-
-  // Um assunto por vez. Antes o modal abria com dados do ciclo, conferência e
-  // impressão empilhados: três perguntas diferentes na mesma tela, e a mais
-  // importante — "deu certo?" — no meio, onde ninguém para para responder.
-  //
-  // Ciclo por conferir abre na conferência; ciclo já conferido e ciclo novo vão
-  // direto para a impressão, que é o que se quer deles.
   const [impressorasAchadas, setImpressorasAchadas] = useState<ImpressoraEncontrada[] | null>(null)
   const [buscandoImpressora, setBuscandoImpressora] = useState(false)
   const [conectandoImpressora, setConectandoImpressora] = useState(false)
@@ -788,16 +778,23 @@ function ModalEtiqueta({
    * A escolha da Niimbot estava DENTRO do botao imprimir: a tela abria na
    * quantidade, a pessoa dizia 15, apertava, e so ali descobria que nao havia
    * impressora escolhida. Ordem errada — sem impressora nao ha o que fazer nesta
-   * tela, entao a pergunta vem primeiro. Com impressora salva este passo nao
-   * existe e nada muda para quem ja usa.
+   * tela, entao a pergunta vem primeiro.
+   *
+   * "Lembrada" nao e "conectada": e so o nome salvo de uma vez que funcionou,
+   * e a conexao BLE cai sozinha entre uma tela e outra. Ciclo novo confirma
+   * sempre — e o momento em que abrir sem imprimir nada dói mais. Reimpressao
+   * de um ciclo que ja existe continua confiando no nome salvo, porque essa
+   * tela se abre e fecha o dia inteiro e confirmar toda hora vira atrito.
    */
   const semImpressora =
-    modo === 'app' ? !impressoraLembrada()
+    modo === 'app' ? (!ciclo || !impressoraLembrada())
     : modo === 'navegador' ? !impressora?.conectado
     : false
 
-  const proximoPasso = ciclo && !ciclo.integrador_quimico ? 'conferir' : 'imprimir'
-  const [passo, setPasso] = useState<'impressora' | 'conferir' | 'imprimir'>(
+  // Não pergunta mais "a fita virou?"/"fez o biológico?" antes de imprimir — a
+  // conferência saía do caminho de quem só queria a etiqueta.
+  const proximoPasso = 'imprimir'
+  const [passo, setPasso] = useState<'impressora' | 'imprimir'>(
     semImpressora ? 'impressora' : proximoPasso,
   )
 
@@ -1112,9 +1109,6 @@ function ModalEtiqueta({
             {passo === 'impressora' && (
               <p className="text-xs text-gray-400">Primeiro: qual impressora?</p>
             )}
-            {passo === 'conferir' && (
-              <p className="text-xs text-gray-400">Antes de imprimir: o ciclo deu certo?</p>
-            )}
           </div>
           <button onClick={onFechar} disabled={ocupado} className="text-gray-400 hover:text-gray-600 disabled:opacity-40">
             <X className="w-5 h-5" />
@@ -1154,23 +1148,6 @@ function ModalEtiqueta({
             }}
             onPular={() => setPasso(proximoPasso)}
           />
-        )}
-
-        {passo === 'conferir' && ciclo && (
-          <div className="p-5 space-y-4 overflow-y-auto">
-            <ResultadoDoCiclo
-              ciclo={ciclo}
-              responsavelPadrao={responsavel}
-              biologicoVencido={biologicoVencido}
-              onPronto={() => setPasso('imprimir')}
-            />
-            <button
-              onClick={() => setPasso('imprimir')}
-              className="w-full h-10 rounded-lg text-sm font-medium text-gray-500 hover:text-teal-700 hover:bg-gray-50 transition-colors"
-            >
-              Agora não — só quero imprimir
-            </button>
-          </div>
         )}
 
         {passo === 'imprimir' && (
@@ -1411,256 +1388,6 @@ function ModalEtiqueta({
 
   // No servidor não há body para receber o portal.
   return typeof document === 'undefined' ? caixa : createPortal(caixa, document.body)
-}
-
-/**
- * "Deu certo?" — a conferência do ciclo, do jeito que ela acontece na bancada.
- *
- * A RDC 1.002/2025 exige integrador químico classe 5 ou 6 em pacote-teste a cada
- * ciclo e indicador biológico semanal, no primeiro ciclo do dia programado, com
- * registro formal. A etiqueta prova que o ciclo existiu; isto prova que ele deu
- * certo, e a liberação da carga sai daqui — integrador não conforme ou biológico
- * positivo não libera nada, volta para o reprocessamento.
- *
- * A tela pergunta o que a pessoa acabou de OLHAR — "a fita virou?" — e deixa o
- * nome técnico embaixo, pequeno, para quem precisa dele. A versão anterior fazia
- * o contrário: abria com "Integrador químico classe 5 ou 6 (pacote-teste, todo
- * ciclo)", que é o texto da norma, não a pergunta.
- *
- * Ciclo já conferido não reabre o formulário: vira um resumo de uma linha com
- * "Corrigir" do lado. O que está resolvido tem que PARECER resolvido, senão a
- * tela pede a mesma coisa todo dia.
- */
-function ResultadoDoCiclo({
-  ciclo, responsavelPadrao, biologicoVencido, onPronto,
-}: {
-  ciclo: CicloEsterilizacao
-  responsavelPadrao: string
-  /** O biológico da semana está em atraso — a tela avisa em vez de cobrar memória. */
-  biologicoVencido: boolean
-  /** Respondida a conferência, o modal segue para a impressão. */
-  onPronto?: () => void
-}) {
-  const { toast } = useToast()
-  const registrar = useRegistrarMonitoramento()
-
-  const [integrador, setIntegrador] = useState<'conforme' | 'nao_conforme' | null>(
-    (ciclo.integrador_quimico as 'conforme' | 'nao_conforme' | null) ?? null,
-  )
-  const [biologico, setBiologico] = useState<'negativo' | 'positivo' | null>(
-    (ciclo.indicador_biologico as 'negativo' | 'positivo' | null) ?? null,
-  )
-  const [temperatura, setTemperatura] = useState(ciclo.temperatura ? String(ciclo.temperatura) : '')
-  const [observacao, setObservacao] = useState(ciclo.observacao ?? '')
-  const [detalhes, setDetalhes] = useState(false)
-
-  /**
-   * "Não fiz" precisa ser DITO, não presumido.
-   *
-   * `biologico` é null tanto para "ainda não respondi" quanto para "não fiz", e
-   * pintar o botão já na abertura fazia a tela dar por respondida uma pergunta
-   * que ninguém tocou. Este booleano separa as duas coisas.
-   */
-  const [biologicoDito, setBiologicoDito] = useState(!!ciclo.integrador_quimico)
-
-  // Conferido é o que já tem integrador registrado — o biológico é semanal e a
-  // temperatura é opcional, então nenhum dos dois serve de marca.
-  const conferido = !!ciclo.integrador_quimico
-  const [corrigindo, setCorrigindo] = useState(false)
-
-  const reprovado = integrador === 'nao_conforme' || biologico === 'positivo'
-
-  const salvar = async () => {
-    if (!integrador) return
-    try {
-      await registrar.mutateAsync({
-        id: ciclo.id,
-        integrador,
-        biologico,
-        temperatura: temperatura ? Number(temperatura) : null,
-        observacao,
-        por: responsavelPadrao,
-      })
-      setCorrigindo(false)
-      onPronto?.()
-      toast({
-        title: reprovado ? 'Ciclo reprovado' : 'Carga liberada',
-        description: reprovado
-          ? 'Os pacotes deste lote não podem ser usados — recolha e reprocesse.'
-          : `Lote ${ciclo.lote} conferido e liberado para uso.`,
-        variant: reprovado ? 'destructive' : undefined,
-      })
-    } catch (erro: unknown) {
-      toast({
-        variant: 'destructive',
-        title: 'Não deu para registrar',
-        description: erro instanceof Error ? erro.message : 'Tente de novo',
-      })
-    }
-  }
-
-  // Ciclo já conferido: resumo de uma linha. Reabrir é escolha, não obrigação.
-  if (conferido && !corrigindo) {
-    const negado = ciclo.integrador_quimico === 'nao_conforme' || ciclo.indicador_biologico === 'positivo'
-    return (
-      <div
-        className={`rounded-lg border p-4 flex items-start gap-3 ${
-          negado ? 'border-red-200 bg-red-50' : 'border-teal-200 bg-teal-50'
-        }`}
-      >
-        {negado
-          ? <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-          : <CheckCircle2 className="w-4 h-4 text-teal-700 mt-0.5 shrink-0" />}
-        <div className="flex-1 min-w-0">
-          <p className={`text-sm font-semibold ${negado ? 'text-red-800' : 'text-teal-800'}`}>
-            {negado ? 'Ciclo reprovado' : 'Carga liberada'}
-          </p>
-          <p className={`text-xs mt-0.5 ${negado ? 'text-red-700' : 'text-teal-700'}`}>
-            {negado
-              ? 'Os pacotes deste lote não podem ser usados — recolha e reprocesse.'
-              : `Conferido por ${ciclo.liberado_por || 'equipe'}.`}
-            {ciclo.indicador_biologico && ` Biológico ${ciclo.indicador_biologico}.`}
-            {ciclo.temperatura ? ` ${ciclo.temperatura} °C.` : ''}
-          </p>
-        </div>
-        <button
-          onClick={() => setCorrigindo(true)}
-          className={`text-xs shrink-0 underline underline-offset-2 ${
-            negado ? 'text-red-700' : 'text-teal-700'
-          }`}
-        >
-          Corrigir
-        </button>
-      </div>
-    )
-  }
-
-  const escolha = (ativo: boolean, tom: 'bom' | 'ruim' | 'neutro') =>
-    `flex-1 h-11 px-3 rounded-lg text-sm font-semibold border transition-colors ${
-      ativo
-        ? tom === 'bom' ? 'bg-teal-700 text-white border-teal-700'
-        : tom === 'ruim' ? 'bg-red-600 text-white border-red-600'
-        : 'bg-gray-700 text-white border-gray-700'
-        : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-    }`
-
-  return (
-    // Sem moldura e sem título próprio: o cabeçalho do modal já pergunta "o
-    // ciclo deu certo?", e uma caixa dentro de outra caixa só engorda a tela.
-    <div className="space-y-5">
-      <div>
-        <p className="text-base text-gray-800 font-medium mb-3">A fita do pacote-teste virou?</p>
-        <div className="flex gap-2">
-          <button onClick={() => setIntegrador('conforme')} className={escolha(integrador === 'conforme', 'bom')}>
-            Virou
-          </button>
-          <button onClick={() => setIntegrador('nao_conforme')} className={escolha(integrador === 'nao_conforme', 'ruim')}>
-            Não virou
-          </button>
-        </div>
-        <p className="text-[11px] text-gray-400 mt-2">
-          Integrador químico classe 5 ou 6, no pacote-teste, a cada ciclo.
-        </p>
-      </div>
-
-      {/* A segunda pergunta só nasce depois da primeira.
-          As duas juntas na abertura eram um formulário; uma de cada vez é uma
-          conversa — e quem chega aqui acabou de olhar a fita, não as duas
-          coisas ao mesmo tempo. */}
-      {integrador && (
-        <div className="animate-fade-in border-t border-gray-100 pt-5">
-          <div className="flex items-center gap-2 mb-3">
-            <p className="text-base text-gray-800 font-medium">Fez o teste biológico neste ciclo?</p>
-            {biologicoVencido && !ciclo.indicador_biologico && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
-                está na hora
-              </span>
-            )}
-          </div>
-          <div className="flex gap-2">
-            {/* Cinza, não verde: "não fiz" não é resultado bom, é ausência de
-                resultado — e só acende depois de alguém dizer isso. */}
-            <button
-              onClick={() => { setBiologico(null); setBiologicoDito(true) }}
-              className={escolha(biologicoDito && biologico === null, 'neutro')}
-            >
-              Não fiz
-            </button>
-            <button
-              onClick={() => { setBiologico('negativo'); setBiologicoDito(true) }}
-              className={escolha(biologico === 'negativo', 'bom')}
-            >
-              Negativo
-            </button>
-            <button
-              onClick={() => { setBiologico('positivo'); setBiologicoDito(true) }}
-              className={escolha(biologico === 'positivo', 'ruim')}
-            >
-              Positivo
-            </button>
-          </div>
-          <p className="text-[11px] text-gray-400 mt-2">
-            Indicador biológico: uma vez por semana, no primeiro ciclo do dia.
-          </p>
-        </div>
-      )}
-
-      {/* Temperatura e observação não decidem nada — ficam fora do caminho de
-          quem só quer conferir e liberar, e nem aparecem antes da primeira
-          resposta. */}
-      {integrador && (detalhes ? (
-        <div className="grid grid-cols-2 gap-3">
-          <Campo rotulo="Temperatura (°C)">
-            <input
-              value={temperatura}
-              onChange={(e) => setTemperatura(e.target.value.replace(/\D/g, '').slice(0, 3))}
-              inputMode="numeric"
-              placeholder="134"
-              className="w-full h-9 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none"
-            />
-          </Campo>
-          <Campo rotulo="Observação">
-            <input
-              value={observacao}
-              onChange={(e) => setObservacao(e.target.value)}
-              placeholder="opcional"
-              className="w-full h-9 px-3 rounded border border-gray-200 text-sm text-gray-700 focus:border-teal-500 focus:outline-none"
-            />
-          </Campo>
-        </div>
-      ) : (
-        <button
-          onClick={() => setDetalhes(true)}
-          className="text-xs text-gray-500 hover:text-teal-700 flex items-center gap-1.5"
-        >
-          <Pencil className="w-3.5 h-3.5" /> Anotar temperatura ou observação
-        </button>
-      ))}
-
-      {reprovado && (
-        <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-3 flex items-start gap-2">
-          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-          Os pacotes deste lote não poderão ser usados. Recolha o que já foi para o estoque e
-          reprocesse.
-        </p>
-      )}
-
-      {/* Nasce com a primeira resposta.
-          Antes ele ficava ali apagado dizendo "responda a fita do pacote-teste"
-          — com uma pergunta só na tela, isso era a tela explicando a si mesma. */}
-      {integrador && (
-        <button
-          onClick={salvar}
-          disabled={registrar.isPending}
-          className={`w-full h-12 rounded-lg text-base font-semibold text-white transition-colors disabled:opacity-50 animate-fade-in ${
-            reprovado ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-700 hover:bg-teal-800'
-          }`}
-        >
-          {registrar.isPending ? 'Registrando…' : reprovado ? 'Registrar reprovação' : 'Liberar carga'}
-        </button>
-      )}
-    </div>
-  )
 }
 
 function Campo({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {

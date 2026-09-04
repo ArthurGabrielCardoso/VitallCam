@@ -158,8 +158,15 @@ class EtiquetaNiimbot(private val context: Context) {
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
 
     /**
-     * Acha a impressora, na ordem que custa menos tempo: a que ja usamos, a que
-     * esta pareada no Android, e so entao varre o ar.
+     * Acha a impressora, na ordem que custa menos tempo: a que ja usamos, e so
+     * entao varre o ar.
+     *
+     * Tinha um passo no meio que tentava o aparelho pareado no Android antes de
+     * varrer. Vai fora: a mesma Niimbot mostrou dois enderecos BLE diferentes
+     * nos testes — um so responde a pareamento classico, o outro e quem aceita
+     * connectGatt de verdade — e o pareado do Android nao e garantia de ser
+     * esse segundo. Insistir nele so gastava os 15s de timeout antes de cair na
+     * varredura, que e quem sempre achou o certo.
      */
     private fun encontrar(): BluetoothDevice? {
         val adapter = adaptador() ?: return null
@@ -167,11 +174,6 @@ class EtiquetaNiimbot(private val context: Context) {
 
         prefs.getString(CHAVE_MAC, null)?.let { mac ->
             runCatching { adapter.getRemoteDevice(mac) }.getOrNull()?.let { return it }
-        }
-
-        adapter.bondedDevices?.firstOrNull { ehNiimbot(it.name) }?.let { pareada ->
-            lembrar(pareada)
-            return pareada
         }
 
         val scanner = adapter.bluetoothLeScanner ?: return null
@@ -830,7 +832,7 @@ class EtiquetaNiimbot(private val context: Context) {
         private const val BATIDA = 0xDC
 
         /** Marca da build, para saber no log qual versao gerou a trilha. */
-        private const val VERSAO = 12
+        private const val VERSAO = 13
 
         /** Familia D11/D110/D101: tamanho da pagina em 2 bytes (so as linhas). */
         const val VARIANTE_D11 = 1

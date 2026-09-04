@@ -46,6 +46,8 @@ const COMANDO = {
   FIM_PAGINA: 0xe3,
   FIM_IMPRESSAO: 0xf3,
   STATUS: 0xa3,
+  /** "Você está aí?" — usado aqui só como pacote descartável, ver abaixo. */
+  BATIDA: 0xdc,
 } as const
 
 /**
@@ -313,6 +315,12 @@ export class Niimbot {
     await this.enviar(COMANDO.TIPO_ETIQUETA, [opcoes.tipoEtiqueta ?? 1], COMANDO.TIPO_ETIQUETA + 1)
     await this.enviar(COMANDO.DENSIDADE, [densidade], COMANDO.DENSIDADE + 1)
     await this.enviar(COMANDO.INICIAR_IMPRESSAO, [0x01], COMANDO.INICIAR_IMPRESSAO + 1)
+    // A Niimbot descarta o primeiro pacote depois do INICIAR_IMPRESSAO —
+    // documentado pela comunidade que fez engenharia reversa do protocolo
+    // (wiki niim.blue). Sem isto quem se perde é o INICIAR_PAGINA da primeira
+    // etiqueta, e ela sai em branco. Um status descartável, sem esperar
+    // resposta, absorve a perda antes do que importa chegar.
+    await this.enviar(COMANDO.STATUS, [0x01])
 
     for (let pagina = 0; pagina < paginas; pagina++) {
       const bitmap = desenhos[pagina]
@@ -362,6 +370,7 @@ export class Niimbot {
           await despejar()
           await this.enviar(COMANDO.FIM_PAGINA, [0x01], COMANDO.FIM_PAGINA + 1)
           await this.enviar(COMANDO.FIM_IMPRESSAO, [0x01], COMANDO.FIM_IMPRESSAO + 1)
+          await this.enviar(COMANDO.BATIDA, [0x01]) // absorve o pacote que a Niimbot descarta após o FIM_IMPRESSAO
           return
         }
 
@@ -379,6 +388,7 @@ export class Niimbot {
 
       if (opcoes.interrompido?.()) {
         await this.enviar(COMANDO.FIM_IMPRESSAO, [0x01], COMANDO.FIM_IMPRESSAO + 1)
+        await this.enviar(COMANDO.BATIDA, [0x01]) // absorve o pacote que a Niimbot descarta após o FIM_IMPRESSAO
         return
       }
     }
@@ -389,5 +399,10 @@ export class Niimbot {
     await this.esperarEtiquetas(paginas, msPorEtiqueta)
 
     await this.enviar(COMANDO.FIM_IMPRESSAO, [0x01], COMANDO.FIM_IMPRESSAO + 1)
+    // Mesmo descarte do primeiro pacote, agora depois do FIM_IMPRESSAO: sem
+    // isto o próximo trabalho desta mesma conexão é quem perde o primeiro
+    // comando — e vira a etiqueta em branco do "primeiro trabalho do dia"
+    // outra vez.
+    await this.enviar(COMANDO.BATIDA, [0x01])
   }
 }

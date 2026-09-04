@@ -693,6 +693,12 @@ class EtiquetaNiimbot(private val context: Context) {
         }
         comando(DENSIDADE, byteArrayOf(densidade.coerceIn(1, 5).toByte()), DENSIDADE + 1)
         comando(INICIAR_IMPRESSAO, byteArrayOf(1), INICIAR_IMPRESSAO + 1)
+        // A Niimbot descarta o primeiro pacote depois do INICIAR_IMPRESSAO —
+        // documentado pela comunidade que fez engenharia reversa do protocolo
+        // (wiki niim.blue). Sem isto quem se perde e o INICIAR_PAGINA da
+        // primeira etiqueta, e ela sai em branco. Um status descartavel, sem
+        // esperar resposta, absorve a perda antes do que importa chegar.
+        comando(STATUS, byteArrayOf(1), null)
 
         for (pagina in 0 until paginas) {
             comando(INICIAR_PAGINA, byteArrayOf(1), INICIAR_PAGINA + 1)
@@ -752,6 +758,7 @@ class EtiquetaNiimbot(private val context: Context) {
                     if (lote.size() > 0) escrever(lote.toByteArray())
                     comando(FIM_PAGINA, byteArrayOf(1), FIM_PAGINA + 1)
                     comando(FIM_IMPRESSAO, byteArrayOf(1), FIM_IMPRESSAO + 1)
+                    comando(BATIDA, byteArrayOf(1), null) // absorve o pacote que a Niimbot descarta apos o FIM_IMPRESSAO
                     anotar("interrompido na etiqueta ${pagina + 1}, linha $y")
                     return "interrompido"
                 }
@@ -776,6 +783,7 @@ class EtiquetaNiimbot(private val context: Context) {
 
             if (cancelado) {
                 comando(FIM_IMPRESSAO, byteArrayOf(1), FIM_IMPRESSAO + 1)
+                comando(BATIDA, byteArrayOf(1), null) // absorve o pacote que a Niimbot descarta apos o FIM_IMPRESSAO
                 anotar("interrompido depois da etiqueta ${pagina + 1}")
                 return "interrompido"
             }
@@ -787,6 +795,11 @@ class EtiquetaNiimbot(private val context: Context) {
         esperarEtiquetas(paginas, msPorEtiqueta)
 
         comando(FIM_IMPRESSAO, byteArrayOf(1), FIM_IMPRESSAO + 1)
+        // Mesmo descarte do primeiro pacote, agora depois do FIM_IMPRESSAO: sem
+        // isto o proximo trabalho desta mesma conexao (a de sempre, com o
+        // servico em primeiro plano) e quem perde o primeiro comando — e vira a
+        // etiqueta em branco do "primeiro trabalho do dia" outra vez.
+        comando(BATIDA, byteArrayOf(1), null)
         return ""
     }
 
@@ -832,7 +845,7 @@ class EtiquetaNiimbot(private val context: Context) {
         private const val BATIDA = 0xDC
 
         /** Marca da build, para saber no log qual versao gerou a trilha. */
-        private const val VERSAO = 13
+        private const val VERSAO = 14
 
         /** Familia D11/D110/D101: tamanho da pagina em 2 bytes (so as linhas). */
         const val VARIANTE_D11 = 1

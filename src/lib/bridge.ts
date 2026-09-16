@@ -19,7 +19,10 @@ import { NextResponse } from 'next/server'
  */
 const TIMEOUT_MS = 90_000
 
-export async function chamarPonte(path: string): Promise<NextResponse> {
+export async function chamarPonte(
+  path: string,
+  metodo: 'GET' | 'POST' = 'GET',
+): Promise<NextResponse> {
   const base = process.env.CLINICORP_BRIDGE_URL
   const key = process.env.CLINICORP_BRIDGE_KEY
 
@@ -32,6 +35,7 @@ export async function chamarPonte(path: string): Promise<NextResponse> {
 
   try {
     const upstream = await fetch(`${base.replace(/\/$/, '')}${path}`, {
+      method: metodo,
       headers: { 'x-api-key': key },
       cache: 'no-store',
       signal: AbortSignal.timeout(TIMEOUT_MS),

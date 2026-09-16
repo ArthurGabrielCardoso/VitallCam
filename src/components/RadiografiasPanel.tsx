@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ScanLine, Search, Loader2, ExternalLink, ImageOff, ArrowLeft, Calendar,
-  ChevronLeft, ChevronRight, LayoutList, ArrowDownAZ, Clock, X, MonitorSmartphone,
+  ChevronLeft, ChevronRight, LayoutList, ArrowDownAZ, Clock, X, MonitorSmartphone, RefreshCw,
 } from 'lucide-react'
 
 /**
@@ -98,8 +98,15 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
   const [modo, setModo] = useState<Modo>(semPaciente ? 'todas' : 'paciente')
   const [agrupar, setAgrupar] = useState<Agrupamento>('tempo')
   const [selId, setSelId] = useState<number | null>(null)
+  const [sincronizando, setSincronizando] = useState(false)
+  const [aviso, setAviso] = useState<string | null>(null)
+
+  // Última consulta feita, pra o botão "Atualizar" recarregar exatamente a
+  // mesma visão (paciente, busca ou todas) depois da varredura.
+  const ultimoQs = useRef('')
 
   const carregar = useCallback(async (qs: string) => {
+    ultimoQs.current = qs
     setCarregando(true); setErro(null)
     try {
       const r = await fetch(`/api/radiografias${qs}`)
@@ -150,6 +157,43 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
     carregar(nome.length >= 3 ? `?nome=${encodeURIComponent(nome)}` : '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientName])
+
+  /**
+   * Botão "Atualizar": pede ao VitallWhatsApp uma varredura da caixa da
+   * radiologia agora, em vez de esperar o ciclo automático, e recarrega a visão
+   * atual. Backend sem a rota de varredura ainda → vira um recarregar simples.
+   */
+  const atualizar = async () => {
+    if (sincronizando) return
+    setSincronizando(true)
+    setAviso(null)
+    try {
+      const r = await fetch('/api/radiografias/sync', { method: 'POST' })
+      const body = await r.json().catch(() => ({}))
+      if (r.ok) {
+        const n = Number(body?.novos ?? 0)
+        setAviso(
+          body?.emAndamento ? 'Varredura já em andamento'
+            : n > 0 ? `${n} exame${n > 1 ? 's' : ''} novo${n > 1 ? 's' : ''}`
+              : 'Nenhum exame novo',
+        )
+      } else {
+        setAviso('Lista recarregada')
+      }
+    } catch {
+      setAviso('Lista recarregada')
+    } finally {
+      await carregar(ultimoQs.current)
+      setSincronizando(false)
+    }
+  }
+
+  // O aviso confirma o clique e some sozinho, pra não virar ruído na tela.
+  useEffect(() => {
+    if (!aviso) return
+    const t = setTimeout(() => setAviso(null), 4000)
+    return () => clearTimeout(t)
+  }, [aviso])
 
   const verTodas = () => {
     setBusca('')
@@ -224,6 +268,16 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
           )}
         </div>
 
+        <button
+          onClick={atualizar}
+          disabled={sincronizando}
+          title="Buscar novos exames no e-mail da radiologia"
+          className="h-10 px-3 rounded border border-gray-200 bg-white text-xs font-semibold text-teal-700 hover:border-teal-400 disabled:text-gray-400 disabled:hover:border-gray-200 transition-colors flex items-center gap-1.5 shrink-0"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${sincronizando ? 'animate-spin' : ''}`} />
+          {sincronizando ? 'Buscando…' : 'Atualizar'}
+        </button>
+
         {!semPaciente && <button
           onClick={verTodas}
           className={`h-10 px-3 rounded border text-xs font-semibold transition-colors flex items-center gap-1.5 shrink-0 ${
@@ -245,6 +299,8 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
           </button>
         )}
       </div>
+
+      {aviso && <p className="text-xs text-teal-700">{aviso}</p>}
 
       {/* Alternar agrupamento — só aparece quando há volume pra agrupar. */}
       {modo !== 'paciente' && !carregando && exames.length > 0 && (

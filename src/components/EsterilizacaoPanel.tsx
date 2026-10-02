@@ -54,6 +54,18 @@ import { Niimbot, VarianteProtocolo } from '@/lib/niimbot'
  * de restaurar padrões, que é uma escolha de quem está lá, não minha.
  */
 const AJUSTES_CHAVE = 'vitallcam:etiqueta-esterilizacao:ajustes'
+const TAMANHO_CHAVE = 'vitallcam:etiqueta-esterilizacao:tamanho'
+
+/**
+ * Rolos que a clínica usa. O padrão segue sendo o de sempre; o curto (30 mm de
+ * comprimento) só troca o comprimento — a cabeça da D110 cobre 12 mm de largura
+ * em qualquer um, inclusive no rolo de 15.
+ */
+type TamanhoEtiqueta = 'padrao' | 'curta'
+const TAMANHOS: Record<TamanhoEtiqueta, { rotulo: string; formato: Partial<FormatoEtiqueta> }> = {
+  padrao: { rotulo: `Padrão (${FORMATO_PADRAO.comprimentoMm} mm)`, formato: {} },
+  curta: { rotulo: 'Curta (30 mm)', formato: { comprimentoMm: 30, logoPorcento: 30 } },
+}
 
 interface Ajustes extends FormatoEtiqueta {
   /** Giro do bitmap na impressora — depende de como o rolo entra na Niimbot. */
@@ -800,8 +812,22 @@ function ModalEtiqueta({
     semImpressora ? 'impressora' : proximoPasso,
   )
 
-  const [ajustes, setAjustes] = useState<Ajustes>(AJUSTES_PADRAO)
+  const [ajustesBase, setAjustes] = useState<Ajustes>(AJUSTES_PADRAO)
   useEffect(() => setAjustes(lerAjustes()), [])
+  const [tamanho, setTamanho] = useState<TamanhoEtiqueta>('padrao')
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(TAMANHO_CHAVE) === 'curta') setTamanho('curta')
+    } catch { /* sem storage: fica no padrão */ }
+  }, [])
+  const escolherTamanho = (t: TamanhoEtiqueta) => {
+    setTamanho(t)
+    try { window.localStorage.setItem(TAMANHO_CHAVE, t) } catch { /* idem */ }
+  }
+  const ajustes: Ajustes = useMemo(
+    () => ({ ...ajustesBase, ...TAMANHOS[tamanho].formato }),
+    [ajustesBase, tamanho],
+  )
   const [editando, setEditando] = useState(false)
   const [esconderLogo, setEsconderLogo] = useState(false)
   const [data, setData] = useState(ciclo?.data ?? hojeLocal())
@@ -1244,6 +1270,25 @@ function ModalEtiqueta({
               </div>
             </div>
             )}
+
+            <Campo rotulo="Tamanho da etiqueta">
+              <div className="grid grid-cols-2 gap-2">
+                {(Object.keys(TAMANHOS) as TamanhoEtiqueta[]).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => escolherTamanho(t)}
+                    className={`h-10 rounded-lg text-sm font-medium border transition-colors ${
+                      tamanho === t
+                        ? 'bg-dourado-500 border-dourado-500 text-white'
+                        : 'bg-white border-dourado-200 text-dourado-700 hover:bg-dourado-100'
+                    }`}
+                  >
+                    {TAMANHOS[t].rotulo}
+                  </button>
+                ))}
+              </div>
+            </Campo>
 
             <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
               <input

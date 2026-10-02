@@ -803,6 +803,7 @@ function ModalEtiqueta({
   const [ajustes, setAjustes] = useState<Ajustes>(AJUSTES_PADRAO)
   useEffect(() => setAjustes(lerAjustes()), [])
   const [editando, setEditando] = useState(false)
+  const [esconderLogo, setEsconderLogo] = useState(false)
   const [data, setData] = useState(ciclo?.data ?? hojeLocal())
   const [validade, setValidade] = useState(ciclo?.validade ?? somarMeses(hojeLocal(), VALIDADE_MESES))
   const [validadeManual, setValidadeManual] = useState(false)
@@ -833,7 +834,8 @@ function ModalEtiqueta({
       setBuscandoImpressora(false)
     }
   }, [])
-  const logo = useLogoDaClinica()
+  const logoDaClinica = useLogoDaClinica()
+  const logo = esconderLogo ? null : logoDaClinica
 
   // A validade acompanha a data do ciclo enquanto ninguém a escreveu à mão.
   useEffect(() => {
@@ -930,7 +932,10 @@ function ModalEtiqueta({
       // imprimir chega aqui antes das duas coisas: sem a marca a etiqueta sai
       // sem logo, e sem a fonte a medida do texto vem menor do que a realidade
       // e o lote sai batendo na borda.
-      const [marca] = await Promise.all([logo ?? carregarLogo(), fontesProntas()])
+      const [marca] = await Promise.all([
+        esconderLogo ? Promise.resolve(null) : (logo ?? carregarLogo()),
+        fontesProntas(),
+      ])
 
       // Cada etiqueta é um pacote com identidade própria: dez etiquetas do mesmo
       // ciclo viram dez códigos, porque cinco podem ir para um paciente e cinco
@@ -1239,6 +1244,16 @@ function ModalEtiqueta({
               </div>
             </div>
             )}
+
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={esconderLogo}
+                onChange={(e) => setEsconderLogo(e.target.checked)}
+                className="h-4 w-4 rounded border-dourado-300"
+              />
+              Esconder a logo (só o texto)
+            </label>
 
             {(modo === 'app' || modo === 'navegador') && (
               <div className="flex gap-2">

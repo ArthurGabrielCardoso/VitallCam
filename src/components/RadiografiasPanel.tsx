@@ -1,9 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { usePatients } from '@/hooks/usePatients'
 import {
   ScanLine, Search, Loader2, ExternalLink, ImageOff, ArrowLeft, Calendar,
-  ChevronLeft, ChevronRight, LayoutList, ArrowDownAZ, Clock, X, MonitorSmartphone,
+  ChevronLeft, ChevronRight, LayoutList, ArrowDownAZ, Clock, X, MonitorSmartphone, RefreshCw,
 } from 'lucide-react'
 
 /**
@@ -73,6 +74,20 @@ function tituloCaso(nome: string): string {
     .replace(/(^|[\s'-])([a-zà-ÿ])/g, (_, sep: string, c: string) => sep + c.toUpperCase())
 }
 
+/**
+ * Chave de comparação de nome: sem acento, minúsculo, espaços colapsados. É por
+ * ela que a foto de perfil do paciente encontra o exame — o backend da
+ * radiologia manda só o nome, não o id do nosso cadastro.
+ */
+function chaveNome(nome: string): string {
+  return (nome || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /** Primeira letra do nome, sem acento, pra cabeçalho da faixa alfabética. */
 function inicial(nome: string): string {
   const c = (nome || '').trim().normalize('NFD').replace(/[̀-ͯ]/g, '')[0]
@@ -98,8 +113,33 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
   const [modo, setModo] = useState<Modo>(semPaciente ? 'todas' : 'paciente')
   const [agrupar, setAgrupar] = useState<Agrupamento>('tempo')
   const [selId, setSelId] = useState<number | null>(null)
+  const [sincronizando, setSincronizando] = useState(false)
+  const [aviso, setAviso] = useState<string | null>(null)
+
+  // Última consulta feita, pra o botão "Atualizar" recarregar exatamente a
+  // mesma visão (paciente, busca ou todas) depois da varredura.
+  const ultimoQs = useRef('')
+
+  // Foto de perfil por nome de paciente, pro cartão do exame. A lista de
+  // pacientes já está em cache (a sidebar usa a mesma query), então isso não
+  // custa uma ida a mais ao banco.
+  const { data: pacientes } = usePatients()
+  const fotoPorNome = useMemo(() => {
+    const mapa = new Map<string, string | null>()
+    for (const p of pacientes ?? []) {
+      const chave = chaveNome(p.name)
+      if (!chave) continue
+      // Dois cadastros com o mesmo nome: não dá pra saber de quem é o exame,
+      // então nenhum dos dois empresta a foto. Mostrar a cara errada num
+      // exame é pior que mostrar o ícone.
+      if (mapa.has(chave)) { mapa.set(chave, null); continue }
+      mapa.set(chave, p.profile_photo ?? null)
+    }
+    return mapa
+  }, [pacientes])
 
   const carregar = useCallback(async (qs: string) => {
+    ultimoQs.current = qs
     setCarregando(true); setErro(null)
     try {
       const r = await fetch(`/api/radiografias${qs}`)
@@ -150,6 +190,43 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
     carregar(nome.length >= 3 ? `?nome=${encodeURIComponent(nome)}` : '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientName])
+
+  /**
+   * Botão "Atualizar": pede ao VitallWhatsApp uma varredura da caixa da
+   * radiologia agora, em vez de esperar o ciclo automático, e recarrega a visão
+   * atual. Backend sem a rota de varredura ainda → vira um recarregar simples.
+   */
+  const atualizar = async () => {
+    if (sincronizando) return
+    setSincronizando(true)
+    setAviso(null)
+    try {
+      const r = await fetch('/api/radiografias/sync', { method: 'POST' })
+      const body = await r.json().catch(() => ({}))
+      if (r.ok) {
+        const n = Number(body?.novos ?? 0)
+        setAviso(
+          body?.emAndamento ? 'Varredura já em andamento'
+            : n > 0 ? `${n} exame${n > 1 ? 's' : ''} novo${n > 1 ? 's' : ''}`
+              : 'Nenhum exame novo',
+        )
+      } else {
+        setAviso('Lista recarregada')
+      }
+    } catch {
+      setAviso('Lista recarregada')
+    } finally {
+      await carregar(ultimoQs.current)
+      setSincronizando(false)
+    }
+  }
+
+  // O aviso confirma o clique e some sozinho, pra não virar ruído na tela.
+  useEffect(() => {
+    if (!aviso) return
+    const t = setTimeout(() => setAviso(null), 4000)
+    return () => clearTimeout(t)
+  }, [aviso])
 
   const verTodas = () => {
     setBusca('')
@@ -224,6 +301,16 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
           )}
         </div>
 
+        <button
+          onClick={atualizar}
+          disabled={sincronizando}
+          title="Buscar novos exames no e-mail da radiologia"
+          className="h-10 px-3 rounded border border-gray-200 bg-white text-xs font-semibold text-teal-700 hover:border-teal-400 disabled:text-gray-400 disabled:hover:border-gray-200 transition-colors flex items-center gap-1.5 shrink-0"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${sincronizando ? 'animate-spin' : ''}`} />
+          {sincronizando ? 'Buscando…' : 'Atualizar'}
+        </button>
+
         {!semPaciente && <button
           onClick={verTodas}
           className={`h-10 px-3 rounded border text-xs font-semibold transition-colors flex items-center gap-1.5 shrink-0 ${
@@ -245,6 +332,8 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
           </button>
         )}
       </div>
+
+      {aviso && <p className="text-xs text-teal-700">{aviso}</p>}
 
       {/* Alternar agrupamento — só aparece quando há volume pra agrupar. */}
       {modo !== 'paciente' && !carregando && exames.length > 0 && (
@@ -295,7 +384,7 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
 
       {/* Busca / todas: uma trilha horizontal por faixa. */}
       {!carregando && agrupado && grupos.map(([chave, g]) => (
-        <Trilha key={chave} titulo={g.rotulo} exames={g.itens} onAbrir={setSelId} />
+        <Trilha key={chave} titulo={g.rotulo} exames={g.itens} onAbrir={setSelId} fotoPorNome={fotoPorNome} />
       ))}
 
       {/* Quando o nome não fecha exatamente, mostra separado — nunca misturado
@@ -306,7 +395,7 @@ export default function RadiografiasPanel({ patientName }: { patientName?: strin
           <p className="text-xs text-amber-700">
             Não achei exame com esse nome exato. Estes têm nome parecido — confira antes de abrir:
           </p>
-          <Grade exames={aproximados} onAbrir={setSelId} />
+          <Grade exames={aproximados} onAbrir={setSelId} fotoPorNome={fotoPorNome} />
         </div>
       )}
     </div>
@@ -336,11 +425,12 @@ function BotaoAgrupar({
 
 /** Faixa horizontal com setas, como os carrosséis da câmera intraoral. */
 function Trilha({
-  titulo, exames, onAbrir,
+  titulo, exames, onAbrir, fotoPorNome,
 }: {
   titulo: string
   exames: ExameResumo[]
   onAbrir: (id: number) => void
+  fotoPorNome: Map<string, string | null>
 }) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -383,7 +473,7 @@ function Trilha({
       >
         {exames.map(e => (
           <div key={e.id} className="snap-start shrink-0 w-72">
-            <Cartao exame={e} onAbrir={onAbrir} />
+            <Cartao exame={e} onAbrir={onAbrir} foto={fotoPorNome.get(chaveNome(e.paciente)) ?? null} />
           </div>
         ))}
       </div>
@@ -391,23 +481,54 @@ function Trilha({
   )
 }
 
-function Grade({ exames, onAbrir }: { exames: ExameResumo[]; onAbrir: (id: number) => void }) {
+function Grade({
+  exames, onAbrir, fotoPorNome,
+}: {
+  exames: ExameResumo[]
+  onAbrir: (id: number) => void
+  fotoPorNome: Map<string, string | null>
+}) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {exames.map(e => <Cartao key={e.id} exame={e} onAbrir={onAbrir} />)}
+      {exames.map(e => (
+        <Cartao key={e.id} exame={e} onAbrir={onAbrir} foto={fotoPorNome.get(chaveNome(e.paciente)) ?? null} />
+      ))}
     </div>
   )
 }
 
-function Cartao({ exame: e, onAbrir }: { exame: ExameResumo; onAbrir: (id: number) => void }) {
+function Cartao({
+  exame: e, onAbrir, foto,
+}: {
+  exame: ExameResumo
+  onAbrir: (id: number) => void
+  /** Foto de perfil do paciente; sem cadastro ou sem foto, vem null. */
+  foto?: string | null
+}) {
+  // URL quebrada (foto apagada do bucket) cai no ícone em vez de deixar o
+  // quadrado vazio. O estado é por cartão e reseta quando a foto muda.
+  const [fotoQuebrada, setFotoQuebrada] = useState(false)
+  useEffect(() => { setFotoQuebrada(false) }, [foto])
+  const mostraFoto = !!foto && !fotoQuebrada
+
   return (
     <button
       onClick={() => onAbrir(e.id)}
       className="w-full h-full text-left bg-white border border-gray-200 rounded shadow-sm p-4 hover:bg-teal-50 hover:border-teal-500 hover:shadow-md transition-all group"
     >
       <div className="flex items-start gap-3">
-        <div className="h-10 w-10 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm">
-          <ScanLine className="w-5 h-5 text-white" />
+        <div className="h-10 w-10 rounded bg-gradient-to-br from-teal-600 to-teal-700 flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
+          {mostraFoto ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={foto as string}
+              alt={tituloCaso(e.paciente)}
+              onError={() => setFotoQuebrada(true)}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <ScanLine className="w-5 h-5 text-white" />
+          )}
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold text-gray-800 group-hover:text-teal-700 transition-colors leading-snug truncate">

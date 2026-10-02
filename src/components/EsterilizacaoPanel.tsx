@@ -55,6 +55,7 @@ import { Niimbot, VarianteProtocolo } from '@/lib/niimbot'
  */
 const AJUSTES_CHAVE = 'vitallcam:etiqueta-esterilizacao:ajustes'
 const TAMANHO_CHAVE = 'vitallcam:etiqueta-esterilizacao:tamanho'
+const LOGO_ESCONDIDA_CHAVE = 'vitallcam:etiqueta-esterilizacao:logo-escondida'
 
 /**
  * Rolos que a clínica usa. O padrão segue sendo o de sempre; o curto (30 mm de
@@ -820,6 +821,24 @@ function ModalEtiqueta({
       if (window.localStorage.getItem(TAMANHO_CHAVE) === 'curta') setTamanho('curta')
     } catch { /* sem storage: fica no padrão */ }
   }, [])
+  // A logo escondida é lembrada POR tamanho: na curta (30 mm) só cabe legível sem
+  // ela, então esse é o padrão ali; no padrão a logo continua aparecendo.
+  const [logoEscondida, setLogoEscondida] = useState<Record<TamanhoEtiqueta, boolean>>({
+    padrao: false,
+    curta: true,
+  })
+  useEffect(() => {
+    try {
+      const salvo = window.localStorage.getItem(LOGO_ESCONDIDA_CHAVE)
+      if (salvo) setLogoEscondida((atual) => ({ ...atual, ...JSON.parse(salvo) }))
+    } catch { /* sem storage: fica no padrão de cada tamanho */ }
+  }, [])
+  const esconderLogo = logoEscondida[tamanho]
+  const setEsconderLogo = (valor: boolean) => {
+    const proximo = { ...logoEscondida, [tamanho]: valor }
+    setLogoEscondida(proximo)
+    try { window.localStorage.setItem(LOGO_ESCONDIDA_CHAVE, JSON.stringify(proximo)) } catch { /* idem */ }
+  }
   const escolherTamanho = (t: TamanhoEtiqueta) => {
     setTamanho(t)
     try { window.localStorage.setItem(TAMANHO_CHAVE, t) } catch { /* idem */ }
@@ -829,7 +848,6 @@ function ModalEtiqueta({
     [ajustesBase, tamanho],
   )
   const [editando, setEditando] = useState(false)
-  const [esconderLogo, setEsconderLogo] = useState(false)
   const [data, setData] = useState(ciclo?.data ?? hojeLocal())
   const [validade, setValidade] = useState(ciclo?.validade ?? somarMeses(hojeLocal(), VALIDADE_MESES))
   const [validadeManual, setValidadeManual] = useState(false)
